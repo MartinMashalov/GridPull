@@ -4,27 +4,26 @@
 
 @layer base {
   :root {
-    /* Light blue + off-white palette */
-    --background: 213 100% 97%;        /* #EFF6FF — very light blue */
-    --foreground: 222 47% 11%;         /* #0F172A slate-900 */
-    --card: 0 0% 100%;                 /* pure white cards */
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;            /* #2563EB blue-600 */
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 6% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 6%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 214 32% 91%;          /* #DBEAFE blue-100 */
-    --secondary-foreground: 222 47% 20%;
-    --muted: 214 32% 91%;
-    --muted-foreground: 215 16% 47%;   /* slate-500 */
-    --accent: 214 32% 91%;
-    --accent-foreground: 222 47% 20%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 240 4% 13%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 5% 55%;
+    --accent: 240 4% 13%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 63% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 213 27% 84%;             /* blue-tinted border */
-    --input: 213 27% 84%;
-    --ring: 221 83% 53%;               /* blue-600 */
-    --radius: 0.5rem;
+    --border: 240 4% 13%;
+    --input: 240 4% 13%;
+    --ring: 217 91% 60%;
+    --radius: 0.6rem;
   }
 }
 
@@ -35,13 +34,14 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #93C5FD transparent;
+    scrollbar-color: hsl(240 4% 20%) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 4px;
@@ -50,7 +50,10 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #93C5FD;
+    background-color: hsl(240 4% 20%);
     border-radius: 2px;
+  }
+  .glow-blue {
+    box-shadow: 0 0 40px -10px hsl(217 91% 60% / 0.4);
   }
 }

@@ -1,14 +1,9 @@
 import { useMemo, useState } from 'react'
-import {
-  ChevronUp,
-  ChevronDown,
-  ChevronsUpDown,
-  Download,
-  Search,
-  X,
-  FileSpreadsheet,
-  AlertTriangle,
-} from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, Search, X, FileSpreadsheet, AlertTriangle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 export interface SpreadsheetViewerProps {
   results: Record<string, string>[]
@@ -21,19 +16,13 @@ export interface SpreadsheetViewerProps {
 type SortDir = 'asc' | 'desc'
 
 function SortIcon({ field, sortField, dir }: { field: string; sortField: string | null; dir: SortDir }) {
-  if (sortField !== field) return <ChevronsUpDown size={13} className="text-blue-300 flex-shrink-0" />
+  if (sortField !== field) return <ChevronsUpDown size={12} className="text-muted-foreground flex-shrink-0 opacity-50" />
   return dir === 'asc'
-    ? <ChevronUp size={13} className="text-white flex-shrink-0" />
-    : <ChevronDown size={13} className="text-white flex-shrink-0" />
+    ? <ChevronUp size={12} className="text-primary flex-shrink-0" />
+    : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({
-  results,
-  fields,
-  jobId,
-  format,
-  creditsUsed,
-}: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, creditsUsed }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [search, setSearch] = useState('')
@@ -51,14 +40,10 @@ export default function SpreadsheetViewer({
 
   const displayRows = useMemo(() => {
     let rows = results
-
     if (search.trim()) {
       const q = search.toLowerCase()
-      rows = rows.filter((r) =>
-        Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q))
-      )
+      rows = rows.filter((r) => Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)))
     }
-
     if (sortField) {
       const key = sortField === 'Source File' ? '_source_file' : sortField
       rows = [...rows].sort((a, b) => {
@@ -68,85 +53,70 @@ export default function SpreadsheetViewer({
         return sortDir === 'asc' ? cmp : -cmp
       })
     }
-
     return rows
   }, [results, search, sortField, sortDir])
 
   const hasErrors = results.some((r) => r['_error'])
 
   return (
-    <div className="mt-8 bg-white rounded-2xl border border-blue-100 overflow-hidden shadow-sm animate-fade-in">
+    <div className="mt-6 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
       {/* Toolbar */}
-      <div className="px-5 py-4 border-b border-blue-50 flex items-center justify-between gap-4 flex-wrap">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-            <FileSpreadsheet size={16} className="text-emerald-600" />
+          <div className="w-7 h-7 bg-emerald-500/15 rounded-lg flex items-center justify-center">
+            <FileSpreadsheet size={14} className="text-emerald-400" />
           </div>
-          <div>
-            <span className="text-sm font-semibold text-slate-900">
-              Extracted Results
-            </span>
-            <span className="ml-2 text-xs text-slate-400 bg-blue-50 px-2 py-0.5 rounded-full">
-              {displayRows.length} / {results.length} rows
-            </span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-foreground">Extracted Results</span>
+            <Badge variant="secondary" className="text-[11px]">{displayRows.length} / {results.length} rows</Badge>
             {creditsUsed != null && (
-              <span className="ml-1.5 text-xs text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
-                {creditsUsed} credits used
-              </span>
+              <Badge variant="blue" className="text-[11px]">${creditsUsed} used</Badge>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Search */}
+        <div className="flex items-center gap-2">
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search results…"
-              className="pl-8 pr-8 py-1.5 text-sm border border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 w-48 bg-white"
+              placeholder="Search…"
+              className="pl-8 pr-7 h-8 text-xs w-40"
             />
             {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
-              >
-                <X size={13} />
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X size={12} />
               </button>
             )}
           </div>
-
-          {/* Download */}
-          <a
-            href={`/api/documents/download/${jobId}`}
-            download={`gridpull_export.${format}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <Download size={13} />
-            {format.toUpperCase()}
+          <a href={`/api/documents/download/${jobId}`} download={`export.${format}`}>
+            <Button size="sm" className="h-8 text-xs gap-1.5">
+              <Download size={12} />
+              {format.toUpperCase()}
+            </Button>
           </a>
         </div>
       </div>
 
       {/* Error notice */}
       {hasErrors && (
-        <div className="mx-5 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-sm text-amber-700">
-          <AlertTriangle size={14} className="flex-shrink-0" />
-          Some rows had extraction errors (shown in the table).
+        <div className="mx-4 mt-3 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
+          <AlertTriangle size={13} className="flex-shrink-0" />
+          Some rows had extraction errors.
         </div>
       )}
 
       {/* Table */}
-      <div className="overflow-auto max-h-[520px] scrollbar-thin">
-        <table className="w-full text-sm border-collapse min-w-max">
+      <div className="overflow-auto max-h-[480px] scrollbar-thin">
+        <table className="w-full text-xs border-collapse min-w-max">
           <thead className="sticky top-0 z-10">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col}
                   onClick={() => toggleSort(col)}
-                  className="group px-4 py-3 text-left text-xs font-semibold bg-blue-600 text-white cursor-pointer select-none whitespace-nowrap border-r border-blue-500/40 last:border-r-0 hover:bg-blue-700 transition-colors"
+                  className="group px-4 py-2.5 text-left font-semibold bg-secondary text-muted-foreground cursor-pointer select-none whitespace-nowrap border-r border-border last:border-r-0 hover:bg-accent hover:text-foreground transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
                     {col}
@@ -159,7 +129,7 @@ export default function SpreadsheetViewer({
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-slate-400 text-sm">
+                <td colSpan={columns.length} className="px-4 py-12 text-center text-muted-foreground">
                   No results match your search.
                 </td>
               </tr>
@@ -169,13 +139,14 @@ export default function SpreadsheetViewer({
                 return (
                   <tr
                     key={ri}
-                    className={`border-b border-blue-50 transition-colors ${
+                    className={cn(
+                      'border-b border-border transition-colors',
                       hasError
-                        ? 'bg-red-50 hover:bg-red-100'
+                        ? 'bg-red-500/5 hover:bg-red-500/10'
                         : ri % 2 === 0
-                        ? 'bg-white hover:bg-blue-50/40'
-                        : 'bg-[#EFF6FF] hover:bg-blue-50/60'
-                    }`}
+                        ? 'hover:bg-accent/50'
+                        : 'bg-secondary/30 hover:bg-accent/50'
+                    )}
                   >
                     {columns.map((col) => {
                       const key = col === 'Source File' ? '_source_file' : col
@@ -183,17 +154,17 @@ export default function SpreadsheetViewer({
                       return (
                         <td
                           key={col}
-                          className="px-4 py-2.5 text-slate-700 border-r border-blue-50 last:border-r-0 max-w-xs"
+                          className="px-4 py-2 text-foreground border-r border-border last:border-r-0 max-w-xs"
                           title={val}
                         >
-                          <div className="truncate max-w-[240px]">
+                          <div className="truncate max-w-[220px]">
                             {hasError && col === 'Source File' ? (
-                              <span className="flex items-center gap-1 text-red-600">
-                                <AlertTriangle size={12} />
+                              <span className="flex items-center gap-1 text-red-400">
+                                <AlertTriangle size={11} />
                                 {val}
                               </span>
                             ) : (
-                              val || <span className="text-slate-300 italic text-xs">—</span>
+                              val || <span className="text-muted-foreground/40 italic">—</span>
                             )}
                           </div>
                         </td>
@@ -208,7 +179,7 @@ export default function SpreadsheetViewer({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 bg-blue-50 border-t border-blue-100 flex items-center justify-between text-xs text-slate-400">
+      <div className="px-5 py-2.5 bg-secondary/50 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
         <span>{fields.length} field{fields.length !== 1 ? 's' : ''} extracted</span>
         <span>{results.length} document{results.length !== 1 ? 's' : ''} processed</span>
       </div>
