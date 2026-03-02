@@ -19,8 +19,8 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
-from app.services.extraction_service import extract_fields_from_text
-from app.services.pdf_service import read_pdf_text
+from app.services.extraction_service import extract_from_document
+from app.services.pdf_service import parse_pdf
 from app.services.spreadsheet_service import generate_csv, generate_excel
 
 logger = logging.getLogger(__name__)
@@ -112,24 +112,22 @@ async def process_job(
                 await db.commit()
 
                 try:
-                    pdf_data = read_pdf_text(doc.file_path)
-                    doc.page_count = pdf_data["page_count"]
-                    total_pages += pdf_data["page_count"]
+                    parsed_doc = parse_pdf(doc.file_path, doc.filename)
+                    doc.page_count = parsed_doc.page_count
+                    total_pages += parsed_doc.page_count
                     doc.status = "processing"
                     await db.commit()
 
                     await emit(
                         "extracting",
                         base_pct + int(0.4 * (65 / total_docs)),
-                        f"AI extracting {doc.filename} ({pdf_data['page_count']} pages)…",
+                        f"AI extracting {doc.filename} ({parsed_doc.page_count} pages)…",
                     )
 
-                    extracted = await extract_fields_from_text(
-                        pdf_data["full_text"], fields, doc.filename
-                    )
-                    doc.extracted_data = extracted
+                    rows = await extract_from_document(parsed_doc, fields)
+                    doc.extracted_data = rows
                     doc.status = "complete"
-                    all_extracted.append(extracted)
+                    all_extracted.extend(rows)
                     await db.commit()
 
                     await emit(
