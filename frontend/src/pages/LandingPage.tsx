@@ -6,7 +6,6 @@ import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 
 const FEATURES = [
   {
