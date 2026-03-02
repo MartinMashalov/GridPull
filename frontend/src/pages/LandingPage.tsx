@@ -48,7 +48,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <FileSpreadsheet className="w-4.5 h-4.5 text-white" size={18} />
             </div>
-            <span className="font-semibold text-slate-900 text-lg tracking-tight">GridPull</span>
+            <span className="font-semibold text-slate-900 text-lg tracking-tight">PDF to Excel</span>
           </div>
 
           {/* Dashboard button */}
