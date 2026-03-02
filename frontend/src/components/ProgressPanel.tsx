@@ -1,5 +1,5 @@
 import { Download, CheckCircle2, XCircle, Loader2, FileText, Cpu, Table2 } from 'lucide-react'
-import { JobProgress, ExportFormat } from '@/pages/DashboardPage'
+import { JobState as JobProgress, ExportFormat } from '@/pages/DashboardPage'
 
 interface Props {
   job: JobProgress

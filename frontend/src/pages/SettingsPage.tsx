@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CreditCard, Plus, Check, Zap, User, Bell, Trash2 } from 'lucide-react'
+import { CreditCard, Plus, Check, Zap, User, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
 import api from '@/lib/api'
@@ -17,7 +17,7 @@ const DEFAULT_FIELDS = [
 ]
 
 export default function SettingsPage() {
-  const { user, updateCredits } = useAuthStore()
+  const { user } = useAuthStore()
   const [activeTab, setActiveTab] = useState<'profile' | 'credits' | 'defaults'>('credits')
   const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null)
   const [defaultFields, setDefaultFields] = useState<string[]>(['Invoice Number', 'Date', 'Total Amount'])
