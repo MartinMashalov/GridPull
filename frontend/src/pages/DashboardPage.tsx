@@ -178,6 +178,7 @@ export default function DashboardPage() {
     onDrop,
     accept: { 'application/pdf': ['.pdf'] },
     multiple: true,
+    noKeyboard: true,
   })
 
   const handleProcess = () => {
