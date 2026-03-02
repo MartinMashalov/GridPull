@@ -19,7 +19,6 @@ export default function LandingPage() {
           access_token: tokenResponse.access_token,
         })
         setUser(res.data.user, res.data.access_token)
-        toast.success('Welcome to GridPull!')
         navigate('/dashboard')
       } catch (err) {
         toast.error('Login failed. Please try again.')

@@ -1,15 +1,9 @@
 import { useState } from 'react'
-import { CreditCard, Plus, Check, Zap, User, Trash2 } from 'lucide-react'
+import { Wallet, Plus, Zap, User, Trash2, Check, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
-
-const CREDIT_PACKAGES = [
-  { credits: 10, price: 500, label: '$5', priceId: 'price_10credits' },
-  { credits: 50, price: 2000, label: '$20', priceId: 'price_50credits', popular: true },
-  { credits: 200, price: 6000, label: '$60', priceId: 'price_200credits' },
-]
 
 const DEFAULT_FIELDS = [
   'Invoice Number', 'Date', 'Total Amount', 'Vendor Name',
@@ -18,23 +12,56 @@ const DEFAULT_FIELDS = [
 
 export default function SettingsPage() {
   const { user } = useAuthStore()
-  const [activeTab, setActiveTab] = useState<'profile' | 'credits' | 'defaults'>('credits')
-  const [loadingPriceId, setLoadingPriceId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'balance' | 'defaults' | 'profile'>('balance')
+
+  // Add funds
+  const [addAmount, setAddAmount] = useState('')
+  const [loadingAdd, setLoadingAdd] = useState(false)
+
+  // Auto-renewal
+  const [autoRenewEnabled, setAutoRenewEnabled] = useState(false)
+  const [threshold, setThreshold] = useState('5')
+  const [refillAmount, setRefillAmount] = useState('20')
+  const [savingRenewal, setSavingRenewal] = useState(false)
+
+  // Default fields
   const [defaultFields, setDefaultFields] = useState<string[]>(['Invoice Number', 'Date', 'Total Amount'])
   const [customField, setCustomField] = useState('')
 
-  const handlePurchase = async (pkg: typeof CREDIT_PACKAGES[0]) => {
-    setLoadingPriceId(pkg.priceId)
+  const handleAddFunds = async () => {
+    const dollars = parseFloat(addAmount)
+    if (!dollars || dollars < 1) {
+      toast.error('Minimum top-up is $1.00')
+      return
+    }
+    setLoadingAdd(true)
     try {
       const res = await api.post('/payments/create-checkout', {
-        price_id: pkg.priceId,
-        credits: pkg.credits,
+        price_id: 'price_custom',
+        credits: Math.round(dollars * 100),
+        amount: Math.round(dollars * 100),
       })
       window.location.href = res.data.checkout_url
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Payment failed')
     } finally {
-      setLoadingPriceId(null)
+      setLoadingAdd(false)
+    }
+  }
+
+  const handleSaveAutoRenewal = async () => {
+    setSavingRenewal(true)
+    try {
+      await api.post('/users/auto-renewal', {
+        enabled: autoRenewEnabled,
+        threshold: parseFloat(threshold),
+        refill_amount: parseFloat(refillAmount),
+      })
+      toast.success('Auto-renewal settings saved')
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to save')
+    } finally {
+      setSavingRenewal(false)
     }
   }
 
@@ -52,7 +79,7 @@ export default function SettingsPage() {
   }
 
   const tabs = [
-    { key: 'credits', label: 'Credits', icon: CreditCard },
+    { key: 'balance', label: 'Balance', icon: Wallet },
     { key: 'defaults', label: 'Default Fields', icon: Zap },
     { key: 'profile', label: 'Profile', icon: User },
   ] as const
@@ -61,7 +88,7 @@ export default function SettingsPage() {
     <div className="p-8 max-w-3xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-slate-500 mt-1">Manage your account, credits, and extraction defaults</p>
+        <p className="text-slate-500 mt-1">Manage your account, balance, and extraction defaults</p>
       </div>
 
       {/* Tabs */}
@@ -82,68 +109,130 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {/* Credits Tab */}
-      {activeTab === 'credits' && (
-        <div>
-          {/* Current balance */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white mb-6">
+      {/* Balance Tab */}
+      {activeTab === 'balance' && (
+        <div className="space-y-6">
+          {/* Current balance card */}
+          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-blue-200 text-sm mb-1">Available Credits</p>
-                <p className="text-4xl font-bold">{user?.credits ?? 0}</p>
-                <p className="text-blue-200 text-sm mt-1">1 credit = 1 PDF page extracted</p>
+                <p className="text-blue-200 text-sm mb-1">Account Balance</p>
+                <p className="text-4xl font-bold">${(user?.credits ?? 0).toFixed(2)}</p>
+                <p className="text-blue-200 text-sm mt-1">Depletes per extraction operation</p>
               </div>
               <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center">
-                <CreditCard size={28} className="text-white" />
+                <Wallet size={28} className="text-white" />
               </div>
             </div>
           </div>
 
-          {/* Packages */}
-          <h3 className="text-base font-semibold text-slate-900 mb-4">Add Credits</h3>
-          <div className="grid grid-cols-3 gap-4">
-            {CREDIT_PACKAGES.map(pkg => (
-              <div
-                key={pkg.priceId}
-                className={`relative rounded-2xl border p-5 ${pkg.popular ? 'border-blue-300 ring-2 ring-blue-200 bg-blue-50' : 'border-blue-100 bg-white'}`}
-              >
-                {pkg.popular && (
-                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
-                    <span className="bg-blue-600 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full">
-                      BEST VALUE
-                    </span>
-                  </div>
-                )}
-                <div className="text-2xl font-bold text-slate-900">{pkg.label}</div>
-                <div className="text-sm text-slate-500 mb-4">{pkg.credits} credits</div>
-                <button
-                  onClick={() => handlePurchase(pkg)}
-                  disabled={loadingPriceId === pkg.priceId}
-                  className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${
-                    pkg.popular
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-slate-900 text-white hover:bg-slate-800'
-                  } disabled:opacity-60`}
-                >
-                  {loadingPriceId === pkg.priceId ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Loading...
-                    </span>
-                  ) : (
-                    <span className="flex items-center justify-center gap-1.5">
-                      <Plus size={14} />
-                      Purchase
-                    </span>
-                  )}
-                </button>
+          {/* Add funds */}
+          <div className="bg-white border border-blue-100 rounded-2xl p-6">
+            <h3 className="text-base font-semibold text-slate-900 mb-4">Add Funds</h3>
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="0.00"
+                  value={addAmount}
+                  onChange={e => setAddAmount(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddFunds()}
+                  className="w-full pl-7 pr-4 py-2.5 border border-blue-200 rounded-xl text-sm focus:outline-none focus:border-blue-400"
+                />
               </div>
-            ))}
+              <button
+                onClick={handleAddFunds}
+                disabled={loadingAdd || !addAmount}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+              >
+                {loadingAdd ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Plus size={15} />
+                )}
+                Add Funds
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-3">Secure payment via Stripe. Balance never expires.</p>
           </div>
 
-          <p className="text-xs text-slate-400 mt-4 text-center">
-            Secure payment via Stripe. Credits never expire.
-          </p>
+          {/* Auto-renewal */}
+          <div className="bg-white border border-blue-100 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Auto-Renewal</h3>
+                <p className="text-sm text-slate-500 mt-0.5">Automatically top up when balance runs low</p>
+              </div>
+              <button
+                onClick={() => setAutoRenewEnabled(!autoRenewEnabled)}
+                className="flex-shrink-0"
+              >
+                {autoRenewEnabled ? (
+                  <ToggleRight size={36} className="text-blue-600" />
+                ) : (
+                  <ToggleLeft size={36} className="text-slate-300" />
+                )}
+              </button>
+            </div>
+
+            {autoRenewEnabled && (
+              <div className="space-y-4 pt-4 border-t border-blue-50">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                      When balance drops below
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={threshold}
+                        onChange={e => setThreshold(e.target.value)}
+                        className="w-full pl-7 pr-4 py-2.5 border border-blue-200 rounded-xl text-sm focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+                      Automatically add
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={refillAmount}
+                        onChange={e => setRefillAmount(e.target.value)}
+                        className="w-full pl-7 pr-4 py-2.5 border border-blue-200 rounded-xl text-sm focus:outline-none focus:border-blue-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  When your balance drops below ${threshold || '0'}, we'll automatically charge your saved card and add ${refillAmount || '0'} to your account.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={handleSaveAutoRenewal}
+              disabled={savingRenewal}
+              className="mt-5 flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+            >
+              {savingRenewal ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Check size={15} />
+              )}
+              Save Settings
+            </button>
+          </div>
         </div>
       )}
 

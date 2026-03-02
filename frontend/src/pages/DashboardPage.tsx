@@ -261,7 +261,7 @@ export default function DashboardPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between mb-5">
         <div className="text-sm text-slate-500">
-          <span className="font-semibold text-slate-800">{user?.credits ?? 0}</span> credits remaining
+          Balance: <span className="font-semibold text-slate-800">${(user?.credits ?? 0).toFixed(2)}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-slate-500">Format:</span>

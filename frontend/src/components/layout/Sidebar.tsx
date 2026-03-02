@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Home, Settings, LogOut, FileSpreadsheet, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
-import * as Accordion from '@radix-ui/react-accordion'
 import toast from 'react-hot-toast'
 
 export default function Sidebar() {
@@ -36,7 +35,7 @@ export default function Sidebar() {
             <div className="w-7 h-7 bg-blue-600 rounded-md flex items-center justify-center flex-shrink-0">
               <FileSpreadsheet size={15} className="text-white" />
             </div>
-            <span className="font-semibold text-slate-800 text-sm tracking-tight">GridPull</span>
+            <span className="font-semibold text-slate-800 text-sm tracking-tight">PDF to Excel</span>
           </div>
         )}
         {collapsed && (
@@ -88,54 +87,51 @@ export default function Sidebar() {
       {/* User Panel - Bottom */}
       <div className="border-t border-blue-100 px-3 py-3">
         {!collapsed ? (
-          <Accordion.Root
-            type="single"
-            collapsible
-            value={userPanelOpen ? 'user' : ''}
-            onValueChange={(v) => setUserPanelOpen(v === 'user')}
-          >
-            <Accordion.Item value="user" className="rounded-lg overflow-hidden">
-              <Accordion.Trigger className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 rounded-lg transition-colors group">
-                {/* Avatar */}
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  {user?.picture ? (
-                    <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
-                  ) : (
-                    <span className="text-blue-700 text-xs font-semibold">
-                      {user ? getInitials(user.name) : 'U'}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 text-left min-w-0">
-                  <div className="text-sm text-slate-700 font-medium truncate">{user?.name}</div>
-                </div>
-                {userPanelOpen ? (
-                  <ChevronDown size={14} className="text-slate-400 flex-shrink-0" />
-                ) : (
-                  <ChevronUp size={14} className="text-slate-400 flex-shrink-0" />
-                )}
-              </Accordion.Trigger>
+          <div>
+            {/* Menu expands upward */}
+            {userPanelOpen && (
+              <div className="mb-1 space-y-0.5">
+                <button
+                  onClick={() => { navigate('/settings'); setUserPanelOpen(false) }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-500 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors"
+                >
+                  <Settings size={16} />
+                  Settings
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
+                >
+                  <LogOut size={16} />
+                  Log Out
+                </button>
+              </div>
+            )}
 
-              <Accordion.Content className="data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up overflow-hidden">
-                <div className="mt-1 space-y-0.5">
-                  <button
-                    onClick={() => { navigate('/settings'); setUserPanelOpen(false) }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-500 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors"
-                  >
-                    <Settings size={16} />
-                    Settings
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-slate-500 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
-                  >
-                    <LogOut size={16} />
-                    Log Out
-                  </button>
-                </div>
-              </Accordion.Content>
-            </Accordion.Item>
-          </Accordion.Root>
+            {/* User trigger — no border/shading */}
+            <button
+              onClick={() => setUserPanelOpen(!userPanelOpen)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50 rounded-lg transition-colors"
+            >
+              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                {user?.picture ? (
+                  <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+                ) : (
+                  <span className="text-blue-700 text-xs font-semibold">
+                    {user ? getInitials(user.name) : 'U'}
+                  </span>
+                )}
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <div className="text-sm text-slate-700 font-medium truncate">{user?.name}</div>
+              </div>
+              {userPanelOpen ? (
+                <ChevronDown size={14} className="text-slate-400 flex-shrink-0" />
+              ) : (
+                <ChevronUp size={14} className="text-slate-400 flex-shrink-0" />
+              )}
+            </button>
+          </div>
         ) : (
           <div className="flex justify-center">
             <div
