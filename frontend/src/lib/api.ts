@@ -19,14 +19,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Only auto-logout on 401 from auth/user endpoints, not extraction or payments
     if (error.response?.status === 401) {
-      const url: string = error.config?.url ?? ''
-      const isAuthEndpoint = url.includes('/auth/') || url.includes('/users/me')
-      if (isAuthEndpoint) {
-        useAuthStore.getState().logout()
-        window.location.href = '/'
-      }
+      useAuthStore.getState().logout()
+      window.location.href = '/'
     }
     return Promise.reject(error)
   }

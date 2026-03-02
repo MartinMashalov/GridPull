@@ -33,7 +33,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => set({ user: null, token: null }),
     }),
     {
-      name: 'gridpull-auth',
+      name: 'gridpull-auth-v2',
     }
   )
 )
