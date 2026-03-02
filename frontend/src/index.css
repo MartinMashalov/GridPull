@@ -4,25 +4,25 @@
 
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 6%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 6%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 217 91% 60%;
+    --background: 220 16% 6%;        /* #0c0e14 — deep blue-black */
+    --foreground: 220 13% 91%;       /* #e4e8f0 — warm white */
+    --card: 220 16% 9%;              /* #131720 — slightly lighter surface */
+    --card-foreground: 220 13% 91%;
+    --popover: 220 16% 9%;
+    --popover-foreground: 220 13% 91%;
+    --primary: 213 95% 58%;          /* #2e8cf7 — vivid blue */
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 4% 13%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 13%;
-    --muted-foreground: 240 5% 55%;
-    --accent: 240 4% 13%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 63% 40%;
+    --secondary: 220 16% 13%;        /* #1a1f2e — elevated surface */
+    --secondary-foreground: 220 13% 75%;
+    --muted: 220 16% 13%;
+    --muted-foreground: 220 9% 46%;  /* #666e82 — subdued text */
+    --accent: 220 16% 16%;           /* #1f2535 — hover state */
+    --accent-foreground: 220 13% 91%;
+    --destructive: 0 63% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 13%;
-    --input: 240 4% 13%;
-    --ring: 217 91% 60%;
+    --border: 220 16% 15%;           /* #1c2133 — subtle blue-tinted border */
+    --input: 220 16% 13%;
+    --ring: 213 95% 58%;
     --radius: 0.6rem;
   }
 }
@@ -41,7 +41,7 @@
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(240 4% 20%) transparent;
+    scrollbar-color: hsl(220 16% 20%) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 4px;
@@ -50,10 +50,10 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(240 4% 20%);
+    background-color: hsl(220 16% 20%);
     border-radius: 2px;
   }
   .glow-blue {
-    box-shadow: 0 0 40px -10px hsl(217 91% 60% / 0.4);
+    box-shadow: 0 0 40px -10px hsl(213 95% 58% / 0.4);
   }
 }

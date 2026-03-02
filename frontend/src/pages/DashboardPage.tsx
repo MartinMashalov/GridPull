@@ -230,9 +230,12 @@ export default function DashboardPage() {
   }, [files, isProcessing, showModal])
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="relative p-8 max-w-4xl mx-auto">
+      {/* Subtle gradient wash at the top */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
+
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between">
+      <div className="relative border-b border-border pb-5 mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">PDF Extractor</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, define fields, export to spreadsheet</p>
@@ -246,7 +249,7 @@ export default function DashboardPage() {
       {/* Format toggle */}
       <div className="flex items-center gap-3 mb-4">
         <span className="text-xs text-muted-foreground">Format</span>
-        <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
+        <div className="flex bg-[hsl(220,16%,11%)] border border-border rounded-lg overflow-hidden">
           {(['xlsx', 'csv'] as ExportFormat[]).map((fmt) => (
             <button
               key={fmt}
@@ -269,18 +272,19 @@ export default function DashboardPage() {
         {...getRootProps()}
         className={cn(
           'border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-all duration-200',
+          'bg-[hsl(220,16%,8%)]',
           isDragActive
             ? 'border-primary bg-primary/5'
-            : 'border-border hover:border-primary/50 hover:bg-accent/50'
+            : 'border-[hsl(220,16%,18%)] hover:border-primary/40 hover:bg-[hsl(220,16%,9%)]'
         )}
       >
         <input {...getInputProps()} />
         <div className="flex flex-col items-center gap-3">
           <div className={cn(
             'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-            isDragActive ? 'bg-primary/20' : 'bg-secondary'
+            isDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
           )}>
-            <Upload size={22} className={isDragActive ? 'text-primary' : 'text-muted-foreground'} />
+            <Upload size={22} />
           </div>
           {isDragActive ? (
             <p className="text-primary font-medium">Drop your PDFs here</p>
@@ -310,7 +314,7 @@ export default function DashboardPage() {
         onClick={handleProcess}
         disabled={!files.length || isProcessing}
         size="lg"
-        className="mt-4 w-full shadow-lg shadow-primary/10"
+        className="mt-4 w-full shadow-lg shadow-primary/25"
       >
         {isProcessing ? (
           <>

@@ -26,8 +26,8 @@ export default function Sidebar() {
   return (
     <aside
       className={cn(
-        'relative flex flex-col border-r border-border transition-all duration-300',
-        'bg-[#0c0c0f]',
+        'relative flex flex-col transition-all duration-300',
+        'bg-[#090c14] shadow-[1px_0_0_0_hsl(220,16%,15%)]',
         collapsed ? 'w-16' : 'w-60'
       )}
       style={{ minHeight: '100vh' }}
@@ -77,7 +77,7 @@ export default function Sidebar() {
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150',
                 isActive
-                  ? 'bg-primary/15 text-primary border border-primary/20'
+                  ? 'bg-primary/20 text-primary border border-primary/25'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 collapsed && 'justify-center'
               )}
