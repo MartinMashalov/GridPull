@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoogleLogin } from '@react-oauth/google'
-import { FileSpreadsheet, Zap, Shield, ArrowRight, Check } from 'lucide-react'
+import { FileSpreadsheet, Zap, Shield, ArrowRight } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import toast from 'react-hot-toast'
