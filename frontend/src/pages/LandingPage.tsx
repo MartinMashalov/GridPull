@@ -91,11 +91,6 @@ export default function LandingPage() {
         </div>
 
         <div className="relative max-w-3xl mx-auto">
-          <Badge variant="blue" className="mb-6 text-xs px-3 py-1">
-            <Zap size={11} className="mr-1" />
-            AI-Powered · 94%+ Accuracy
-          </Badge>
-
           <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
             Turn PDFs into{' '}
             <span className="text-primary">Excel</span>{' '}
@@ -127,7 +122,6 @@ export default function LandingPage() {
               )}
               Continue with Google
             </Button>
-            <p className="text-xs text-muted-foreground">No credit card required</p>
           </div>
         </div>
       </section>

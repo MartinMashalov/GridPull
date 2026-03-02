@@ -199,7 +199,6 @@ export default function DashboardPage() {
       fd.append('format', format)
 
       const res = await api.post('/documents/extract', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (e) => {
           if (e.total) {
             const pct = Math.round((e.loaded / e.total) * 20)
