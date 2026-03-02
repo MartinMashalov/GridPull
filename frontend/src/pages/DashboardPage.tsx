@@ -249,7 +249,7 @@ export default function DashboardPage() {
       {/* Format toggle */}
       <div className="flex items-center gap-3 mb-4">
         <span className="text-xs text-muted-foreground">Format</span>
-        <div className="flex bg-[hsl(220,16%,11%)] border border-border rounded-lg overflow-hidden">
+        <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
           {(['xlsx', 'csv'] as ExportFormat[]).map((fmt) => (
             <button
               key={fmt}
@@ -272,10 +272,10 @@ export default function DashboardPage() {
         {...getRootProps()}
         className={cn(
           'border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-all duration-200',
-          'bg-[hsl(220,16%,8%)]',
+          'bg-white',
           isDragActive
             ? 'border-primary bg-primary/5'
-            : 'border-[hsl(220,16%,18%)] hover:border-primary/40 hover:bg-[hsl(220,16%,9%)]'
+            : 'border-border hover:border-primary/40 hover:bg-accent/30'
         )}
       >
         <input {...getInputProps()} />

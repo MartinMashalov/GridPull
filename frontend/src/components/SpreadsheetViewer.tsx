@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/store/authStore'
 
 export interface SpreadsheetViewerProps {
   results: Record<string, string>[]
@@ -26,6 +27,22 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cred
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [search, setSearch] = useState('')
+  const token = useAuthStore((s) => s.token)
+
+  const handleDownload = () => {
+    const t = token ?? ''
+    fetch(`/api/documents/download/${jobId}`, { headers: { Authorization: `Bearer ${t}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `export.${format}`
+        a.click()
+        URL.revokeObjectURL(url)
+      })
+      .catch(() => {})
+  }
 
   const columns = ['Source File', ...fields]
 
@@ -90,12 +107,10 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cred
               </button>
             )}
           </div>
-          <a href={`/api/documents/download/${jobId}`} download={`export.${format}`}>
-            <Button size="sm" className="h-8 text-xs gap-1.5">
-              <Download size={12} />
-              {format.toUpperCase()}
-            </Button>
-          </a>
+          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleDownload}>
+            <Download size={12} />
+            {format.toUpperCase()}
+          </Button>
         </div>
       </div>
 
