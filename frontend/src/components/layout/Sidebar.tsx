@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Home, Settings, LogOut, FileSpreadsheet, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Home, Settings, LogOut, FileSpreadsheet, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react' // Settings used in user panel dropdown
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -21,7 +21,6 @@ export default function Sidebar() {
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/dashboard' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   return (

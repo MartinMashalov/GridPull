@@ -1,12 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, FileText, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
 import SpreadsheetViewer from '@/components/SpreadsheetViewer'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
-import { formatFileSize } from '@/lib/utils'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -220,6 +219,16 @@ export default function DashboardPage() {
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
 
+  // Keyboard shortcuts: Enter = submit, Escape = clear files
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !isProcessing && !showModal) handleProcess()
+      if (e.key === 'Escape') setFiles([])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [files, isProcessing, showModal])
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       {/* Header */}
@@ -284,33 +293,15 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* File list */}
+      {/* File count */}
       {files.length > 0 && (
-        <div className="mt-3 bg-card border border-border rounded-xl overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">
-              {files.length} file{files.length > 1 ? 's' : ''} selected
-            </span>
-            <button onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">
-              Clear all
-            </button>
-          </div>
-          <div className="divide-y divide-border max-h-52 overflow-y-auto scrollbar-thin">
-            {files.map((file, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                <div className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <FileText size={13} className="text-red-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate">{file.name}</p>
-                  <p className="text-[11px] text-muted-foreground">{formatFileSize(file.size)}</p>
-                </div>
-                <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 transition-colors">
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
+        <div className="mt-3 bg-card border border-border rounded-xl px-4 py-3 flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">
+            {files.length} file{files.length > 1 ? 's' : ''} selected
+          </span>
+          <button onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">
+            Clear all
+          </button>
         </div>
       )}
 
