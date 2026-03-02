@@ -7,6 +7,9 @@ interface User {
   name: string
   picture?: string
   credits: number
+  auto_renewal_enabled?: boolean
+  auto_renewal_threshold?: number
+  auto_renewal_refill?: number
 }
 
 interface AuthState {

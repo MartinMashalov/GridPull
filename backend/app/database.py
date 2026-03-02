@@ -76,4 +76,11 @@ async def init_db():
 
     async with ddl_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables (safe to run every startup)
+        for sql in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_threshold FLOAT NOT NULL DEFAULT 5.0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_refill FLOAT NOT NULL DEFAULT 20.0",
+        ]:
+            await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

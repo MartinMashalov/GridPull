@@ -15,6 +15,9 @@ class User(Base):
     google_id = Column(String, unique=True, nullable=True, index=True)
     credits = Column(Integer, default=10)  # Start with 10 free credits
     is_active = Column(Boolean, default=True)
+    auto_renewal_enabled = Column(Boolean, default=False)
+    auto_renewal_threshold = Column(Float, default=5.0)
+    auto_renewal_refill = Column(Float, default=20.0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
