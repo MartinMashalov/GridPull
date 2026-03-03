@@ -8,6 +8,7 @@ import api from '@/lib/api'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 
 export type ExportFormat = 'xlsx' | 'csv'
@@ -61,16 +62,14 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             </span>
           )}
         </div>
-        {/* Bar */}
-        <div className={cn('w-full h-1.5 rounded-full overflow-hidden', indeterminate ? 'bg-secondary animate-pulse' : 'bg-secondary')}>
-          <div
-            className={cn(
-              'h-full rounded-full transition-[width] duration-500 ease-out',
-              isError ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-primary'
-            )}
-            style={{ width: `${barPct}%` }}
-          />
-        </div>
+        <Progress
+          value={barPct}
+          className={cn(
+            indeterminate && 'animate-pulse',
+            isError && '[&>div]:bg-red-500',
+            isComplete && '[&>div]:bg-emerald-500'
+          )}
+        />
       </div>
       {!isComplete && !isError && (
         <div className="px-5 py-3 border-t border-border flex justify-end">

@@ -1,18 +1,13 @@
 import { useState, ReactNode } from 'react'
-import Sidebar, { SidebarExpandButton } from './Sidebar'
+import Sidebar from './Sidebar'
 
-interface DashboardLayoutProps {
-  children: ReactNode
-}
-
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <Sidebar collapsed={collapsed} onCollapse={() => setCollapsed(true)} />
-      {collapsed && <SidebarExpandButton onClick={() => setCollapsed(false)} />}
-      <main className="flex-1 overflow-y-auto scrollbar-thin bg-background">
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+      <main className="flex-1 overflow-y-auto bg-background">
         {children}
       </main>
     </div>
