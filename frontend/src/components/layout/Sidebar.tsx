@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Home, Settings, LogOut, FileSpreadsheet, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Home, Settings, LogOut, FileSpreadsheet, ChevronsLeft } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -32,8 +32,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <aside
         className={cn(
           'relative flex flex-col h-screen bg-white border-r border-border transition-[width] duration-200 ease-in-out flex-shrink-0',
-          collapsed ? 'w-16' : 'w-60'
+          collapsed ? 'w-16 cursor-pointer' : 'w-60'
         )}
+        onClick={collapsed ? onToggle : undefined}
       >
         {/* ── Logo + toggle ──────────────────────────────────────── */}
         <div className={cn(
@@ -72,7 +73,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             const btn = (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onClick={(e) => { e.stopPropagation(); navigate(item.path) }}
                 className={cn(
                   'w-full flex items-center rounded-lg text-sm font-medium transition-all duration-150',
                   collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2',
@@ -98,22 +99,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           })}
         </nav>
 
-        {/* ── Expand button (collapsed state) ───────────────────── */}
-        {collapsed && (
-          <div className="px-2 pb-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onToggle}
-                  className="w-full flex items-center justify-center p-2.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                >
-                  <ChevronsRight size={15} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Expand sidebar</TooltipContent>
-            </Tooltip>
-          </div>
-        )}
 
         {/* ── User ──────────────────────────────────────────────── */}
         <div className="px-2 pb-3 space-y-0.5">
@@ -124,7 +109,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={handleLogout}
+                  onClick={(e) => { e.stopPropagation(); handleLogout() }}
                   className="w-full flex items-center justify-center p-2.5 rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"
                 >
                   <LogOut size={15} />
@@ -134,7 +119,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </Tooltip>
           ) : (
             <button
-              onClick={handleLogout}
+              onClick={(e) => { e.stopPropagation(); handleLogout() }}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"
             >
               <LogOut size={15} />
