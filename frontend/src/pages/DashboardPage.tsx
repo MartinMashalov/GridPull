@@ -62,33 +62,15 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
           )}
         </div>
         {/* Bar */}
-        <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-          {indeterminate ? (
-            <div className="h-full w-2/5 bg-primary rounded-full animate-progress-slide" />
-          ) : (
-            <div
-              className={cn(
-                'h-full rounded-full transition-[width] duration-300 ease-out',
-                isError ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-primary'
-              )}
-              style={{ width: `${barPct}%` }}
-            />
-          )}
+        <div className={cn('w-full h-1.5 rounded-full overflow-hidden', indeterminate ? 'bg-secondary animate-pulse' : 'bg-secondary')}>
+          <div
+            className={cn(
+              'h-full rounded-full transition-[width] duration-500 ease-out',
+              isError ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-primary'
+            )}
+            style={{ width: `${barPct}%` }}
+          />
         </div>
-        {/* Per-document dots */}
-        {totalDocs > 0 && totalDocs <= 24 && (
-          <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-            {Array.from({ length: totalDocs }).map((_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'w-2 h-2 rounded-full transition-colors duration-200',
-                  i < completedDocs ? 'bg-emerald-500' : isError ? 'bg-red-500/30' : 'bg-secondary'
-                )}
-              />
-            ))}
-          </div>
-        )}
       </div>
       {!isComplete && !isError && (
         <div className="px-5 py-3 border-t border-border flex justify-end">
