@@ -16,7 +16,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "name": current_user.name,
         "picture": current_user.picture,
-        "credits": current_user.credits,
+        "balance": current_user.balance,
         "auto_renewal_enabled": current_user.auto_renewal_enabled,
         "auto_renewal_threshold": current_user.auto_renewal_threshold,
         "auto_renewal_refill": current_user.auto_renewal_refill,

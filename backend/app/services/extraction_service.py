@@ -19,7 +19,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Tuple
 
 from openai import AsyncOpenAI
 
@@ -30,6 +31,29 @@ logger = logging.getLogger(__name__)
 client = AsyncOpenAI(api_key=settings.openai_api_key)
 
 _MODEL = "gpt-4o-mini"
+
+# GPT-4o-mini pricing (USD per token) — matches litellm / OpenAI published rates
+_INPUT_PRICE_PER_TOKEN = 0.15 / 1_000_000   # $0.15 / 1M input tokens
+_OUTPUT_PRICE_PER_TOKEN = 0.60 / 1_000_000  # $0.60 / 1M output tokens
+_MARKUP = 1.20  # 20% markup
+
+
+@dataclass
+class LLMUsage:
+    """Accumulates token usage across all LLM calls in one extraction job."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.input_tokens += prompt_tokens
+        self.output_tokens += completion_tokens
+
+    @property
+    def cost_usd(self) -> float:
+        """Total cost in USD including the 20% markup."""
+        base = (self.input_tokens * _INPUT_PRICE_PER_TOKEN +
+                self.output_tokens * _OUTPUT_PRICE_PER_TOKEN)
+        return round(base * _MARKUP, 6)
 
 
 # ── Document type catalogue ───────────────────────────────────────────────────
@@ -65,7 +89,7 @@ def _fast_classify(filename: str, first_page_text: str) -> str | None:
     return None
 
 
-async def _llm_classify(filename: str, first_page_text: str) -> str:
+async def _llm_classify(filename: str, first_page_text: str, usage: LLMUsage) -> str:
     """LLM fallback classifier."""
     types_block = "\n".join(f"  {k}: {v}" for k, v in _DOC_TYPE_DESCRIPTIONS.items())
     prompt = (
@@ -81,19 +105,21 @@ async def _llm_classify(filename: str, first_page_text: str) -> str:
             temperature=0,
             max_tokens=10,
         )
+        if resp.usage:
+            usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
         raw = resp.choices[0].message.content.strip().strip('"').lower()
         return raw if raw in _DOC_TYPE_DESCRIPTIONS else "generic"
     except Exception:
         return "generic"
 
 
-async def classify_document(doc: ParsedDocument) -> str:
+async def classify_document(doc: ParsedDocument, usage: LLMUsage) -> str:
     """Classify document type — rule-based first, LLM fallback."""
     first_text = doc.pages[0].text if doc.pages else ""
     fast = _fast_classify(doc.filename, first_text)
     if fast:
         return fast
-    return await _llm_classify(doc.filename, first_text)
+    return await _llm_classify(doc.filename, first_text, usage)
 
 
 # ── Prompt building helpers ───────────────────────────────────────────────────
@@ -156,8 +182,9 @@ async def _llm_extract(
     user_prompt: str,
     field_names: List[str],
     filename: str,
+    usage: LLMUsage,
 ) -> List[Dict[str, Any]]:
-    """Call the LLM and parse the JSON response into a list of dicts."""
+    """Call the LLM, track token usage, and parse the JSON response."""
     for attempt in range(3):
         try:
             resp = await client.chat.completions.create(
@@ -170,6 +197,8 @@ async def _llm_extract(
                 response_format={"type": "json_object"},
                 max_tokens=4_096,
             )
+            if resp.usage:
+                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
             raw = json.loads(resp.choices[0].message.content)
 
             # Accept {"records": [...]}, {"rows": [...]}, or bare dict
@@ -277,6 +306,7 @@ async def extract_single_record(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
     doc_type: str,
+    usage: LLMUsage,
 ) -> List[Dict[str, Any]]:
     """Extract one record per document (invoice, contract, annual report, etc.)."""
     field_names = [f["name"] for f in fields]
@@ -302,7 +332,7 @@ async def extract_single_record(
         + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
     )
 
-    return await _llm_extract(_SINGLE_SYSTEM, user_prompt, field_names, doc.filename)
+    return await _llm_extract(_SINGLE_SYSTEM, user_prompt, field_names, doc.filename, usage)
 
 
 # ── Multi-record extraction ───────────────────────────────────────────────────
@@ -311,6 +341,7 @@ async def extract_multi_record(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
     doc_type: str,
+    usage: LLMUsage,
 ) -> List[Dict[str, Any]]:
     """Extract multiple records from a document with tabular data."""
     field_names = [f["name"] for f in fields]
@@ -330,7 +361,7 @@ async def extract_multi_record(
         + '\n\nReturn: {"records": [{"Field": "value"}, {"Field": "value"}, ...]}'
     )
 
-    return await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename)
+    return await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage)
 
 
 # ── Routing logic ─────────────────────────────────────────────────────────────
@@ -356,21 +387,23 @@ def _should_extract_multi(doc: ParsedDocument, doc_type: str) -> bool:
 async def extract_from_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
+    usage: LLMUsage,
 ) -> List[Dict[str, Any]]:
     """
     Full extraction pipeline for one document.
 
+    Accumulates token usage into `usage` (caller-owned LLMUsage instance).
     Returns List[Dict] — always.
       Single-record docs → list with 1 element.
       Multi-record docs  → list with N elements (one per table row / line item).
     """
-    doc_type = await classify_document(doc)
+    doc_type = await classify_document(doc, usage)
     logger.info("Classified %s as %s (hint: %s)", doc.filename, doc_type, doc.doc_type_hint)
 
     if _should_extract_multi(doc, doc_type):
-        rows = await extract_multi_record(doc, fields, doc_type)
+        rows = await extract_multi_record(doc, fields, doc_type, usage)
     else:
-        rows = await extract_single_record(doc, fields, doc_type)
+        rows = await extract_single_record(doc, fields, doc_type, usage)
 
     if not rows:
         field_names = [f["name"] for f in fields]

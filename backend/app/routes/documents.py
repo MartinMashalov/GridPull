@@ -78,14 +78,14 @@ async def start_extraction(
         logger.warning("Extract request with no fields — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No extraction fields provided")
 
-    if current_user.credits < 1:
+    if current_user.balance < 0.001:
         logger.warning(
-            "Extract rejected — insufficient credits %.2f — user_id=%s",
-            current_user.credits, current_user.id,
+            "Extract rejected — insufficient balance $%.6f — user_id=%s",
+            current_user.balance, current_user.id,
         )
         raise HTTPException(
             status_code=402,
-            detail="Insufficient credits — please purchase more.",
+            detail="Insufficient balance — please add funds.",
         )
 
     filenames = [f.filename for f in files]

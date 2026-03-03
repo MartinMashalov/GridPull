@@ -13,7 +13,7 @@ class User(Base):
     name = Column(String, nullable=False)
     picture = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
-    credits = Column(Integer, default=10)  # Start with 10 free credits
+    balance = Column(Float, default=1.0)   # Dollar balance; new users start with $1.00
     is_active = Column(Boolean, default=True)
     auto_renewal_enabled = Column(Boolean, default=False)
     auto_renewal_threshold = Column(Float, default=5.0)

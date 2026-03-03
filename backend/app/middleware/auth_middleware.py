@@ -91,8 +91,8 @@ async def _resolve_user(token: str, db: AsyncSession) -> User:
         )
 
     logger.debug(
-        "Auth DB lookup OK — user_id=%s email=%s credits=%.2f",
-        user.id, user.email, user.credits,
+        "Auth DB lookup OK — user_id=%s email=%s balance=$%.6f",
+        user.id, user.email, user.balance,
     )
     await cache_set_user(user)
     _local_set(user)

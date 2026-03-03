@@ -11,7 +11,7 @@ export interface SpreadsheetViewerProps {
   fields: string[]
   jobId: string
   format: 'xlsx' | 'csv'
-  creditsUsed?: number
+  cost?: number
 }
 
 type SortDir = 'asc' | 'desc'
@@ -23,7 +23,7 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, creditsUsed }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, cost }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [search, setSearch] = useState('')
@@ -86,8 +86,8 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cred
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Extracted Results</span>
             <Badge variant="secondary" className="text-[11px]">{displayRows.length} / {results.length} rows</Badge>
-            {creditsUsed != null && (
-              <Badge variant="blue" className="text-[11px]">${creditsUsed} used</Badge>
+            {cost != null && (
+              <Badge variant="blue" className="text-[11px]">${cost.toFixed(6)} cost</Badge>
             )}
           </div>
         </div>

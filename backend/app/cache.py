@@ -64,7 +64,7 @@ class CachedUser:
     email: str
     name: str
     picture: Optional[str]
-    credits: int
+    balance: float
     is_active: bool
 
     def to_json(self) -> str:
@@ -74,7 +74,7 @@ class CachedUser:
                 "email": self.email,
                 "name": self.name,
                 "picture": self.picture,
-                "credits": self.credits,
+                "balance": self.balance,
                 "is_active": self.is_active,
             }
         )
@@ -90,7 +90,7 @@ class CachedUser:
             email=user.email,
             name=user.name,
             picture=getattr(user, "picture", None),
-            credits=user.credits,
+            balance=user.balance,
             is_active=user.is_active,
         )
 

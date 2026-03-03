@@ -81,6 +81,11 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_enabled BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_threshold FLOAT NOT NULL DEFAULT 5.0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS auto_renewal_refill FLOAT NOT NULL DEFAULT 20.0",
+            # Migrate credits → balance (dollar float); seed from old integer credits if present
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS balance FLOAT NOT NULL DEFAULT 1.0",
+            "UPDATE users SET balance = credits WHERE credits IS NOT NULL AND balance = 1.0 AND credits > 0",
+            # Job cost column (replaces credits_used)
+            "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS cost FLOAT NOT NULL DEFAULT 0.0",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

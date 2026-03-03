@@ -20,7 +20,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
-from app.services.extraction_service import extract_from_document
+from app.services.extraction_service import LLMUsage, extract_from_document
 from app.services.pdf_service import parse_pdf
 from app.services.spreadsheet_service import generate_csv, generate_excel
 
@@ -107,6 +107,7 @@ async def process_job(
 
             all_extracted: List[Dict[str, Any]] = []
             total_pages = 0
+            job_usage = LLMUsage()  # Accumulates token cost across all docs
 
             for idx, doc in enumerate(documents):
                 base_pct = 5 + int((idx / total_docs) * 65)
@@ -144,7 +145,7 @@ async def process_job(
                         f"AI extracting {doc.filename} ({parsed_doc.page_count} pages)…",
                     )
 
-                    rows = await extract_from_document(parsed_doc, fields)
+                    rows = await extract_from_document(parsed_doc, fields, job_usage)
                     doc.extracted_data = rows
                     doc.status = "complete"
                     all_extracted.extend(rows)
@@ -195,22 +196,23 @@ async def process_job(
                 job_id, output_filename, file_size_kb, gen_elapsed,
             )
 
-            await emit("generating", 90, "Spreadsheet ready — updating credits…")
+            await emit("generating", 90, "Spreadsheet ready — updating balance…")
 
-            # ── Phase 3: deduct credits ────────────────────────────────
+            # ── Phase 3: deduct balance (actual token cost + 20% markup) ──
             result = await db.execute(select(User).where(User.id == job.user_id))
             user = result.scalar_one_or_none()
-            credits_used = 0
+            job_cost = job_usage.cost_usd
             if user:
-                credits_used = max(1, total_pages)
-                credits_before = user.credits
-                user.credits = max(0, user.credits - credits_used)
-                job.credits_used = credits_used
+                balance_before = user.balance
+                user.balance = max(0.0, user.balance - job_cost)
+                job.cost = job_cost
                 await db.commit()
                 logger.info(
-                    "Job %s — credits deducted: %.2f → %.2f (used=%d pages=%d) user_id=%s",
-                    job_id, credits_before, user.credits,
-                    credits_used, total_pages, job.user_id,
+                    "Job %s — balance deducted: $%.6f → $%.6f "
+                    "(cost=$%.6f in=%d out=%d tokens pages=%d) user_id=%s",
+                    job_id, balance_before, user.balance,
+                    job_cost, job_usage.input_tokens, job_usage.output_tokens,
+                    total_pages, job.user_id,
                 )
 
             # ── Mark complete ──────────────────────────────────────────
@@ -221,8 +223,8 @@ async def process_job(
 
             total_elapsed = (time.monotonic() - job_start) * 1000
             logger.info(
-                "=== Job %s COMPLETE — docs=%d rows=%d credits=%d elapsed=%.0fms ===",
-                job_id, total_docs, len(all_extracted), credits_used, total_elapsed,
+                "=== Job %s COMPLETE — docs=%d rows=%d cost=$%.6f elapsed=%.0fms ===",
+                job_id, total_docs, len(all_extracted), job_cost, total_elapsed,
             )
 
             await broadcast(
@@ -235,7 +237,7 @@ async def process_job(
                     "download_url": f"/api/documents/download/{job_id}",
                     "results": all_extracted,
                     "fields": field_names,
-                    "credits_used": job.credits_used,
+                    "cost": job.cost,
                 },
             )
 

@@ -25,7 +25,7 @@ export interface JobState {
   downloadUrl?: string
   results?: Record<string, string>[]
   fields?: string[]
-  creditsUsed?: number
+  cost?: number
   error?: string
 }
 
@@ -113,7 +113,7 @@ function ProgressBar({ job }: { job: JobState }) {
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { user, updateCredits } = useAuthStore()
+  const { user, updateBalance } = useAuthStore()
   const [files, setFiles] = useState<File[]>([])
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
@@ -134,10 +134,10 @@ export default function DashboardPage() {
 
     if (event.type === 'complete') {
       setJob((prev) =>
-        prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, creditsUsed: event.credits_used } : null
+        prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
       )
-      if (event.credits_used != null && user) {
-        updateCredits(Math.max(0, (user.credits ?? 0) - event.credits_used))
+      if (event.cost != null && user) {
+        updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
       if (event.download_url && activeJobId) {
         const token = useAuthStore.getState().token ?? ''
@@ -250,7 +250,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Balance:</span>
-          <Badge variant="blue" className="font-mono">${(user?.credits ?? 0).toFixed(2)}</Badge>
+          <Badge variant="blue" className="font-mono">${(user?.balance ?? 0).toFixed(4)}</Badge>
         </div>
       </div>
 
@@ -349,7 +349,7 @@ export default function DashboardPage() {
           fields={job.fields}
           jobId={job.jobId}
           format={exportFormat}
-          creditsUsed={job.creditsUsed}
+          cost={job.cost}
         />
       )}
 

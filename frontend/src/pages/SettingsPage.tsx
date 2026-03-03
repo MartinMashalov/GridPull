@@ -39,11 +39,7 @@ export default function SettingsPage() {
     if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
     setLoadingAdd(true)
     try {
-      const res = await api.post('/payments/create-checkout', {
-        price_id: 'price_custom',
-        credits: Math.round(dollars * 100),
-        amount: Math.round(dollars * 100),
-      })
+      const res = await api.post('/payments/create-checkout', { amount: dollars })
       window.location.href = res.data.checkout_url
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Payment failed')
@@ -113,7 +109,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground mb-1 uppercase tracking-widest font-medium">Account Balance</p>
-                <p className="text-4xl font-bold text-foreground font-mono">${(user?.credits ?? 0).toFixed(2)}</p>
+                <p className="text-4xl font-bold text-foreground font-mono">${(user?.balance ?? 0).toFixed(4)}</p>
                 <p className="text-xs text-muted-foreground mt-2">Depletes per extraction operation</p>
               </div>
               <div className="w-14 h-14 bg-primary/20 rounded-xl flex items-center justify-center">

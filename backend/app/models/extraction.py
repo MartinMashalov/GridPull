@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, JSON, DateTime, ForeignKey, Text, Index
+from sqlalchemy import Column, String, Integer, Float, JSON, DateTime, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -24,7 +24,7 @@ class ExtractionJob(Base):
     fields = Column(JSON, nullable=False)  # List of extraction fields
     format = Column(String, default="xlsx")  # xlsx or csv
     file_count = Column(Integer, default=0)
-    credits_used = Column(Integer, default=0)
+    cost = Column(Float, default=0.0)  # Dollar cost (with markup) deducted from user balance
     error = Column(Text, nullable=True)
     output_path = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

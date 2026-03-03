@@ -17,7 +17,7 @@ export interface ProgressEvent {
   download_url?: string
   results?: Record<string, string>[]
   fields?: string[]
-  credits_used?: number
+  cost?: number
   error?: string
 }
 

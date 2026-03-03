@@ -70,13 +70,13 @@ async def get_or_create_user(db: AsyncSession, google_user_info: dict) -> User:
         name=google_user_info.get("name", email.split("@")[0]),
         picture=google_user_info.get("picture"),
         google_id=google_id,
-        credits=10,
+        balance=1.0,  # $1.00 free starting balance
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
     logger.info(
-        "New user created — user_id=%s email=%s starting_credits=10",
+        "New user created — user_id=%s email=%s starting_balance=$1.00",
         user.id, user.email,
     )
     return user
