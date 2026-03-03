@@ -51,8 +51,8 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
     token = create_access_token(user.id)
 
     logger.info(
-        "Login successful — user_id=%s email=%s credits=%.2f ip=%s",
-        user.id, user.email, user.credits, client_ip,
+        "Login successful — user_id=%s email=%s balance=$%.6f ip=%s",
+        user.id, user.email, user.balance, client_ip,
     )
 
     return {
@@ -62,6 +62,6 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
             "email": user.email,
             "name": user.name,
             "picture": user.picture,
-            "credits": user.credits,
+            "balance": user.balance,
         },
     }
