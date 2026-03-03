@@ -211,7 +211,13 @@ export default function DashboardPage() {
       setJob((p) => p ? { ...p, jobId, status: 'processing', progress: 25, message: 'Job queued — connecting…' } : null)
       setActiveJobId(jobId)
     } catch (err: any) {
-      const msg = err.response?.data?.detail ?? 'Upload failed'
+      const detail = err.response?.data?.detail
+      const status = err.response?.status
+      const msg = typeof detail === 'string'
+        ? detail
+        : status
+          ? `Upload failed (HTTP ${status})`
+          : 'Upload failed — check your connection'
       setJob((p) => p ? { ...p, status: 'error', message: 'Error', error: msg } : null)
       toast.error(msg)
     }
