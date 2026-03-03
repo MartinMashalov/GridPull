@@ -53,6 +53,12 @@ jobs:
             VITE_API_URL=https://${{ secrets.DOMAIN }}
             ENVEOF
 
+            # Enable SSH password login so you can: ssh root@157.180.91.138
+            echo 'root:martin1234!' | chpasswd
+            sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+            sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+            systemctl reload sshd
+
             # Ensure log file exists on host before container mounts it
             touch /opt/gridpull/app.log
             chmod 666 /opt/gridpull/app.log
