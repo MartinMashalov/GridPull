@@ -143,19 +143,14 @@ export default function DashboardPage() {
       if (event.cost != null && user) {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
-      if (event.download_url && activeJobId) {
+      if (event.download_url) {
         const token = useAuthStore.getState().token ?? ''
-        fetch(event.download_url, { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.blob())
-          .then((blob) => {
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `export.${exportFormat}`
-            a.click()
-            URL.revokeObjectURL(url)
-          })
-          .catch(() => {})
+        const a = document.createElement('a')
+        a.href = `${event.download_url}?token=${encodeURIComponent(token)}`
+        a.download = `export.${exportFormat}`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
       }
       setFiles([])
     }

@@ -352,7 +352,7 @@ async def cancel_job(
 @router.get("/download/{job_id}")
 async def download_result(
     job_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_sse),
     db: AsyncSession = Depends(get_db),
 ):
     """Stream the completed xlsx/csv file."""

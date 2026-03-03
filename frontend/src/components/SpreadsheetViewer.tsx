@@ -29,18 +29,12 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
   const token = useAuthStore((s) => s.token)
 
   const handleDownload = () => {
-    const t = token ?? ''
-    fetch(`/api/documents/download/${jobId}`, { headers: { Authorization: `Bearer ${t}` } })
-      .then((r) => r.blob())
-      .then((blob) => {
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `export.${format}`
-        a.click()
-        URL.revokeObjectURL(url)
-      })
-      .catch(() => {})
+    const a = document.createElement('a')
+    a.href = `/api/documents/download/${jobId}?token=${encodeURIComponent(token ?? '')}`
+    a.download = `export.${format}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   const columns = ['Source File', ...fields]
