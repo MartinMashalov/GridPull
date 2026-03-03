@@ -101,15 +101,13 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
           </div>
         )}
       </div>
-      <div className="px-5 py-2.5">
-        {isError && job.error ? (
+      {isError && job.error && (
+        <div className="px-5 py-2.5 border-t border-border">
           <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
             {job.error}
           </p>
-        ) : (
-          <p className="text-xs text-muted-foreground text-center">{job.message}</p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
