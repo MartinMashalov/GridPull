@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
 import SpreadsheetViewer from '@/components/SpreadsheetViewer'
@@ -29,8 +29,10 @@ export interface JobState {
   error?: string
 }
 
+const _ACTIVE_JOB_KEY = 'gridpull-active-job'
+
 // ── Progress bar ───────────────────────────────────────────────────────────────
-function ProgressBar({ job }: { job: JobState }) {
+function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void }) {
   const isError = job.status === 'error'
   const isComplete = job.status === 'complete'
 
@@ -52,7 +54,17 @@ function ProgressBar({ job }: { job: JobState }) {
             {isError && <AlertCircle size={15} className="text-red-400" />}
             {isError ? 'Extraction Failed' : isComplete ? 'Complete!' : 'Processing…'}
           </span>
-          <span className="text-xs font-mono text-primary tabular-nums">{job.progress}%</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-primary tabular-nums">{job.progress}%</span>
+            {!isComplete && !isError && (
+              <button
+                onClick={onCancel}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 transition-colors"
+              >
+                <X size={12} /> Cancel
+              </button>
+            )}
+          </div>
         </div>
         {/* Bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -123,6 +135,20 @@ export default function DashboardPage() {
 
   const { event } = useJobProgress(activeJobId)
 
+  // ── Restore active job on page reload ──────────────────────────────────────
+  useEffect(() => {
+    const stored = localStorage.getItem(_ACTIVE_JOB_KEY)
+    if (!stored) return
+    try {
+      const { jobId, format } = JSON.parse(stored)
+      setExportFormat(format as ExportFormat)
+      setJob({ jobId, status: 'processing', progress: 0, message: 'Reconnecting…' })
+      setActiveJobId(jobId)
+    } catch {
+      localStorage.removeItem(_ACTIVE_JOB_KEY)
+    }
+  }, [])
+
   useEffect(() => {
     if (!event) return
 
@@ -133,6 +159,7 @@ export default function DashboardPage() {
     }
 
     if (event.type === 'complete') {
+      localStorage.removeItem(_ACTIVE_JOB_KEY)
       setJob((prev) =>
         prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
       )
@@ -157,6 +184,7 @@ export default function DashboardPage() {
     }
 
     if (event.type === 'error') {
+      localStorage.removeItem(_ACTIVE_JOB_KEY)
       setJob((prev) =>
         prev ? { ...prev, status: 'error', message: 'Extraction failed', error: event.error } : null
       )
@@ -211,6 +239,7 @@ export default function DashboardPage() {
       })
 
       const jobId = res.data.job_id
+      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format: exportFormat }))
       setJob((p) => p ? { ...p, jobId, status: 'processing', progress: 25, message: 'Job queued — connecting…' } : null)
       setActiveJobId(jobId)
     } catch (err: any) {
@@ -223,6 +252,15 @@ export default function DashboardPage() {
           : 'Upload failed — check your connection'
       setJob((p) => p ? { ...p, status: 'error', message: 'Error', error: msg } : null)
     }
+  }
+
+  const handleCancel = async () => {
+    if (!job?.jobId) return
+    try { await api.delete(`/documents/job/${job.jobId}`) } catch {}
+    localStorage.removeItem(_ACTIVE_JOB_KEY)
+    setJob(null)
+    setActiveJobId(null)
+    setFiles([])
   }
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
@@ -340,7 +378,7 @@ export default function DashboardPage() {
       </Button>
 
       {/* Progress */}
-      {job && job.status !== 'complete' && <ProgressBar job={job} />}
+      {job && job.status !== 'complete' && <ProgressBar job={job} onCancel={handleCancel} />}
 
       {/* Results */}
       {job?.status === 'complete' && job.results && job.fields && (

@@ -184,7 +184,7 @@ async def get_job_status(
         "error": job.error,
         "format": job.format,
         "file_count": job.file_count,
-        "credits_used": job.credits_used,
+        "cost": job.cost,
     }
     if job.status in ("complete", "error"):
         await cache_set_job_status(job_id, current_user.id, payload)
@@ -229,7 +229,7 @@ async def job_progress_sse(
                 "download_url": f"/api/documents/download/{job_id}",
                 "results": results,
                 "fields": field_names,
-                "credits_used": job.credits_used,
+                "cost": job.cost,
             }
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -310,11 +310,40 @@ async def get_results(
         "format": job.format,
         "fields": [f["name"] for f in job.fields],
         "results": [d.extracted_data for d in job.documents if d.extracted_data],
-        "credits_used": job.credits_used,
+        "cost": job.cost,
     }
     await cache_set_results(job_id, current_user.id, payload)
     _RESULT_CACHE[job_id] = {**payload, "_owner": current_user.id}
     return payload
+
+
+@router.delete("/job/{job_id}")
+async def cancel_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a queued or in-progress job."""
+    result = await db.execute(
+        select(ExtractionJob).where(
+            ExtractionJob.id == job_id,
+            ExtractionJob.user_id == current_user.id,
+        )
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status not in ("complete", "error", "cancelled"):
+        job.status = "cancelled"
+        await db.commit()
+        await worker_pool.broadcast(
+            job_id,
+            {"type": "error", "status": "cancelled", "progress": 0, "message": "Job cancelled"},
+        )
+        logger.info("Job %s cancelled by user_id=%s", job_id, current_user.id)
+
+    return {"ok": True}
 
 
 @router.get("/download/{job_id}")
