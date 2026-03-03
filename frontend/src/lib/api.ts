@@ -1,11 +1,11 @@
 import axios from 'axios'
 import { useAuthStore } from '@/store/authStore'
 
+// No Content-Type default — axios sets it automatically per request:
+//   plain object → application/json
+//   FormData     → multipart/form-data; boundary=<generated>
 const api = axios.create({
   baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
 })
 
 api.interceptors.request.use((config) => {
