@@ -250,7 +250,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Balance:</span>
-          <Badge variant="blue" className="font-mono">${(user?.balance ?? 0).toFixed(4)}</Badge>
+          <Badge variant="blue" className="font-mono">${(user?.balance ?? 0).toFixed(2)}</Badge>
         </div>
       </div>
 

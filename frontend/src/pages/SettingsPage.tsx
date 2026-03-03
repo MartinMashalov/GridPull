@@ -109,7 +109,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground mb-1 uppercase tracking-widest font-medium">Account Balance</p>
-                <p className="text-4xl font-bold text-foreground font-mono">${(user?.balance ?? 0).toFixed(4)}</p>
+                <p className="text-4xl font-bold text-foreground font-mono">${(user?.balance ?? 0).toFixed(2)}</p>
                 <p className="text-xs text-muted-foreground mt-2">Depletes per extraction operation</p>
               </div>
               <div className="w-14 h-14 bg-primary/20 rounded-xl flex items-center justify-center">
