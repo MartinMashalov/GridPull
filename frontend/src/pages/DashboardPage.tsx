@@ -50,14 +50,7 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             {isError && <AlertCircle size={15} className="text-red-400" />}
             {isError ? 'Extraction Failed' : isComplete ? 'Complete!' : 'Processing…'}
           </span>
-          {!isComplete && !isError && (
-            <button
-              onClick={onCancel}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 transition-colors"
-            >
-              <X size={12} /> Cancel
-            </button>
-          )}
+          <span className="text-xs font-mono text-muted-foreground">{job.progress}%</span>
         </div>
         {/* Bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -101,6 +94,16 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
           </div>
         )}
       </div>
+      {!isComplete && !isError && (
+        <div className="px-5 py-3 border-t border-border flex justify-end">
+          <button
+            onClick={onCancel}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <X size={12} /> Cancel
+          </button>
+        </div>
+      )}
       {isError && job.error && (
         <div className="px-5 py-2.5 border-t border-border">
           <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
