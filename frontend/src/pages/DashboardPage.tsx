@@ -328,7 +328,6 @@ export default function DashboardPage() {
 
       {/* Progress */}
       {job && job.status !== 'complete' && <ProgressBar job={job} />}
-      {job?.status === 'error' && <ProgressBar job={job} />}
 
       {/* Results */}
       {job?.status === 'complete' && job.results && job.fields && (
