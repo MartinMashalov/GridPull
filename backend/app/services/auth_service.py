@@ -1,5 +1,5 @@
 from jose import JWTError, jwt
-from datetime import datetime
+import time
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
@@ -12,7 +12,7 @@ def create_access_token(user_id: str) -> str:
     """Create JWT token with NO expiration."""
     payload = {
         "sub": user_id,
-        "iat": datetime.utcnow().isoformat(),
+        "iat": int(time.time()),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
