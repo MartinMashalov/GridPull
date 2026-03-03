@@ -43,11 +43,18 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     setFields(prev => prev.filter((_, i) => i !== index))
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'INPUT' && fields.length > 0) {
+      e.preventDefault()
+      onConfirm(fields, format)
+    }
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+        <Dialog.Content onKeyDown={handleKeyDown} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
           <div className="p-5">
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
