@@ -72,12 +72,17 @@ export default {
           from: { transform: "translateX(-100%)" },
           to: { transform: "translateX(0)" },
         },
+        "progress-slide": {
+          "0%":   { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(250%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.3s ease-out",
         "slide-in": "slide-in 0.3s ease-out",
+        "progress-slide": "progress-slide 1.4s ease-in-out infinite",
       },
     },
   },

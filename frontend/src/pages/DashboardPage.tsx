@@ -41,6 +41,11 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
   const totalDocs = job.total_docs ?? 0
   const completedDocs = job.completed_docs ?? 0
 
+  // Drive bar from doc count so it only moves on real completions.
+  // While waiting (no docs counted yet) use an indeterminate pulse.
+  const barPct = isComplete ? 100 : totalDocs > 0 ? Math.round((completedDocs / totalDocs) * 100) : 0
+  const indeterminate = !isComplete && !isError && barPct === 0
+
   return (
     <div className="mt-4 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
       <div className="px-5 py-4 border-b border-border">
@@ -50,47 +55,38 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             {isError && <AlertCircle size={15} className="text-red-400" />}
             {isError ? 'Extraction Failed' : isComplete ? 'Complete!' : 'Processing…'}
           </span>
-          <span className="text-xs font-mono text-muted-foreground">{job.progress}%</span>
+          {totalDocs > 0 && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {completedDocs}/{totalDocs} file{totalDocs !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
         {/* Bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-          <div
-            className={cn(
-              'h-full rounded-full transition-all duration-700 ease-out',
-              isError ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-primary'
-            )}
-            style={{ width: `${job.progress}%` }}
-          />
+          {indeterminate ? (
+            <div className="h-full w-2/5 bg-primary rounded-full animate-progress-slide" />
+          ) : (
+            <div
+              className={cn(
+                'h-full rounded-full transition-[width] duration-300 ease-out',
+                isError ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-primary'
+              )}
+              style={{ width: `${barPct}%` }}
+            />
+          )}
         </div>
         {/* Per-document dots */}
-        {totalDocs > 0 && (
+        {totalDocs > 0 && totalDocs <= 24 && (
           <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-            {totalDocs <= 24
-              ? Array.from({ length: totalDocs }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      'w-2 h-2 rounded-full transition-colors duration-300',
-                      i < completedDocs
-                        ? 'bg-emerald-500'
-                        : isError
-                        ? 'bg-red-500/30'
-                        : 'bg-secondary'
-                    )}
-                  />
-                ))
-              : (
-                <div className="flex-1 bg-secondary rounded-full h-1 overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-500 transition-all duration-500"
-                    style={{ width: `${(completedDocs / totalDocs) * 100}%` }}
-                  />
-                </div>
-              )
-            }
-            <span className="text-[10px] text-muted-foreground ml-0.5">
-              {completedDocs}/{totalDocs} file{totalDocs !== 1 ? 's' : ''}
-            </span>
+            {Array.from({ length: totalDocs }).map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'w-2 h-2 rounded-full transition-colors duration-200',
+                  i < completedDocs ? 'bg-emerald-500' : isError ? 'bg-red-500/30' : 'bg-secondary'
+                )}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -232,18 +228,11 @@ export default function DashboardPage() {
       fd.append('fields', JSON.stringify(fields))
       fd.append('format', format)
 
-      const res = await api.post('/documents/extract', fd, {
-        onUploadProgress: (e) => {
-          if (e.total) {
-            const pct = Math.round((e.loaded / e.total) * 20)
-            setJob((p) => p ? { ...p, progress: 5 + pct, message: 'Uploading files…' } : null)
-          }
-        },
-      })
+      const res = await api.post('/documents/extract', fd)
 
       const jobId = res.data.job_id
       localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format: exportFormat }))
-      setJob((p) => p ? { ...p, jobId, status: 'processing', progress: 25, message: 'Job queued — connecting…' } : null)
+      setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
       setActiveJobId(jobId)
     } catch (err: any) {
       const detail = err.response?.data?.detail
