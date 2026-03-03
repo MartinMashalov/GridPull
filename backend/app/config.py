@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
 
+    # Mistral (OCR for scanned PDFs)
+    mistral_api_key: str = ""
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

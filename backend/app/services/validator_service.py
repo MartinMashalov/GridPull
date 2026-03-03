@@ -96,7 +96,9 @@ def _parses_as_number(value: str) -> bool:
     if not value:
         return False
     cleaned = re.sub(r"[\$£€¥,\s%()]", "", value)
-    # Handle parentheses as negative (e.g. accounting format)
+    # Strip magnitude suffixes (e.g. "237.7billion" → "237.7")
+    cleaned = re.sub(r"(?i)(trillion|billion|million|thousand|[TBMK])$", "", cleaned)
+    # Handle remaining minus sign
     cleaned = cleaned.lstrip("-")
     try:
         float(cleaned)

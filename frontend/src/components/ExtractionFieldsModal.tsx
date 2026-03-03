@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Plus, Trash2 } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
@@ -43,18 +43,27 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     setFields(prev => prev.filter((_, i) => i !== index))
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'INPUT' && fields.length > 0) {
+  // Submit on Enter — fires from anywhere in the modal except when the user
+  // is actively typing a custom field name (has text in the input)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' && newFieldName.trim()) return
+      if (fields.length === 0) return
       e.preventDefault()
       onConfirm(fields, format)
     }
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, fields, format, newFieldName, onConfirm])
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Dialog.Content onKeyDown={handleKeyDown} className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
           <div className="p-5">
             {/* Header */}
             <div className="flex items-center justify-between mb-5">

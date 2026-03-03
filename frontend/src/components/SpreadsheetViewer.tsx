@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ChevronUp, ChevronDown, ChevronsUpDown, Download, Search, X, FileSpreadsheet, AlertTriangle } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, FileSpreadsheet, AlertTriangle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -12,6 +11,7 @@ export interface SpreadsheetViewerProps {
   jobId: string
   format: 'xlsx' | 'csv'
   cost?: number
+  onNew?: () => void
 }
 
 type SortDir = 'asc' | 'desc'
@@ -23,10 +23,9 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, cost }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [search, setSearch] = useState('')
   const token = useAuthStore((s) => s.token)
 
   const handleDownload = () => {
@@ -56,36 +55,28 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
   }
 
   const displayRows = useMemo(() => {
-    let rows = results
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      rows = rows.filter((r) => Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)))
-    }
-    if (sortField) {
-      const key = sortField === 'Source File' ? '_source_file' : sortField
-      rows = [...rows].sort((a, b) => {
-        const va = String(a[key] ?? '').toLowerCase()
-        const vb = String(b[key] ?? '').toLowerCase()
-        const cmp = va.localeCompare(vb, undefined, { numeric: true })
-        return sortDir === 'asc' ? cmp : -cmp
-      })
-    }
-    return rows
-  }, [results, search, sortField, sortDir])
+    if (!sortField) return results
+    const key = sortField === 'Source File' ? '_source_file' : sortField
+    return [...results].sort((a, b) => {
+      const va = String(a[key] ?? '').toLowerCase()
+      const vb = String(b[key] ?? '').toLowerCase()
+      const cmp = va.localeCompare(vb, undefined, { numeric: true })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [results, sortField, sortDir])
 
   const hasErrors = results.some((r) => r['_error'])
 
   return (
     <div className="mt-6 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
       {/* Toolbar */}
-      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-4 flex-wrap">
+      <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 bg-emerald-500/15 rounded-lg flex items-center justify-center">
             <FileSpreadsheet size={14} className="text-emerald-400" />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Extracted Results</span>
-            <Badge variant="secondary" className="text-[11px]">{displayRows.length} / {results.length} rows</Badge>
             {cost != null && (
               <Badge variant="blue" className="text-[11px]">${cost.toFixed(6)} cost</Badge>
             )}
@@ -93,24 +84,21 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search…"
-              className="pl-8 pr-7 h-8 text-xs w-40"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                <X size={12} />
-              </button>
-            )}
-          </div>
-          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleDownload}>
-            <Download size={12} />
-            {format.toUpperCase()}
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-8 w-8"
+            onClick={handleDownload}
+            title={`Download ${format.toUpperCase()}`}
+          >
+            <Download size={14} />
           </Button>
+          {onNew && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onNew}>
+              <Plus size={13} />
+              New
+            </Button>
+          )}
         </div>
       </div>
 
@@ -142,53 +130,45 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
             </tr>
           </thead>
           <tbody>
-            {displayRows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length} className="px-4 py-12 text-center text-muted-foreground">
-                  No results match your search.
-                </td>
-              </tr>
-            ) : (
-              displayRows.map((row, ri) => {
-                const hasError = !!row['_error']
-                return (
-                  <tr
-                    key={ri}
-                    className={cn(
-                      'border-b border-border transition-colors',
-                      hasError
-                        ? 'bg-red-500/5 hover:bg-red-500/10'
-                        : ri % 2 === 0
-                        ? 'hover:bg-accent/50'
-                        : 'bg-secondary/30 hover:bg-accent/50'
-                    )}
-                  >
-                    {columns.map((col) => {
-                      const key = col === 'Source File' ? '_source_file' : col
-                      const val = row[key] ?? ''
-                      return (
-                        <td
-                          key={col}
-                          className="px-4 py-2 text-foreground border-r border-border last:border-r-0 max-w-xs"
-                          title={val}
-                        >
-                          <div className="truncate max-w-[220px]">
-                            {hasError && col === 'Source File' ? (
-                              <span className="flex items-center gap-1 text-red-400">
-                                <AlertTriangle size={11} />
-                                {val}
-                              </span>
-                            ) : (
-                              val || <span className="text-muted-foreground/40 italic">—</span>
-                            )}
-                          </div>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })
-            )}
+            {displayRows.map((row, ri) => {
+              const hasError = !!row['_error']
+              return (
+                <tr
+                  key={ri}
+                  className={cn(
+                    'border-b border-border transition-colors',
+                    hasError
+                      ? 'bg-red-500/5 hover:bg-red-500/10'
+                      : ri % 2 === 0
+                      ? 'hover:bg-accent/50'
+                      : 'bg-secondary/30 hover:bg-accent/50'
+                  )}
+                >
+                  {columns.map((col) => {
+                    const key = col === 'Source File' ? '_source_file' : col
+                    const val = row[key] ?? ''
+                    return (
+                      <td
+                        key={col}
+                        className="px-4 py-2 text-foreground border-r border-border last:border-r-0 max-w-xs"
+                        title={val}
+                      >
+                        <div className="truncate max-w-[220px]">
+                          {hasError && col === 'Source File' ? (
+                            <span className="flex items-center gap-1 text-red-400">
+                              <AlertTriangle size={11} />
+                              {val}
+                            </span>
+                          ) : (
+                            val || <span className="text-muted-foreground/40 italic">—</span>
+                          )}
+                        </div>
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

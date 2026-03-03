@@ -22,6 +22,8 @@ export interface JobState {
   status: 'queued' | 'processing' | 'extracting' | 'generating' | 'complete' | 'error'
   progress: number
   message: string
+  completed_docs?: number
+  total_docs?: number
   downloadUrl?: string
   results?: Record<string, string>[]
   fields?: string[]
@@ -30,20 +32,14 @@ export interface JobState {
 }
 
 const _ACTIVE_JOB_KEY = 'gridpull-active-job'
+const _ACCEPTED_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg'])
 
 // ── Progress bar ───────────────────────────────────────────────────────────────
 function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void }) {
   const isError = job.status === 'error'
   const isComplete = job.status === 'complete'
-
-  const steps = [
-    { key: 'processing', label: 'Upload' },
-    { key: 'extracting', label: 'AI Extract' },
-    { key: 'generating', label: 'Build' },
-    { key: 'complete', label: 'Done' },
-  ]
-  const order = ['queued', 'processing', 'extracting', 'generating', 'complete']
-  const curIdx = order.indexOf(job.status)
+  const totalDocs = job.total_docs ?? 0
+  const completedDocs = job.completed_docs ?? 0
 
   return (
     <div className="mt-4 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
@@ -54,17 +50,14 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             {isError && <AlertCircle size={15} className="text-red-400" />}
             {isError ? 'Extraction Failed' : isComplete ? 'Complete!' : 'Processing…'}
           </span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-primary tabular-nums">{job.progress}%</span>
-            {!isComplete && !isError && (
-              <button
-                onClick={onCancel}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 transition-colors"
-              >
-                <X size={12} /> Cancel
-              </button>
-            )}
-          </div>
+          {!isComplete && !isError && (
+            <button
+              onClick={onCancel}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-400 transition-colors"
+            >
+              <X size={12} /> Cancel
+            </button>
+          )}
         </div>
         {/* Bar */}
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -76,39 +69,37 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             style={{ width: `${job.progress}%` }}
           />
         </div>
-        {/* Steps */}
-        <div className="mt-3 flex items-center">
-          {steps.map((step, i) => {
-            const stepIdx = order.indexOf(step.key)
-            const isDone = !isError && curIdx > stepIdx
-            const isActive = !isError && curIdx === stepIdx
-            return (
-              <div key={step.key} className="flex items-center flex-1 last:flex-none">
-                <div className="flex flex-col items-center gap-1 flex-1">
-                  <div className={cn(
-                    'w-1.5 h-1.5 rounded-full transition-colors',
-                    isDone ? 'bg-emerald-500' :
-                    isActive ? 'bg-primary ring-2 ring-primary/30' :
-                    isError && stepIdx === curIdx ? 'bg-red-500' : 'bg-secondary'
-                  )} />
-                  <span className={cn(
-                    'text-[10px] font-medium whitespace-nowrap',
-                    isDone ? 'text-emerald-500' :
-                    isActive ? 'text-primary' : 'text-muted-foreground'
-                  )}>
-                    {step.label}
-                  </span>
+        {/* Per-document dots */}
+        {totalDocs > 0 && (
+          <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+            {totalDocs <= 24
+              ? Array.from({ length: totalDocs }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      'w-2 h-2 rounded-full transition-colors duration-300',
+                      i < completedDocs
+                        ? 'bg-emerald-500'
+                        : isError
+                        ? 'bg-red-500/30'
+                        : 'bg-secondary'
+                    )}
+                  />
+                ))
+              : (
+                <div className="flex-1 bg-secondary rounded-full h-1 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-500"
+                    style={{ width: `${(completedDocs / totalDocs) * 100}%` }}
+                  />
                 </div>
-                {i < steps.length - 1 && (
-                  <div className={cn(
-                    'h-px flex-1 mx-1 mt-[-10px] transition-colors',
-                    isDone ? 'bg-emerald-500/40' : 'bg-border'
-                  )} />
-                )}
-              </div>
-            )
-          })}
-        </div>
+              )
+            }
+            <span className="text-[10px] text-muted-foreground ml-0.5">
+              {completedDocs}/{totalDocs} file{totalDocs !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
       </div>
       <div className="px-5 py-2.5">
         {isError && job.error ? (
@@ -154,7 +145,14 @@ export default function DashboardPage() {
 
     if (event.type === 'progress') {
       setJob((prev) =>
-        prev ? { ...prev, status: event.status as JobState['status'], progress: event.progress, message: event.message ?? prev.message } : null
+        prev ? {
+          ...prev,
+          status: event.status as JobState['status'],
+          progress: event.progress,
+          message: event.message ?? prev.message,
+          ...(event.completed_docs != null && { completed_docs: event.completed_docs }),
+          ...(event.total_docs != null && { total_docs: event.total_docs }),
+        } : null
       )
     }
 
@@ -192,21 +190,25 @@ export default function DashboardPage() {
   }, [event])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const pdfs = acceptedFiles.filter((f) => f.type === 'application/pdf')
-    if (pdfs.length !== acceptedFiles.length) {
-      setValidationMsg('Only PDF files are accepted.')
+    const valid = acceptedFiles.filter((f) => _ACCEPTED_TYPES.has(f.type))
+    if (valid.length !== acceptedFiles.length) {
+      setValidationMsg('Only PDF, PNG, and JPEG files are accepted.')
     } else {
       setValidationMsg(null)
     }
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size))
-      return [...prev, ...pdfs.filter((f) => !seen.has(f.name + f.size))]
+      return [...prev, ...valid.filter((f) => !seen.has(f.name + f.size))]
     })
   }, [])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+    },
     multiple: true,
     noKeyboard: true,
   })
@@ -221,7 +223,7 @@ export default function DashboardPage() {
     setShowModal(false)
     setExportFormat(format)
     setActiveJobId(null)
-    setJob({ jobId: '', status: 'queued', progress: 0, message: 'Uploading files…' })
+    setJob({ jobId: '', status: 'queued', progress: 0, message: 'Uploading files…', total_docs: files.length, completed_docs: 0 })
 
     try {
       const fd = new FormData()
@@ -261,6 +263,14 @@ export default function DashboardPage() {
     setJob(null)
     setActiveJobId(null)
     setFiles([])
+  }
+
+  const handleNew = () => {
+    localStorage.removeItem(_ACTIVE_JOB_KEY)
+    setJob(null)
+    setActiveJobId(null)
+    setFiles([])
+    setValidationMsg(null)
   }
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
@@ -333,11 +343,11 @@ export default function DashboardPage() {
             <Upload size={22} />
           </div>
           {isDragActive ? (
-            <p className="text-primary font-medium">Drop your PDFs here</p>
+            <p className="text-primary font-medium">Drop your files here</p>
           ) : (
             <div>
-              <p className="text-foreground font-medium">Drop PDF files here</p>
-              <p className="text-muted-foreground text-sm mt-1">or click to browse — multiple files supported</p>
+              <p className="text-foreground font-medium">Drop files here</p>
+              <p className="text-muted-foreground text-sm mt-1">PDF, PNG, JPEG — multiple files supported</p>
             </div>
           )}
         </div>
@@ -388,6 +398,7 @@ export default function DashboardPage() {
           jobId={job.jobId}
           format={exportFormat}
           cost={job.cost}
+          onNew={handleNew}
         />
       )}
 

@@ -14,6 +14,8 @@ export interface ProgressEvent {
   status: string
   progress: number
   message?: string
+  completed_docs?: number
+  total_docs?: number
   download_url?: string
   results?: Record<string, string>[]
   fields?: string[]

@@ -117,10 +117,13 @@ async def start_extraction(
     os.makedirs(upload_dir, exist_ok=True)
     saved_count = 0
 
+    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+
     for upload in files:
         fname = upload.filename or ""
-        if not fname.lower().endswith(".pdf"):
-            logger.warning("Skipping non-PDF file %s in job %s", fname, job.id)
+        ext = os.path.splitext(fname.lower())[1]
+        if ext not in _ALLOWED_EXT:
+            logger.warning("Skipping unsupported file %s in job %s", fname, job.id)
             continue
         path = os.path.join(upload_dir, fname)
         content = await upload.read()
@@ -132,7 +135,7 @@ async def start_extraction(
         saved_count += 1
 
     await db.commit()
-    logger.info("Saved %d PDF(s) for job %s — enqueuing…", saved_count, job.id)
+    logger.info("Saved %d file(s) for job %s — enqueuing…", saved_count, job.id)
 
     # Enqueue into the worker pool
     await worker_pool.submit(process_job, job.id, worker_pool.broadcast)

@@ -1,6 +1,7 @@
 import { Component, ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from '@/pages/LandingPage'
+import PrivacyPage from '@/pages/PrivacyPage'
 import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import { useAuthStore } from '@/store/authStore'
@@ -57,6 +58,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </ErrorBoundary>

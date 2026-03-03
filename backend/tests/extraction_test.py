@@ -1,7 +1,7 @@
 """
 Enterprise extraction test suite.
 
-Runs the full extraction pipeline against all 5 test document sets and
+Runs the full extraction pipeline against all test document sets and
 reports quality metrics (FFR / NPR / DPR / ERR) per folder and overall.
 
 Usage:
@@ -38,7 +38,7 @@ try:
 except ImportError:
     pass  # python-dotenv optional; rely on env vars already set
 
-from app.services.extraction_service import extract_from_document  # noqa: E402
+from app.services.extraction_service import extract_from_document, LLMUsage  # noqa: E402
 from app.services.pdf_service import parse_pdf                      # noqa: E402
 from app.services.validator_service import ValidationReport, score_extraction  # noqa: E402
 
@@ -118,6 +118,20 @@ TEST_CASES: List[Dict] = [
         ],
     },
     {
+        "folder": "06_annual_reports",
+        "description": "Annual reports & 10-K filings — 20 diverse companies, document-level financial summary",
+        "ffr_target": 0.75,  # Diverse formats: glossy ARs, compact 10-Ks, different label conventions
+        "fields": [
+            {"name": "Company Name"},
+            {"name": "Report Year", "description": "Fiscal year or calendar year covered by the report (e.g. 2023)"},
+            {"name": "Total Revenue", "description": "Total revenues or net revenues from the income statement"},
+            {"name": "Net Income", "description": "Net income or net earnings attributable to shareholders"},
+            {"name": "Total Assets", "description": "Total assets from the consolidated balance sheet"},
+            {"name": "Total Equity", "description": "Total shareholders equity or stockholders equity from the balance sheet"},
+            {"name": "Operating Income", "description": "Operating income or income from operations (before interest and taxes)"},
+        ],
+    },
+    {
         # GSA forms are blank/template forms — operational fields (vendor, contract no,
         # amount) are intentionally empty. Testing form-metadata fields that ARE present.
         "folder": "05_purchase_orders",
@@ -127,6 +141,20 @@ TEST_CASES: List[Dict] = [
             {"name": "Form Number", "description": "Standard Form number (e.g. SF 1449, SF 26)"},
             {"name": "Revision Date", "description": "Revision date shown on the form (e.g. REV. 12/2022)"},
             {"name": "Form Purpose", "description": "Brief description of what this form is used for"},
+        ],
+    },
+    {
+        # Scanned/image-based PDFs — exercises the Mistral OCR → gpt-4.1-mini SCAN pipeline.
+        # These are scanned receipts and invoices (not native digital PDFs).
+        # Lower FFR target because scanned quality varies and some fields may be partially visible.
+        "folder": "07_scanned_docs",
+        "description": "Scanned receipts & invoices — tests Mistral OCR → gpt-4.1-mini SCAN pipeline",
+        "ffr_target": 0.70,
+        "fields": [
+            {"name": "Vendor Name", "description": "Name of the store, restaurant, or business on the receipt"},
+            {"name": "Total Amount", "description": "Final total amount charged including tax"},
+            {"name": "Date", "description": "Date of the transaction or invoice"},
+            {"name": "Tax Amount", "description": "Tax amount charged (GST, VAT, sales tax, etc.)"},
         ],
     },
 ]
@@ -199,7 +227,7 @@ async def run_folder(
             tables = len(parsed.tables)
             print(f" {parsed.page_count}p  hint={hint}  tables={tables}", end="", flush=True)
 
-        rows = await extract_from_document(parsed, fields)
+        rows = await extract_from_document(parsed, fields, LLMUsage())
 
         if verbose:
             print(f"  → {len(rows)} row(s)")

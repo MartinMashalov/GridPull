@@ -9,6 +9,7 @@ Responsibilities:
 5. Broadcast granular progress events for SSE subscribers
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -63,7 +64,7 @@ async def process_job(
     job_start = time.monotonic()
     logger.info("=== Job %s started ===", job_id)
 
-    async def emit(status: str, progress: int, message: str) -> None:
+    async def emit(status: str, progress: int, message: str, completed_docs: int = 0, total_docs_count: int = 0) -> None:
         logger.debug("Job %s progress — status=%s pct=%d msg=%r", job_id, status, progress, message)
         await broadcast(
             job_id,
@@ -72,6 +73,8 @@ async def process_job(
                 "status": status,
                 "progress": progress,
                 "message": message,
+                "completed_docs": completed_docs,
+                "total_docs": total_docs_count,
             },
         )
 
@@ -103,82 +106,89 @@ async def process_job(
             # ── Phase 1: processing ────────────────────────────────────
             job.status = "processing"
             await db.commit()
-            await emit("processing", 5, f"Starting extraction of {total_docs} document(s)…")
+            await emit("processing", 5, f"Starting extraction of {total_docs} document(s)…", 0, total_docs)
 
             all_extracted: List[Dict[str, Any]] = []
             total_pages = 0
-            job_usage = LLMUsage()  # Accumulates token cost across all docs
+            job_usage = LLMUsage()  # Accumulates token cost across all docs (safe: asyncio is single-threaded)
+            completed_count = 0
+            results_ordered: List[List[Dict[str, Any]]] = [[] for _ in range(total_docs)]
+            sem = asyncio.Semaphore(8)  # Up to 8 docs extracted concurrently
 
-            for idx, doc in enumerate(documents):
-                base_pct = 5 + int((idx / total_docs) * 65)
-                doc_start = time.monotonic()
-
-                logger.info(
-                    "Job %s — processing doc %d/%d: %s",
-                    job_id, idx + 1, total_docs, doc.filename,
-                )
-
-                await emit(
-                    "extracting",
-                    base_pct,
-                    f"Reading {doc.filename} ({idx + 1}/{total_docs})…",
-                )
-                job.status = "extracting"
-                await db.commit()
-
-                try:
-                    parsed_doc = parse_pdf(doc.file_path, doc.filename)
-                    doc.page_count = parsed_doc.page_count
-                    total_pages += parsed_doc.page_count
-                    doc.status = "processing"
-                    await db.commit()
-
+            async def _process_doc(idx: int, doc_id: str, filename: str, file_path: str) -> None:
+                nonlocal total_pages, completed_count
+                async with sem:
+                    doc_start = time.monotonic()
                     logger.info(
-                        "Job %s — parsed %s: %d pages, type=%s",
-                        job_id, doc.filename, parsed_doc.page_count,
-                        getattr(parsed_doc, "doc_type_hint", "unknown"),
+                        "Job %s — processing doc %d/%d: %s",
+                        job_id, idx + 1, total_docs, filename,
                     )
+                    async with _WorkerSession() as doc_db:
+                        doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
+                        doc_obj = doc_res.scalar_one()
+                        try:
+                            parsed_doc = parse_pdf(file_path, filename)
+                            doc_obj.page_count = parsed_doc.page_count
+                            total_pages += parsed_doc.page_count
+                            doc_obj.status = "processing"
+                            await doc_db.commit()
 
-                    await emit(
-                        "extracting",
-                        base_pct + int(0.4 * (65 / total_docs)),
-                        f"AI extracting {doc.filename} ({parsed_doc.page_count} pages)…",
-                    )
+                            logger.info(
+                                "Job %s — parsed %s: %d pages, type=%s",
+                                job_id, filename, parsed_doc.page_count,
+                                getattr(parsed_doc, "doc_type_hint", "unknown"),
+                            )
 
-                    rows = await extract_from_document(parsed_doc, fields, job_usage)
-                    doc.extracted_data = rows
-                    doc.status = "complete"
-                    all_extracted.extend(rows)
-                    await db.commit()
+                            rows = await extract_from_document(parsed_doc, fields, job_usage)
+                            doc_obj.extracted_data = rows
+                            doc_obj.status = "complete"
+                            results_ordered[idx] = rows
+                            await doc_db.commit()
 
-                    doc_elapsed = (time.monotonic() - doc_start) * 1000
-                    logger.info(
-                        "Job %s — extracted %s: %d row(s) in %.0fms",
-                        job_id, doc.filename, len(rows), doc_elapsed,
-                    )
+                            completed_count += 1
+                            doc_elapsed = (time.monotonic() - doc_start) * 1000
+                            logger.info(
+                                "Job %s — extracted %s: %d row(s) in %.0fms",
+                                job_id, filename, len(rows), doc_elapsed,
+                            )
+                            pct = 5 + int((completed_count / total_docs) * 65)
+                            await emit(
+                                "extracting", pct,
+                                f"✓ {filename} done ({completed_count}/{total_docs})",
+                                completed_count, total_docs,
+                            )
 
-                    await emit(
-                        "extracting",
-                        base_pct + int(0.8 * (65 / total_docs)),
-                        f"✓ {doc.filename} done ({idx + 1}/{total_docs})",
-                    )
+                        except Exception as exc:
+                            logger.error(
+                                "Job %s — error processing %s: %s",
+                                job_id, filename, exc, exc_info=True,
+                            )
+                            doc_obj.status = "error"
+                            row: Dict[str, Any] = {f: "" for f in field_names}
+                            row["_source_file"] = filename
+                            row["_error"] = str(exc)
+                            results_ordered[idx] = [row]
+                            completed_count += 1
+                            await doc_db.commit()
 
-                except Exception as exc:
-                    logger.error(
-                        "Job %s — error processing %s: %s",
-                        job_id, doc.filename, exc, exc_info=True,
-                    )
-                    doc.status = "error"
-                    row: Dict[str, Any] = {f: "" for f in field_names}
-                    row["_source_file"] = doc.filename
-                    row["_error"] = str(exc)
-                    all_extracted.append(row)
-                    await db.commit()
+            # Kick off all docs in parallel (semaphore caps at 8 concurrent)
+            job.status = "extracting"
+            await db.commit()
+            await emit("extracting", 5, f"Extracting {total_docs} document(s) in parallel…", 0, total_docs)
+
+            await asyncio.gather(*[
+                _process_doc(i, doc.id, doc.filename, doc.file_path)
+                for i, doc in enumerate(documents)
+            ])
+
+            # Flatten results preserving original document order
+            for slot in results_ordered:
+                all_extracted.extend(slot)
 
             # ── Phase 2: generate spreadsheet ─────────────────────────
             job.status = "generating"
             await db.commit()
-            await emit("generating", 75, "Generating spreadsheet…")
+            await emit("generating", 75, "Generating spreadsheet…", total_docs, total_docs)
 
             output_filename = f"gridpull_{job_id}.{job.format}"
             output_path = os.path.join(settings.output_dir, output_filename)
@@ -196,7 +206,7 @@ async def process_job(
                 job_id, output_filename, file_size_kb, gen_elapsed,
             )
 
-            await emit("generating", 90, "Spreadsheet ready — updating balance…")
+            await emit("generating", 90, "Spreadsheet ready — updating balance…", total_docs, total_docs)
 
             # ── Phase 3: deduct balance (actual token cost + 20% markup) ──
             result = await db.execute(select(User).where(User.id == job.user_id))
