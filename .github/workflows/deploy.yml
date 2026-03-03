@@ -53,6 +53,10 @@ jobs:
             VITE_API_URL=https://${{ secrets.DOMAIN }}
             ENVEOF
 
+            # Ensure log file exists on host before container mounts it
+            touch /opt/gridpull/app.log
+            chmod 666 /opt/gridpull/app.log
+
             # Build & restart containers
             docker compose build --no-cache
             docker compose up -d --force-recreate
@@ -61,3 +65,4 @@ jobs:
             docker image prune -f
 
             echo "Deployment complete."
+            echo "Live log: tail -f /opt/gridpull/app.log"

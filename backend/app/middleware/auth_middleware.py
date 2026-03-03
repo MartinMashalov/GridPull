@@ -10,6 +10,7 @@ workers) with a 60-second TTL. Falls back to an in-process dict when Redis
 is unavailable.
 """
 
+import logging
 import time
 from typing import Optional, Tuple
 
@@ -23,6 +24,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import verify_token
 
+logger = logging.getLogger(__name__)
 security = HTTPBearer()
 
 # ── In-process user cache — fallback when Redis is unavailable ────────────────
@@ -50,12 +52,12 @@ def _local_set(user: User) -> None:
 def _cache_invalidate(user_id: str) -> None:
     """Remove from both in-process dict and Redis (best-effort)."""
     _USER_CACHE.pop(user_id, None)
-    # Redis deletion is async; callers that need it should await cache_del_user directly.
 
 
 async def _resolve_user(token: str, db: AsyncSession) -> User:
     user_id = verify_token(token)
     if not user_id:
+        logger.warning("Token rejected — invalid JWT")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -65,23 +67,33 @@ async def _resolve_user(token: str, db: AsyncSession) -> User:
     # ── Fast path 1: Redis cache (shared across workers) ─────────────────────
     cached = await cache_get_user(user_id)
     if cached is not None:
-        return cached  # type: ignore[return-value]  # CachedUser duck-types User
+        logger.debug("Auth cache hit (Redis) — user_id=%s", user_id)
+        return cached  # type: ignore[return-value]
 
     # ── Fast path 2: in-process dict (fallback when Redis is down) ───────────
     local = _local_get(user_id)
     if local is not None:
+        logger.debug("Auth cache hit (local) — user_id=%s", user_id)
         return local
 
     # ── Slow path: DB lookup ─────────────────────────────────────────────────
+    logger.debug("Auth cache miss — DB lookup for user_id=%s", user_id)
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
+        logger.warning(
+            "Auth rejected — user_id=%s not found or inactive",
+            user_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
 
-    # Populate both caches
+    logger.debug(
+        "Auth DB lookup OK — user_id=%s email=%s credits=%.2f",
+        user.id, user.email, user.credits,
+    )
     await cache_set_user(user)
     _local_set(user)
     return user
@@ -108,12 +120,15 @@ async def get_current_user_sse(
     """
     raw = request.headers.get("Authorization", "")
     if raw.startswith("Bearer "):
-        jwt = raw[7:]
+        jwt_token = raw[7:]
+        logger.debug("SSE auth via Bearer header")
     elif token:
-        jwt = token
+        jwt_token = token
+        logger.debug("SSE auth via query param")
     else:
+        logger.warning("SSE request with no auth from %s", request.client.host if request.client else "-")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
-    return await _resolve_user(jwt, db)
+    return await _resolve_user(jwt_token, db)

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.database import get_db
@@ -8,6 +10,7 @@ from app.services.auth_service import (
     verify_google_access_token,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -21,18 +24,36 @@ class AuthResponse(BaseModel):
 
 
 @router.post("/google", response_model=AuthResponse)
-async def google_auth(request: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
+async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate with Google OAuth access token."""
+    client_ip = request.client.host if request.client else "-"
+    token_preview = body.access_token[:12] + "…" if len(body.access_token) > 12 else body.access_token
+
+    logger.info("Login attempt from %s (token: %s)", client_ip, token_preview)
+
     try:
-        google_user = await verify_google_access_token(request.access_token)
+        google_user = await verify_google_access_token(body.access_token)
     except Exception as e:
+        logger.warning(
+            "Google token verification failed from %s: %s",
+            client_ip, str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid Google token: {str(e)}",
         )
 
+    email = google_user.get("email", "<no-email>")
+    name = google_user.get("name", "<no-name>")
+    logger.info("Google token verified — email=%s name=%s ip=%s", email, name, client_ip)
+
     user = await get_or_create_user(db, google_user)
     token = create_access_token(user.id)
+
+    logger.info(
+        "Login successful — user_id=%s email=%s credits=%.2f ip=%s",
+        user.id, user.email, user.credits, client_ip,
+    )
 
     return {
         "access_token": token,

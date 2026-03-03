@@ -1,36 +1,45 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.config import settings
 from app.database import init_db
+from app.logging_config import setup_logging
 from app.routes import auth, documents, payments, users
 from app.workers.pool import worker_pool
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Initialise logging before anything else so all module-level loggers are ready
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────
+    logger.info("=" * 60)
+    logger.info("GridPull API starting up")
+    logger.info("=" * 60)
+
     logger.info("Initialising database…")
     await init_db()
+    logger.info("Database ready")
 
     logger.info("Starting worker pool (%d workers)…", worker_pool.NUM_WORKERS)
     await worker_pool.start()
+    logger.info("Worker pool started")
+
+    logger.info("GridPull API is ready to serve requests")
 
     yield
 
     # ── Shutdown ─────────────────────────────────────────────────────
-    logger.info("Stopping worker pool…")
+    logger.info("GridPull API shutting down…")
     await worker_pool.stop()
+    logger.info("Worker pool stopped — goodbye")
 
 
 app = FastAPI(
@@ -57,6 +66,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log every HTTP request with method, path, status, duration, and client IP."""
+    start = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.monotonic() - start) * 1000
+        client = request.client.host if request.client else "-"
+        logger.error(
+            "UNHANDLED %s %s — %.1fms — %s — %s",
+            request.method, request.url.path, duration_ms, client, exc,
+        )
+        raise
+
+    duration_ms = (time.monotonic() - start) * 1000
+    client = request.client.host if request.client else "-"
+    status = response.status_code
+
+    # Log level based on status: errors are WARNING/ERROR, normal is INFO
+    if status >= 500:
+        log = logger.error
+    elif status >= 400:
+        log = logger.warning
+    else:
+        log = logger.info
+
+    log(
+        "%s %s %d %.1fms %s",
+        request.method, request.url.path, status, duration_ms, client,
+    )
+    return response
+
+
 # Routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
@@ -67,6 +111,7 @@ app.include_router(users.router, prefix="/api")
 @app.get("/api/health")
 async def health():
     queue_size = worker_pool._job_queue.qsize() if worker_pool._job_queue else 0
+    logger.debug("Health check — queue depth: %d", queue_size)
     return {
         "status": "ok",
         "service": "GridPull API",

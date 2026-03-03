@@ -15,7 +15,7 @@ import os
 from typing import AsyncIterator, List
 
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -39,26 +39,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 # ── In-process result cache — fallback when Redis is unavailable ───────────────
-# Job results are immutable once status='complete'. Cache them forever (per-process).
 _RESULT_CACHE: dict[str, dict] = {}
 _JOB_STATUS_CACHE: dict[str, dict] = {}
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache",
     "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",   # disable nginx buffering
+    "X-Accel-Buffering": "no",
     "Access-Control-Allow-Origin": "*",
 }
 
-KEEPALIVE_INTERVAL = 15  # seconds between SSE keepalive comments
+KEEPALIVE_INTERVAL = 15
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.post("/extract")
 async def start_extraction(
+    request: Request,
     files: List[UploadFile] = File(...),
     fields: str = Form(...),
     format: str = Form("xlsx"),
@@ -66,7 +64,10 @@ async def start_extraction(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload PDFs and enqueue an extraction job."""
+    client_ip = request.client.host if request.client else "-"
+
     if not files:
+        logger.warning("Extract request with no files — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No files provided")
 
     if format not in ("xlsx", "csv"):
@@ -74,13 +75,28 @@ async def start_extraction(
 
     fields_data = json.loads(fields)
     if not fields_data:
+        logger.warning("Extract request with no fields — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No extraction fields provided")
 
     if current_user.credits < 1:
+        logger.warning(
+            "Extract rejected — insufficient credits %.2f — user_id=%s",
+            current_user.credits, current_user.id,
+        )
         raise HTTPException(
             status_code=402,
             detail="Insufficient credits — please purchase more.",
         )
+
+    filenames = [f.filename for f in files]
+    logger.info(
+        "Extract request — user_id=%s files=%s fields=%s format=%s ip=%s",
+        current_user.id,
+        filenames,
+        [f["name"] for f in fields_data],
+        format,
+        client_ip,
+    )
 
     # Create job record
     job = ExtractionJob(
@@ -94,23 +110,37 @@ async def start_extraction(
     await db.commit()
     await db.refresh(job)
 
+    logger.info("Job created — job_id=%s user_id=%s", job.id, current_user.id)
+
     # Persist uploaded files
     upload_dir = os.path.join(settings.upload_dir, job.id)
     os.makedirs(upload_dir, exist_ok=True)
+    saved_count = 0
 
     for upload in files:
-        if not (upload.filename or "").lower().endswith(".pdf"):
+        fname = upload.filename or ""
+        if not fname.lower().endswith(".pdf"):
+            logger.warning("Skipping non-PDF file %s in job %s", fname, job.id)
             continue
-        path = os.path.join(upload_dir, upload.filename)
+        path = os.path.join(upload_dir, fname)
+        content = await upload.read()
         async with aiofiles.open(path, "wb") as fh:
-            await fh.write(await upload.read())
-        db.add(Document(job_id=job.id, filename=upload.filename, file_path=path))
+            await fh.write(content)
+        size_kb = len(content) / 1024
+        db.add(Document(job_id=job.id, filename=fname, file_path=path))
+        logger.info("Saved %s (%.1f KB) for job %s", fname, size_kb, job.id)
+        saved_count += 1
 
     await db.commit()
+    logger.info("Saved %d PDF(s) for job %s — enqueuing…", saved_count, job.id)
 
     # Enqueue into the worker pool
     await worker_pool.submit(process_job, job.id, worker_pool.broadcast)
-    logger.info("Job %s enqueued (queue depth: %d)", job.id, worker_pool._job_queue.qsize())
+    queue_depth = worker_pool._job_queue.qsize()
+    logger.info(
+        "Job %s enqueued — queue depth: %d — user_id=%s",
+        job.id, queue_depth, current_user.id,
+    )
 
     return {"job_id": job.id, "status": "queued"}
 
@@ -122,14 +152,16 @@ async def get_job_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Polling fallback — prefer the SSE endpoint for real-time updates."""
-    # ── Fast path 1: Redis (shared across workers) ────────────────────────────
+    # ── Fast path 1: Redis ────────────────────────────────────────────────────
     redis_hit = await cache_get_job_status(job_id, current_user.id)
     if redis_hit is not None:
+        logger.debug("Job status cache hit (Redis) — job_id=%s", job_id)
         return redis_hit
 
-    # ── Fast path 2: in-process dict (Redis fallback) ────────────────────────
+    # ── Fast path 2: in-process dict ─────────────────────────────────────────
     cache_key = f"{current_user.id}:{job_id}"
     if cache_key in _JOB_STATUS_CACHE:
+        logger.debug("Job status cache hit (local) — job_id=%s", job_id)
         return _JOB_STATUS_CACHE[cache_key]
 
     # ── Slow path: DB ─────────────────────────────────────────────────────────
@@ -141,8 +173,10 @@ async def get_job_status(
     )
     job = result.scalar_one_or_none()
     if not job:
+        logger.warning("Job %s not found for user_id=%s", job_id, current_user.id)
         raise HTTPException(status_code=404, detail="Job not found")
 
+    logger.debug("Job status DB lookup — job_id=%s status=%s", job_id, job.status)
     payload = {
         "job_id": job.id,
         "status": job.status,
@@ -153,7 +187,6 @@ async def get_job_status(
         "credits_used": job.credits_used,
     }
     if job.status in ("complete", "error"):
-        # Terminal — cache forever in Redis and in-process
         await cache_set_job_status(job_id, current_user.id, payload)
         _JOB_STATUS_CACHE[cache_key] = payload
     return payload
@@ -165,18 +198,9 @@ async def job_progress_sse(
     current_user: User = Depends(get_current_user_sse),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Server-Sent Events stream for a specific job.
+    """Server-Sent Events stream for a specific job."""
+    logger.info("SSE connection opened — job_id=%s user_id=%s", job_id, current_user.id)
 
-    Events emitted:
-      data: {"type": "progress", "status": "...", "progress": 0-100, "message": "..."}
-      data: {"type": "complete", "progress": 100, "results": [...], "fields": [...], "download_url": "..."}
-      data: {"type": "error",    "error": "..."}
-
-    Connect via EventSource:
-      new EventSource(`/api/documents/progress/${jobId}?token=${jwt}`)
-    """
-    # Verify job ownership
     result = await db.execute(
         select(ExtractionJob).where(
             ExtractionJob.id == job_id,
@@ -185,10 +209,12 @@ async def job_progress_sse(
     )
     job = result.scalar_one_or_none()
     if not job:
+        logger.warning("SSE: job %s not found for user_id=%s", job_id, current_user.id)
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # If already terminal, synthesise the event immediately
+    # Already terminal — synthesise event immediately
     if job.status == "complete":
+        logger.info("SSE: job %s already complete — sending cached result", job_id)
         docs_res = await db.execute(select(Document).where(Document.job_id == job_id))
         docs = docs_res.scalars().all()
         results = [d.extracted_data for d in docs if d.extracted_data]
@@ -210,26 +236,37 @@ async def job_progress_sse(
         return StreamingResponse(_done_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
     if job.status == "error":
+        logger.info("SSE: job %s already errored — sending error event", job_id)
+
         async def _err_stream() -> AsyncIterator[str]:
             yield f"data: {json.dumps({'type': 'error', 'status': 'error', 'error': job.error or 'Unknown error'})}\n\n"
+
         return StreamingResponse(_err_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    # Subscribe to live events from the worker pool
+    # Subscribe to live events
     queue = await worker_pool.subscribe(job_id)
+    logger.info("SSE: subscribed to live events for job %s", job_id)
 
     async def _live_stream() -> AsyncIterator[str]:
+        keepalive_count = 0
         try:
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_INTERVAL)
                     yield f"data: {json.dumps(event)}\n\n"
                     if event.get("type") in ("complete", "error"):
+                        logger.info(
+                            "SSE: job %s finished with type=%s — closing stream",
+                            job_id, event.get("type"),
+                        )
                         break
                 except asyncio.TimeoutError:
-                    # Keep connection alive
+                    keepalive_count += 1
+                    logger.debug("SSE keepalive #%d — job %s", keepalive_count, job_id)
                     yield ": keepalive\n\n"
         finally:
             await worker_pool.unsubscribe(job_id, queue)
+            logger.info("SSE: stream closed for job %s", job_id)
 
     return StreamingResponse(_live_stream(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
@@ -241,18 +278,17 @@ async def get_results(
     db: AsyncSession = Depends(get_db),
 ):
     """Return extracted data as JSON for the in-browser spreadsheet viewer."""
-    # ── Fast path 1: Redis (shared across workers) ────────────────────────────
     redis_hit = await cache_get_results(job_id, current_user.id)
     if redis_hit is not None:
+        logger.debug("Results cache hit (Redis) — job_id=%s", job_id)
         return redis_hit
 
-    # ── Fast path 2: in-process dict (Redis fallback) ────────────────────────
     if job_id in _RESULT_CACHE:
         cached = _RESULT_CACHE[job_id]
         if cached.get("_owner") == current_user.id:
+            logger.debug("Results cache hit (local) — job_id=%s", job_id)
             return {k: v for k, v in cached.items() if k != "_owner"}
 
-    # ── Slow path: single query fetching job + documents in one JOIN ──────────
     result = await db.execute(
         select(ExtractionJob)
         .options(joinedload(ExtractionJob.documents))
@@ -263,10 +299,12 @@ async def get_results(
     )
     job = result.unique().scalar_one_or_none()
     if not job:
+        logger.warning("Results: job %s not found for user_id=%s", job_id, current_user.id)
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != "complete":
         raise HTTPException(status_code=400, detail="Job not yet complete")
 
+    logger.info("Results DB lookup — job_id=%s docs=%d", job_id, len(job.documents))
     payload = {
         "job_id": job.id,
         "format": job.format,
@@ -274,7 +312,6 @@ async def get_results(
         "results": [d.extracted_data for d in job.documents if d.extracted_data],
         "credits_used": job.credits_used,
     }
-    # Terminal — cache forever in Redis and in-process
     await cache_set_results(job_id, current_user.id, payload)
     _RESULT_CACHE[job_id] = {**payload, "_owner": current_user.id}
     return payload
@@ -295,11 +332,22 @@ async def download_result(
     )
     job = result.scalar_one_or_none()
     if not job:
+        logger.warning("Download: job %s not found for user_id=%s", job_id, current_user.id)
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != "complete":
         raise HTTPException(status_code=400, detail="Job not complete")
     if not job.output_path or not os.path.exists(job.output_path):
+        logger.error(
+            "Download: output file missing — job_id=%s path=%s",
+            job_id, job.output_path,
+        )
         raise HTTPException(status_code=404, detail="Output file not found")
+
+    file_size = os.path.getsize(job.output_path)
+    logger.info(
+        "Download — job_id=%s format=%s size=%.1fKB user_id=%s",
+        job_id, job.format, file_size / 1024, current_user.id,
+    )
 
     media_type = (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

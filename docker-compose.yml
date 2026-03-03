@@ -18,9 +18,11 @@ services:
     env_file: ./backend/.env
     environment:
       - REDIS_URL=redis://redis:6379
+      - LOG_FILE=/app/app.log
     volumes:
       - uploads_data:/app/uploads
       - outputs_data:/app/outputs
+      - /opt/gridpull/app.log:/app/app.log
     expose:
       - "8000"
     depends_on:

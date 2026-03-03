@@ -9,8 +9,9 @@ Responsibilities:
 5. Broadcast granular progress events for SSE subscribers
 """
 
-import os
 import logging
+import os
+import time
 from typing import Any, Callable, Dict, List
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,8 +26,7 @@ from app.services.spreadsheet_service import generate_csv, generate_excel
 
 logger = logging.getLogger(__name__)
 
-# ── Shared engine for worker jobs (created once at module import) ─────────────
-# Re-using a single engine avoids creating a new connection pool for every job.
+# ── Shared engine for worker jobs ─────────────────────────────────────────────
 _is_postgres = settings.database_url.startswith("postgresql")
 
 if _is_postgres:
@@ -60,8 +60,11 @@ async def process_job(
     Full extraction pipeline for one job.
     `broadcast(job_id, event_dict)` fans out SSE events to subscribers.
     """
+    job_start = time.monotonic()
+    logger.info("=== Job %s started ===", job_id)
 
     async def emit(status: str, progress: int, message: str) -> None:
+        logger.debug("Job %s progress — status=%s pct=%d msg=%r", job_id, status, progress, message)
         await broadcast(
             job_id,
             {
@@ -80,7 +83,7 @@ async def process_job(
             )
             job = result.scalar_one_or_none()
             if not job:
-                logger.error("Job %s not found in DB", job_id)
+                logger.error("Job %s not found in DB — aborting", job_id)
                 return
 
             result = await db.execute(
@@ -88,9 +91,14 @@ async def process_job(
             )
             documents = result.scalars().all()
 
-            fields = job.fields  # [{"name": str, "description": str}]
+            fields = job.fields
             field_names = [f["name"] for f in fields]
             total_docs = len(documents)
+
+            logger.info(
+                "Job %s — user_id=%s docs=%d fields=%s format=%s",
+                job_id, job.user_id, total_docs, field_names, job.format,
+            )
 
             # ── Phase 1: processing ────────────────────────────────────
             job.status = "processing"
@@ -102,6 +110,12 @@ async def process_job(
 
             for idx, doc in enumerate(documents):
                 base_pct = 5 + int((idx / total_docs) * 65)
+                doc_start = time.monotonic()
+
+                logger.info(
+                    "Job %s — processing doc %d/%d: %s",
+                    job_id, idx + 1, total_docs, doc.filename,
+                )
 
                 await emit(
                     "extracting",
@@ -118,6 +132,12 @@ async def process_job(
                     doc.status = "processing"
                     await db.commit()
 
+                    logger.info(
+                        "Job %s — parsed %s: %d pages, type=%s",
+                        job_id, doc.filename, parsed_doc.page_count,
+                        getattr(parsed_doc, "doc_type_hint", "unknown"),
+                    )
+
                     await emit(
                         "extracting",
                         base_pct + int(0.4 * (65 / total_docs)),
@@ -130,6 +150,12 @@ async def process_job(
                     all_extracted.extend(rows)
                     await db.commit()
 
+                    doc_elapsed = (time.monotonic() - doc_start) * 1000
+                    logger.info(
+                        "Job %s — extracted %s: %d row(s) in %.0fms",
+                        job_id, doc.filename, len(rows), doc_elapsed,
+                    )
+
                     await emit(
                         "extracting",
                         base_pct + int(0.8 * (65 / total_docs)),
@@ -137,7 +163,10 @@ async def process_job(
                     )
 
                 except Exception as exc:
-                    logger.error("Error processing %s: %s", doc.filename, exc)
+                    logger.error(
+                        "Job %s — error processing %s: %s",
+                        job_id, doc.filename, exc, exc_info=True,
+                    )
                     doc.status = "error"
                     row: Dict[str, Any] = {f: "" for f in field_names}
                     row["_source_file"] = doc.filename
@@ -153,27 +182,48 @@ async def process_job(
             output_filename = f"gridpull_{job_id}.{job.format}"
             output_path = os.path.join(settings.output_dir, output_filename)
 
+            gen_start = time.monotonic()
             if job.format == "csv":
                 generate_csv(all_extracted, output_path, field_names)
             else:
                 generate_excel(all_extracted, output_path, field_names)
+
+            file_size_kb = os.path.getsize(output_path) / 1024
+            gen_elapsed = (time.monotonic() - gen_start) * 1000
+            logger.info(
+                "Job %s — spreadsheet generated: %s (%.1f KB) in %.0fms",
+                job_id, output_filename, file_size_kb, gen_elapsed,
+            )
 
             await emit("generating", 90, "Spreadsheet ready — updating credits…")
 
             # ── Phase 3: deduct credits ────────────────────────────────
             result = await db.execute(select(User).where(User.id == job.user_id))
             user = result.scalar_one_or_none()
+            credits_used = 0
             if user:
                 credits_used = max(1, total_pages)
+                credits_before = user.credits
                 user.credits = max(0, user.credits - credits_used)
                 job.credits_used = credits_used
                 await db.commit()
+                logger.info(
+                    "Job %s — credits deducted: %.2f → %.2f (used=%d pages=%d) user_id=%s",
+                    job_id, credits_before, user.credits,
+                    credits_used, total_pages, job.user_id,
+                )
 
             # ── Mark complete ──────────────────────────────────────────
             job.status = "complete"
             job.output_path = output_path
             job.progress = 100
             await db.commit()
+
+            total_elapsed = (time.monotonic() - job_start) * 1000
+            logger.info(
+                "=== Job %s COMPLETE — docs=%d rows=%d credits=%d elapsed=%.0fms ===",
+                job_id, total_docs, len(all_extracted), credits_used, total_elapsed,
+            )
 
             await broadcast(
                 job_id,
@@ -190,7 +240,11 @@ async def process_job(
             )
 
         except Exception as exc:
-            logger.error("Fatal error in job %s: %s", job_id, exc, exc_info=True)
+            total_elapsed = (time.monotonic() - job_start) * 1000
+            logger.error(
+                "=== Job %s FAILED after %.0fms: %s ===",
+                job_id, total_elapsed, exc, exc_info=True,
+            )
             result = await db.execute(
                 select(ExtractionJob).where(ExtractionJob.id == job_id)
             )
