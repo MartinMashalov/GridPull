@@ -127,7 +127,7 @@ async def process_job(
                         doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
                         doc_obj = doc_res.scalar_one()
                         try:
-                            parsed_doc = parse_pdf(file_path, filename)
+                            parsed_doc = await asyncio.to_thread(parse_pdf, file_path, filename)
                             doc_obj.page_count = parsed_doc.page_count
                             total_pages += parsed_doc.page_count
                             doc_obj.status = "processing"
@@ -195,9 +195,9 @@ async def process_job(
 
             gen_start = time.monotonic()
             if job.format == "csv":
-                generate_csv(all_extracted, output_path, field_names)
+                await asyncio.to_thread(generate_csv, all_extracted, output_path, field_names)
             else:
-                generate_excel(all_extracted, output_path, field_names)
+                await asyncio.to_thread(generate_excel, all_extracted, output_path, field_names)
 
             file_size_kb = os.path.getsize(output_path) / 1024
             gen_elapsed = (time.monotonic() - gen_start) * 1000
