@@ -57,7 +57,7 @@ jobs:
             echo 'root:martin1234!' | chpasswd
             sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
             sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-            systemctl reload sshd
+            systemctl reload ssh || systemctl reload sshd || true
 
             # Ensure log file exists on host before container mounts it
             touch /opt/gridpull/app.log
