@@ -4,7 +4,6 @@ import { useGoogleLogin } from '@react-oauth/google'
 import { FileSpreadsheet, Zap, Shield, ArrowRight } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
-import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 
 const FEATURES = [
@@ -29,23 +28,26 @@ export default function LandingPage() {
   const navigate = useNavigate()
   const { setUser, user } = useAuthStore()
   const [loading, setLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       setLoading(true)
+      setLoginError(null)
       try {
         const res = await api.post('/auth/google', {
           access_token: tokenResponse.access_token,
         })
         setUser(res.data.user, res.data.access_token)
         navigate('/dashboard')
-      } catch (err) {
-        toast.error('Login failed. Please try again.')
+      } catch (err: any) {
+        const detail = err.response?.data?.detail
+        setLoginError(typeof detail === 'string' ? detail : 'Login failed. Please try again.')
       } finally {
         setLoading(false)
       }
     },
-    onError: () => toast.error('Google login failed'),
+    onError: () => setLoginError('Google sign-in was cancelled or failed. Please try again.'),
   })
 
   if (user) {
@@ -102,7 +104,7 @@ export default function LandingPage() {
             Upload any PDF, define the fields you need, and get a perfectly structured spreadsheet — powered by GPT-4.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center gap-4 justify-center">
+          <div className="flex flex-col items-center gap-3">
             <Button
               size="xl"
               onClick={() => googleLogin()}
@@ -121,6 +123,11 @@ export default function LandingPage() {
               )}
               Continue with Google
             </Button>
+            {loginError && (
+              <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
+                {loginError}
+              </p>
+            )}
           </div>
         </div>
       </section>

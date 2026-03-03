@@ -5,7 +5,6 @@ import { useAuthStore } from '@/store/authStore'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
 import SpreadsheetViewer from '@/components/SpreadsheetViewer'
 import api from '@/lib/api'
-import toast from 'react-hot-toast'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -120,6 +119,7 @@ export default function DashboardPage() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
+  const [validationMsg, setValidationMsg] = useState<string | null>(null)
 
   const { event } = useJobProgress(activeJobId)
 
@@ -153,7 +153,6 @@ export default function DashboardPage() {
           })
           .catch(() => {})
       }
-      toast.success('Spreadsheet ready!')
       setFiles([])
     }
 
@@ -161,13 +160,16 @@ export default function DashboardPage() {
       setJob((prev) =>
         prev ? { ...prev, status: 'error', message: 'Extraction failed', error: event.error } : null
       )
-      toast.error(event.error ?? 'Extraction failed')
     }
   }, [event])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const pdfs = acceptedFiles.filter((f) => f.type === 'application/pdf')
-    if (pdfs.length !== acceptedFiles.length) toast.error('Only PDF files are accepted')
+    if (pdfs.length !== acceptedFiles.length) {
+      setValidationMsg('Only PDF files are accepted.')
+    } else {
+      setValidationMsg(null)
+    }
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size))
       return [...prev, ...pdfs.filter((f) => !seen.has(f.name + f.size))]
@@ -182,7 +184,8 @@ export default function DashboardPage() {
   })
 
   const handleProcess = () => {
-    if (!files.length) { toast.error('Upload at least one PDF'); return }
+    if (!files.length) { setValidationMsg('Upload at least one PDF file.'); return }
+    setValidationMsg(null)
     setShowModal(true)
   }
 
@@ -219,7 +222,6 @@ export default function DashboardPage() {
           ? `Upload failed (HTTP ${status})`
           : 'Upload failed — check your connection'
       setJob((p) => p ? { ...p, status: 'error', message: 'Error', error: msg } : null)
-      toast.error(msg)
     }
   }
 
@@ -302,6 +304,11 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Validation message */}
+      {validationMsg && (
+        <p className="mt-2 text-xs text-red-500">{validationMsg}</p>
+      )}
 
       {/* File count */}
       {files.length > 0 && (

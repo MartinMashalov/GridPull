@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from app.config import settings
 from app.models.user import User
-import requests as http_requests
+import httpx
 
 
 def create_access_token(user_id: str) -> str:
@@ -72,11 +72,11 @@ async def get_or_create_user(db: AsyncSession, google_user_info: dict) -> User:
 
 
 async def verify_google_access_token(access_token: str) -> dict:
-    """Verify Google access token and get user info."""
-    resp = http_requests.get(
-        "https://www.googleapis.com/oauth2/v2/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    """Verify Google access token and get user info (non-blocking async)."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        resp.raise_for_status()
+        return resp.json()
