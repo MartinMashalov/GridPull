@@ -97,17 +97,30 @@ export default function SettingsPage() {
     const dollars = parseFloat(addAmount)
     if (!addAmount) { toast.error('Enter an amount to add'); return }
     if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
+
+    // Open a blank tab NOW (synchronous, so popup blockers don't block it)
+    // We'll point it at Stripe after the API call
+    const stripeTab = window.open('about:blank', '_blank')
+
     setLoadingAdd(true)
     setCheckoutUrl(null)
     try {
       const res = await api.post('/payments/create-checkout', { amount: dollars })
       const url = res.data?.checkout_url
-      if (!url) { toast.error('No checkout URL returned — contact support'); return }
-      // Store URL so user can click it manually if auto-redirect fails
-      setCheckoutUrl(url)
-      // Try redirect
-      window.location.href = url
+      if (!url) {
+        stripeTab?.close()
+        toast.error('No checkout URL returned — contact support')
+        return
+      }
+      if (stripeTab) {
+        stripeTab.location.href = url
+      } else {
+        // Tab was blocked — fall back to same-tab + show manual link
+        setCheckoutUrl(url)
+        window.location.href = url
+      }
     } catch (err: any) {
+      stripeTab?.close()
       console.error('create-checkout error:', err)
       const msg = err.response?.data?.detail || err.message || 'Payment service error — please try again'
       toast.error(msg, { duration: 8000 })
@@ -133,12 +146,22 @@ export default function SettingsPage() {
   }
 
   const handleAddCard = async () => {
+    const stripeTab = window.open('about:blank', '_blank')
     setAddingCard(true)
     try {
       const res = await api.post('/payments/setup-card')
-      window.location.href = res.data.setup_url
+      const url = res.data?.setup_url
+      if (stripeTab && url) {
+        stripeTab.location.href = url
+      } else {
+        stripeTab?.close()
+        if (url) window.location.href = url
+        else toast.error('Failed to open card setup')
+      }
     } catch (err: any) {
+      stripeTab?.close()
       toast.error(err.response?.data?.detail || 'Failed to open card setup')
+    } finally {
       setAddingCard(false)
     }
   }
@@ -256,7 +279,7 @@ export default function SettingsPage() {
               {checkoutUrl && (
                 <div className="mt-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
                   <p className="text-xs text-muted-foreground mb-1.5">Redirect didn't open automatically?</p>
-                  <a href={checkoutUrl} className="text-sm font-semibold text-primary underline">
+                  <a href={checkoutUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary underline">
                     → Click here to open Stripe Checkout
                   </a>
                 </div>
