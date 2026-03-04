@@ -136,7 +136,7 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
     es.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data) as ProgressEvent & { type: string }
-        if (data.type === 'keepalive') return  // ignore heartbeats
+        if ((data as { type: string }).type === 'keepalive') return  // ignore heartbeats
 
         if ((data.type === 'complete' || data.type === 'error') && !resolvedRef.current) {
           resolvedRef.current = true
