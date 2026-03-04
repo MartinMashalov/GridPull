@@ -81,6 +81,7 @@ export default function SettingsPage() {
 
   const handleAddFunds = async () => {
     const dollars = parseFloat(addAmount)
+    if (!addAmount) { toast.error('Enter an amount to add'); return }
     if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
     setLoadingAdd(true)
     try {
@@ -197,18 +198,34 @@ export default function SettingsPage() {
               <CardDescription className="text-xs">Funds are added instantly via Stripe</CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="flex gap-1.5 mb-3">
+                {[5, 10, 20, 50].map(amt => (
+                  <button
+                    key={amt}
+                    onClick={() => setAddAmount(String(amt))}
+                    className={cn(
+                      'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                      addAmount === String(amt)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                    )}
+                  >
+                    ${amt}
+                  </button>
+                ))}
+              </div>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
                   <Input
-                    type="number" min="1" step="1" placeholder="0.00"
+                    type="number" min="1" step="1" placeholder="Custom amount"
                     value={addAmount}
                     onChange={e => setAddAmount(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleAddFunds()}
                     className="pl-7"
                   />
                 </div>
-                <Button onClick={handleAddFunds} disabled={loadingAdd || !addAmount} size="sm">
+                <Button onClick={handleAddFunds} disabled={loadingAdd} size="sm">
                   {loadingAdd
                     ? <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" />
                     : <><Plus size={14} />Add Funds</>}
