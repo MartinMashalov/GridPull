@@ -172,6 +172,7 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
 
         await _ensure_fresh_token(conn, db, oauth_prov)
         source_config = p.source_config or {}
+        logger.info("Pipeline %s (%s): scanning folder_id=%s", p.id, p.name, p.source_folder_id)
         pdfs = await _list_pdfs(conn.access_token, p.source_folder_id, p.source_type, source_config)
         processed_ids: list = list(p.processed_file_ids or [])
         new_pdfs = [f for f in pdfs if f["id"] not in processed_ids]

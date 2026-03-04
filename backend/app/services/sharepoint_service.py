@@ -147,7 +147,11 @@ async def list_pdfs(
     return [
         {"id": item["id"], "name": item["name"]}
         for item in items
-        if item.get("file", {}).get("mimeType") == "application/pdf"
+        if (
+            item.get("file", {}).get("mimeType") == "application/pdf"
+            or item.get("name", "").lower().endswith(".pdf")
+        )
+        and "file" in item  # exclude folders
     ]
 
 
