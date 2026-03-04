@@ -56,6 +56,7 @@ export interface PipelineData {
   files_processed: number
   last_run_at: string | null
   last_checked_at: string | null
+  created_at: string | null
   recent_runs: any[]
 }
 

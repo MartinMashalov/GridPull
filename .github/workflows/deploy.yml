@@ -33,6 +33,12 @@ jobs:
             cat > backend/.env << 'ENVEOF'
             GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            GOOGLE_DRIVE_CLIENT_ID=${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+            GOOGLE_DRIVE_CLIENT_SECRET=${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+            MICROSOFT_CLIENT_ID=${{ secrets.MICROSOFT_CLIENT_ID }}
+            MICROSOFT_CLIENT_SECRET=${{ secrets.MICROSOFT_CLIENT_SECRET }}
+            MICROSOFT_TENANT_ID=common
+            BACKEND_URL=https://${{ secrets.DOMAIN }}
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             JWT_ALGORITHM=HS256
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
@@ -65,7 +71,7 @@ jobs:
 
             # Build & restart containers
             docker compose build --no-cache
-            docker compose up -d --force-recreate
+            docker compose up -d --force-recreate --remove-orphans
 
             # Prune old images
             docker image prune -f
