@@ -12,6 +12,8 @@ from app.config import settings
 from app.database import init_db
 from app.logging_config import setup_logging
 from app.routes import auth, documents, payments, users
+from app.routes import pipelines
+from app.workers.pipeline_poller import start_pipeline_poller
 from app.workers.pool import worker_pool
 
 # Initialise logging before anything else so all module-level loggers are ready
@@ -33,6 +35,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting worker pool (%d workers)…", worker_pool.NUM_WORKERS)
     await worker_pool.start()
     logger.info("Worker pool started")
+
+    logger.info("Starting pipeline poller…")
+    import asyncio
+    asyncio.create_task(start_pipeline_poller())
+    logger.info("Pipeline poller scheduled")
 
     logger.info("GridPull API is ready to serve requests")
 
@@ -123,6 +130,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(payments.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
+app.include_router(pipelines.router, prefix="/api")
 
 
 @app.get("/api/health")

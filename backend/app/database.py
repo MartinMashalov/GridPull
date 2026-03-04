@@ -3,6 +3,8 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 from app.config import settings
 
+# Import must happen before create_all so all tables are registered in metadata
+
 _is_postgres = settings.database_url.startswith("postgresql")
 
 # ── Application engine (connects via PgBouncer on port 6432) ─────────────────
@@ -75,6 +77,8 @@ async def init_db():
         )
 
     async with ddl_engine.begin() as conn:
+        # Ensure all model classes are registered before create_all
+        import app.models  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
         # Add new columns to existing tables (safe to run every startup)
         for sql in [
@@ -93,6 +97,14 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_card_brand VARCHAR",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_card_last4 VARCHAR",
+            # Pipelines feature — new tables are created by create_all above;
+            # these guards handle deployments where tables already exist
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS processed_file_ids JSON",
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS files_processed INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP",
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMP",
+            # Outlook source config (from_filter, subject_filter, mark_as_read)
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS source_config JSON",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

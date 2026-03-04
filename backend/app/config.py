@@ -4,9 +4,21 @@ import os
 
 
 class Settings(BaseSettings):
-    # Google OAuth
+    # Google OAuth (user login)
     google_client_id: str = ""
     google_client_secret: str = ""
+
+    # Google Drive (pipeline integration)
+    google_drive_client_id: str = ""
+    google_drive_client_secret: str = ""
+
+    # Microsoft / SharePoint (pipeline integration)
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_tenant_id: str = "common"  # Use "common" to allow any tenant
+
+    # Backend public URL (for OAuth redirect URIs)
+    backend_url: str = "http://localhost:8000"
 
     # JWT
     jwt_secret_key: str = "gridpull-secret-key"

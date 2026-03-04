@@ -4,6 +4,7 @@ import LandingPage from '@/pages/LandingPage'
 import PrivacyPage from '@/pages/PrivacyPage'
 import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
+import PipelinesPage from '@/pages/PipelinesPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 
@@ -54,6 +55,16 @@ export default function App() {
             <ProtectedRoute>
               <DashboardLayout>
                 <SettingsPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pipelines"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <PipelinesPage />
               </DashboardLayout>
             </ProtectedRoute>
           }
