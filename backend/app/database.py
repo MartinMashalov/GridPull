@@ -88,6 +88,11 @@ async def init_db():
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS cost FLOAT NOT NULL DEFAULT 0.0",
             # Per-doc completion counter for polling progress
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS completed_docs INTEGER NOT NULL DEFAULT 0",
+            # Stripe payment method storage for saved cards / auto-renewal
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_card_brand VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_card_last4 VARCHAR",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

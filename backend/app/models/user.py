@@ -18,6 +18,10 @@ class User(Base):
     auto_renewal_enabled = Column(Boolean, default=False)
     auto_renewal_threshold = Column(Float, default=5.0)
     auto_renewal_refill = Column(Float, default=20.0)
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_payment_method_id = Column(String, nullable=True)
+    stripe_card_brand = Column(String, nullable=True)
+    stripe_card_last4 = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

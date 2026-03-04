@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -242,15 +242,19 @@ export default function DashboardPage() {
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
 
-  // Keyboard shortcuts: Enter = submit, Escape = clear files
+  // Use refs so the keydown handler always reads the latest state (no stale closures)
+  const stateRef = useRef({ files, isProcessing, showModal, handleProcess })
+  stateRef.current = { files, isProcessing, showModal, handleProcess }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && !isProcessing && !showModal) handleProcess()
+      const { files, isProcessing, showModal, handleProcess } = stateRef.current
+      if (e.key === 'Enter' && files.length > 0 && !isProcessing && !showModal) handleProcess()
       if (e.key === 'Escape') setFiles([])
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [files, isProcessing, showModal])
+  }, [])
 
   return (
     <div className="relative p-8 max-w-4xl mx-auto">

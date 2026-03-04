@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Wallet, Plus, Zap, User, Trash2, Check, StickyNote } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Wallet, Plus, Zap, User, Trash2, Check, StickyNote, CreditCard, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
+import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -25,12 +26,16 @@ const DEFAULT_FIELDS = [
 
 export default function SettingsPage() {
   const { user } = useAuthStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [addAmount, setAddAmount] = useState('')
   const [loadingAdd, setLoadingAdd] = useState(false)
   const [autoRenewEnabled, setAutoRenewEnabled] = useState(() => user?.auto_renewal_enabled ?? false)
   const [threshold, setThreshold] = useState(() => String(user?.auto_renewal_threshold ?? 5))
   const [refillAmount, setRefillAmount] = useState(() => String(user?.auto_renewal_refill ?? 20))
   const [savingRenewal, setSavingRenewal] = useState(false)
+  const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
+  const [loadingCard, setLoadingCard] = useState(false)
+  const [addingCard, setAddingCard] = useState(false)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
     { name: 'Invoice Number', description: '' },
     { name: 'Date', description: '' },
@@ -38,6 +43,29 @@ export default function SettingsPage() {
   ])
   const [customField, setCustomField] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
+
+  // Fetch saved card on mount
+  useEffect(() => {
+    api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
+  }, [])
+
+  // Handle return from Stripe (payment success or card saved)
+  useEffect(() => {
+    const payment = searchParams.get('payment')
+    const card = searchParams.get('card')
+    if (payment === 'success') {
+      const amount = searchParams.get('amount')
+      toast.success(`$${amount} added to your balance!`)
+      // Re-fetch card (card was saved during checkout)
+      api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => {})
+      setSearchParams({})
+    }
+    if (card === 'saved') {
+      toast.success('Card saved successfully!')
+      api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => {})
+      setSearchParams({})
+    }
+  }, [])
 
   const handleAddFunds = async () => {
     const dollars = parseFloat(addAmount)
@@ -66,6 +94,30 @@ export default function SettingsPage() {
       toast.error('Failed to save')
     } finally {
       setSavingRenewal(false)
+    }
+  }
+
+  const handleAddCard = async () => {
+    setAddingCard(true)
+    try {
+      const res = await api.post('/payments/setup-card')
+      window.location.href = res.data.setup_url
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to open card setup')
+      setAddingCard(false)
+    }
+  }
+
+  const handleRemoveCard = async () => {
+    setLoadingCard(true)
+    try {
+      await api.delete('/payments/saved-card')
+      setSavedCard(null)
+      toast.success('Card removed')
+    } catch {
+      toast.error('Failed to remove card')
+    } finally {
+      setLoadingCard(false)
     }
   }
 
@@ -151,6 +203,51 @@ export default function SettingsPage() {
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
+            </CardContent>
+          </Card>
+
+          {/* Payment Method */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm">Payment Method</CardTitle>
+                  <CardDescription className="text-xs">Saved card used for top-ups and auto-renewal</CardDescription>
+                </div>
+                <CreditCard size={18} className="text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {savedCard === undefined ? (
+                <div className="h-8 flex items-center">
+                  <div className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                </div>
+              ) : savedCard ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-6 bg-secondary border border-border rounded flex items-center justify-center">
+                      <CreditCard size={13} className="text-muted-foreground" />
+                    </div>
+                    <span className="text-sm font-medium capitalize">{savedCard.brand} •••• {savedCard.last4}</span>
+                  </div>
+                  <button
+                    onClick={handleRemoveCard}
+                    disabled={loadingCard}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-red-500 transition-colors"
+                  >
+                    <X size={12} /> Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">No card saved yet</p>
+                  <Button onClick={handleAddCard} disabled={addingCard} size="sm" variant="outline">
+                    {addingCard
+                      ? <div className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
+                      : <><Plus size={13} />Add Card</>}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
