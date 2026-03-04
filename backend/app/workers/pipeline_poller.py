@@ -176,8 +176,15 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         processed_ids: list = list(p.processed_file_ids or [])
         new_pdfs = [f for f in pdfs if f["id"] not in processed_ids]
 
+        logger.info(
+            "Pipeline %s (%s): found %d PDF(s) in folder, %d already processed, %d new",
+            p.id, p.name, len(pdfs), len(processed_ids), len(new_pdfs),
+        )
+        if pdfs:
+            for f in pdfs:
+                logger.info("  PDF: %s (id=%s) %s", f["name"], f["id"][:20], "NEW" if f["id"] not in processed_ids else "already processed")
+
         if not new_pdfs:
-            logger.debug("Pipeline %s (%s): no new files", p.id, p.name)
             p.last_checked_at = datetime.utcnow()
             await db.commit()
             return
