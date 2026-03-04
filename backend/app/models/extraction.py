@@ -24,6 +24,7 @@ class ExtractionJob(Base):
     fields = Column(JSON, nullable=False)  # List of extraction fields
     format = Column(String, default="xlsx")  # xlsx or csv
     file_count = Column(Integer, default=0)
+    completed_docs = Column(Integer, default=0)  # Docs finished (for polling progress)
     cost = Column(Float, default=0.0)  # Dollar cost (with markup) deducted from user balance
     error = Column(Text, nullable=True)
     output_path = Column(String, nullable=True)

@@ -1,9 +1,13 @@
 /**
- * useJobProgress — real-time SSE hook for a GridPull extraction job.
+ * useJobProgress — bulletproof job tracking for a GridPull extraction job.
  *
- * Primary: SSE stream /api/documents/progress/:jobId?token=<jwt>
- * Fallback: polls /api/documents/job/:jobId every 4s if SSE is unavailable
- * Automatically closes on "complete" or "error".
+ * Architecture:
+ *   PRIMARY:   Polling /api/documents/job/:jobId every 2s — always works,
+ *              reads directly from DB, never drops.
+ *   SECONDARY: SSE stream for real-time per-doc progress events when available.
+ *
+ * SSE enhances the UX (shows X/Y files in real-time) but the job will ALWAYS
+ * complete correctly even if SSE fails entirely, because polling detects it.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -29,79 +33,101 @@ interface UseJobProgressReturn {
   reset: () => void
 }
 
+const POLL_INTERVAL_MS = 2000
+
 export function useJobProgress(jobId: string | null): UseJobProgressReturn {
   const token = useAuthStore((s) => s.token)
   const [event, setEvent] = useState<ProgressEvent | null>(null)
   const [connected, setConnected] = useState(false)
+
   const esRef = useRef<EventSource | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneRef = useRef(false)
+  // Prevent double-firing complete/error if both SSE and poll detect it simultaneously
+  const resolvedRef = useRef(false)
 
-  const stopPoll = () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-  }
-
-  const closeAll = () => {
+  const stopAll = () => {
     esRef.current?.close()
     esRef.current = null
-    stopPoll()
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     setConnected(false)
   }
 
   const reset = () => {
     doneRef.current = false
-    closeAll()
+    resolvedRef.current = false
+    stopAll()
     setEvent(null)
   }
 
   useEffect(() => {
     if (!jobId || !token) return
     doneRef.current = false
+    resolvedRef.current = false
 
-    // ── Polling fallback ──────────────────────────────────────────────────────
-    const startPolling = () => {
-      if (pollRef.current || doneRef.current) return
-      pollRef.current = setInterval(async () => {
-        if (doneRef.current) { stopPoll(); return }
-        try {
-          const res = await fetch(`/api/documents/job/${jobId}`, {
+    // ── PRIMARY: Polling every 2s ─────────────────────────────────────────────
+    // Runs from the very start. Always reads from DB. Guaranteed delivery.
+    pollRef.current = setInterval(async () => {
+      if (resolvedRef.current) return
+      try {
+        const res = await fetch(`/api/documents/job/${jobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) return
+        const data = await res.json()
+
+        if (data.status === 'complete' && !resolvedRef.current) {
+          resolvedRef.current = true
+          // Fetch full results for the spreadsheet viewer
+          const rRes = await fetch(`/api/documents/results/${jobId}`, {
             headers: { Authorization: `Bearer ${token}` },
           })
-          if (!res.ok) return
-          const data = await res.json()
-
-          if (data.status === 'complete') {
-            doneRef.current = true
-            stopPoll()
-            // Fetch full results for the viewer
-            const rRes = await fetch(`/api/documents/results/${jobId}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-            const rData = rRes.ok ? await rRes.json() : {}
-            setEvent({
-              type: 'complete',
-              status: 'complete',
-              progress: 100,
-              message: 'Extraction complete!',
-              download_url: `/api/documents/download/${jobId}`,
-              results: rData.results ?? [],
-              fields: rData.fields ?? [],
-              cost: data.cost,
-            })
-            closeAll()
-          } else if (data.status === 'error') {
-            doneRef.current = true
-            stopPoll()
-            setEvent({ type: 'error', status: 'error', progress: 0, message: 'Extraction failed', error: data.error })
-            closeAll()
-          }
-        } catch {
-          // network blip — keep polling
+          const rData = rRes.ok ? await rRes.json() : {}
+          setEvent({
+            type: 'complete',
+            status: 'complete',
+            progress: 100,
+            message: 'Extraction complete!',
+            download_url: `/api/documents/download/${jobId}`,
+            results: rData.results ?? [],
+            fields: rData.fields ?? [],
+            cost: data.cost,
+          })
+          stopAll()
+          return
         }
-      }, 4000)
-    }
 
-    // ── SSE primary ───────────────────────────────────────────────────────────
+        if (data.status === 'error' && !resolvedRef.current) {
+          resolvedRef.current = true
+          setEvent({ type: 'error', status: 'error', progress: 0, message: 'Extraction failed', error: data.error })
+          stopAll()
+          return
+        }
+
+        // While in progress, update doc count from DB so progress shows even without SSE
+        if (!resolvedRef.current && data.completed_docs != null) {
+          setEvent((prev) => {
+            // Only update via poll if SSE hasn't sent a more recent count
+            const pollCount = data.completed_docs ?? 0
+            const prevCount = prev?.completed_docs ?? 0
+            if (pollCount <= prevCount) return prev
+            return {
+              type: 'progress',
+              status: data.status,
+              progress: data.progress ?? 0,
+              message: `${pollCount}/${data.total_docs} files processed`,
+              completed_docs: pollCount,
+              total_docs: data.total_docs,
+            }
+          })
+        }
+      } catch {
+        // network blip — keep polling
+      }
+    }, POLL_INTERVAL_MS)
+
+    // ── SECONDARY: SSE for real-time per-doc events ───────────────────────────
+    // Enhances progress display. If it fails, polling above handles everything.
     const url = `/api/documents/progress/${jobId}?token=${encodeURIComponent(token)}`
     const es = new EventSource(url)
     esRef.current = es
@@ -109,11 +135,18 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
 
     es.onmessage = (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data) as ProgressEvent
-        setEvent(data)
-        if (data.type === 'complete' || data.type === 'error') {
-          doneRef.current = true
-          closeAll()
+        const data = JSON.parse(e.data) as ProgressEvent & { type: string }
+        if (data.type === 'keepalive') return  // ignore heartbeats
+
+        if ((data.type === 'complete' || data.type === 'error') && !resolvedRef.current) {
+          resolvedRef.current = true
+          setEvent(data)
+          stopAll()
+          return
+        }
+
+        if (data.type === 'progress' && !resolvedRef.current) {
+          setEvent(data)
         }
       } catch {
         // malformed frame — ignore
@@ -121,13 +154,12 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
     }
 
     es.onerror = () => {
+      // Don't close — let EventSource auto-reconnect every 3s (retry: 3000 set by server).
+      // Polling above is already running and will catch completion regardless.
       setConnected(false)
-      // Do NOT close — let EventSource auto-reconnect.
-      // Start polling as a fallback in case reconnect keeps failing.
-      startPolling()
     }
 
-    return closeAll
+    return stopAll
   }, [jobId, token])
 
   return { event, connected, reset }

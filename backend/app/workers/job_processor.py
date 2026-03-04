@@ -151,6 +151,12 @@ async def process_job(
                                 "Job %s — extracted %s: %d row(s) in %.0fms",
                                 job_id, filename, len(rows), doc_elapsed,
                             )
+                            # Persist completed_docs so polling endpoint shows real progress
+                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                            job_rec = job_res2.scalar_one_or_none()
+                            if job_rec:
+                                job_rec.completed_docs = completed_count
+                                await doc_db.commit()
                             pct = 5 + int((completed_count / total_docs) * 65)
                             await emit(
                                 "extracting", pct,
@@ -169,6 +175,11 @@ async def process_job(
                             row["_error"] = str(exc)
                             results_ordered[idx] = [row]
                             completed_count += 1
+                            # Also persist on error
+                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                            job_rec = job_res2.scalar_one_or_none()
+                            if job_rec:
+                                job_rec.completed_docs = completed_count
                             await doc_db.commit()
 
             # Kick off all docs in parallel (semaphore caps at 8 concurrent)

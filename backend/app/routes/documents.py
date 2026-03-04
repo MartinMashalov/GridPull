@@ -184,6 +184,8 @@ async def get_job_status(
         "job_id": job.id,
         "status": job.status,
         "progress": job.progress,
+        "completed_docs": job.completed_docs,
+        "total_docs": job.file_count,
         "error": job.error,
         "format": job.format,
         "file_count": job.file_count,
