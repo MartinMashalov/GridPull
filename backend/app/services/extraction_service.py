@@ -203,10 +203,12 @@ _SINGLE_SYSTEM = (
     "containing an array of extracted objects.\n"
     "Rules:\n"
     "- records array has exactly ONE object for single-document extraction\n"
-    "- Use null for fields genuinely not present in the document\n"
+    "- Use null for fields genuinely not present and cannot be computed\n"
     "- For money: keep currency symbol and original formatting (e.g. \"$1,234.56\")\n"
     "- For dates: use the format as written in the document\n"
-    "- Do not infer or hallucinate — only extract what is explicitly stated\n"
+    "- If a field description explains how to compute the value (e.g. a ratio or margin), "
+    "calculate it from the available data in the document and return the computed result\n"
+    "- Do not hallucinate values that cannot be found or computed from the document\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 

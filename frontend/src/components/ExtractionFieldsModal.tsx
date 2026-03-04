@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Plus, Trash2 } from 'lucide-react'
+import { X, Plus, Trash2, StickyNote } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     { name: 'Total Amount', description: '' },
   ])
   const [newFieldName, setNewFieldName] = useState('')
+  const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   const fieldsEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -45,12 +46,20 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     setFields(prev => [...prev, { name: trimmed, description: '' }])
     setNewFieldName('')
     scrollToBottom()
-    // Keep focus on input so user can keep typing
     setTimeout(() => inputRef.current?.focus(), 40)
   }
 
   const removeField = (index: number) => {
     setFields(prev => prev.filter((_, i) => i !== index))
+    if (expandedDesc === index) setExpandedDesc(null)
+  }
+
+  const updateDescription = (index: number, desc: string) => {
+    setFields(prev => prev.map((f, i) => i === index ? { ...f, description: desc } : f))
+  }
+
+  const toggleDesc = (index: number) => {
+    setExpandedDesc(prev => prev === index ? null : index)
   }
 
   const handleSubmit = () => {
@@ -64,8 +73,8 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Enter') return
       const target = e.target as HTMLElement
-      // If focus is inside the custom field input, let the input's onKeyDown handle it
       if (target === inputRef.current) return
+      if (target.tagName === 'TEXTAREA') return
       if (fields.length === 0) return
       e.preventDefault()
       handleSubmit()
@@ -112,13 +121,43 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
 
             {/* Selected fields */}
             {fields.length > 0 && (
-              <div className="space-y-1 mb-4 max-h-48 overflow-y-auto scrollbar-thin pr-0.5">
+              <div className="space-y-1 mb-4 max-h-64 overflow-y-auto scrollbar-thin pr-0.5">
                 {fields.map((field, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2 bg-secondary border border-border rounded-lg">
-                    <span className="text-sm text-foreground">{field.name}</span>
-                    <button onClick={() => removeField(i)} className="text-muted-foreground hover:text-red-500 transition-colors ml-2">
-                      <Trash2 size={13} />
-                    </button>
+                  <div key={i} className="rounded-lg border border-border overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-secondary">
+                      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{field.name}</span>
+                      <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                        <button
+                          onClick={() => toggleDesc(i)}
+                          title="Add description to improve accuracy"
+                          className={cn(
+                            'p-1 rounded transition-colors',
+                            expandedDesc === i
+                              ? 'text-primary bg-primary/10'
+                              : field.description
+                                ? 'text-primary/60 hover:text-primary'
+                                : 'text-muted-foreground hover:text-primary'
+                          )}
+                        >
+                          <StickyNote size={13} />
+                        </button>
+                        <button onClick={() => removeField(i)} className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {expandedDesc === i && (
+                      <div className="px-3 py-2 bg-primary/5 border-t border-border">
+                        <textarea
+                          autoFocus
+                          rows={2}
+                          value={field.description}
+                          onChange={e => updateDescription(i, e.target.value)}
+                          placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income ÷ Revenue × 100')…"
+                          className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
                 <div ref={fieldsEndRef} />
