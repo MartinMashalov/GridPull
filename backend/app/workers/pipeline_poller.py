@@ -86,12 +86,27 @@ def _storage_provider(source_type: str) -> str:
 # ── Public entry point ─────────────────────────────────────────────────────────
 
 async def start_pipeline_poller() -> None:
-    """Long-running coroutine — started once from lifespan."""
+    """Long-running coroutine — started once from lifespan.
+    Uses Redis to elect a single leader across all uvicorn workers.
+    """
+    import redis.asyncio as aioredis
+
+    redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    _LOCK_TTL = _POLL_INTERVAL + 30  # lock expires slightly after next cycle
+
     logger.info("Pipeline poller starting (delay=%ds, interval=%ds)", _STARTUP_DELAY, _POLL_INTERVAL)
     await asyncio.sleep(_STARTUP_DELAY)
     while True:
         try:
-            await _poll_all()
+            # Only the worker that acquires the lock runs the poll cycle
+            acquired = await redis.set("pipeline_poller_lock", "1", nx=True, ex=_LOCK_TTL)
+            if acquired:
+                try:
+                    await _poll_all()
+                finally:
+                    await redis.delete("pipeline_poller_lock")
+            else:
+                logger.debug("Pipeline poller: another worker is running, skipping cycle")
         except Exception:
             logger.exception("Pipeline poller top-level error — will retry next cycle")
         await asyncio.sleep(_POLL_INTERVAL)
