@@ -108,11 +108,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
           {/* Accordion: name + logout — only visible when userOpen */}
           {!collapsed && userOpen && (
-            <div className="mb-1 space-y-0.5">
-              <div className="px-3 py-2">
-                <p className="text-xs font-medium truncate">{user?.name}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
-              </div>
+            <div className="mb-1">
               <button
                 onClick={(e) => { e.stopPropagation(); handleLogout() }}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"

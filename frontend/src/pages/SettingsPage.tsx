@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Wallet, Plus, Zap, User, Trash2, Check } from 'lucide-react'
+import { Wallet, Plus, Zap, User, Trash2, Check, StickyNote } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
 import api from '@/lib/api'
@@ -12,6 +12,11 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+
+interface DefaultField {
+  name: string
+  description: string
+}
 
 const DEFAULT_FIELDS = [
   'Invoice Number', 'Date', 'Total Amount', 'Vendor Name',
@@ -26,8 +31,13 @@ export default function SettingsPage() {
   const [threshold, setThreshold] = useState(() => String(user?.auto_renewal_threshold ?? 5))
   const [refillAmount, setRefillAmount] = useState(() => String(user?.auto_renewal_refill ?? 20))
   const [savingRenewal, setSavingRenewal] = useState(false)
-  const [defaultFields, setDefaultFields] = useState<string[]>(['Invoice Number', 'Date', 'Total Amount'])
+  const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
+    { name: 'Invoice Number', description: '' },
+    { name: 'Date', description: '' },
+    { name: 'Total Amount', description: '' },
+  ])
   const [customField, setCustomField] = useState('')
+  const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
 
   const handleAddFunds = async () => {
     const dollars = parseFloat(addAmount)
@@ -59,14 +69,30 @@ export default function SettingsPage() {
     }
   }
 
-  const toggleDefault = (field: string) =>
-    setDefaultFields(prev => prev.includes(field) ? prev.filter(f => f !== field) : [...prev, field])
+  const toggleDefault = (name: string) => {
+    const exists = defaultFields.find(f => f.name === name)
+    if (exists) {
+      setDefaultFields(prev => prev.filter(f => f.name !== name))
+    } else {
+      setDefaultFields(prev => [...prev, { name, description: '' }])
+    }
+  }
 
   const addCustomDefault = () => {
-    if (customField.trim() && !defaultFields.includes(customField.trim())) {
-      setDefaultFields(prev => [...prev, customField.trim()])
+    const trimmed = customField.trim()
+    if (trimmed && !defaultFields.find(f => f.name === trimmed)) {
+      setDefaultFields(prev => [...prev, { name: trimmed, description: '' }])
       setCustomField('')
     }
+  }
+
+  const updateDescription = (index: number, desc: string) => {
+    setDefaultFields(prev => prev.map((f, i) => i === index ? { ...f, description: desc } : f))
+  }
+
+  const removeDefaultField = (index: number) => {
+    setDefaultFields(prev => prev.filter((_, i) => i !== index))
+    if (expandedDesc === index) setExpandedDesc(null)
   }
 
   return (
@@ -180,7 +206,7 @@ export default function SettingsPage() {
 
           <div className="flex flex-wrap gap-2">
             {DEFAULT_FIELDS.map(field => {
-              const selected = defaultFields.includes(field)
+              const selected = !!defaultFields.find(f => f.name === field)
               return (
                 <button
                   key={field}
@@ -217,12 +243,42 @@ export default function SettingsPage() {
           {defaultFields.length > 0 && (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">Selected ({defaultFields.length})</p>
-              {defaultFields.map(field => (
-                <div key={field} className="flex items-center justify-between px-3 py-2.5 bg-card border border-border rounded-lg">
-                  <span className="text-sm">{field}</span>
-                  <button onClick={() => setDefaultFields(prev => prev.filter(f => f !== field))} className="text-muted-foreground hover:text-red-400 transition-colors">
-                    <Trash2 size={13} />
-                  </button>
+              {defaultFields.map((field, i) => (
+                <div key={i} className="rounded-lg border border-border overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2.5 bg-card">
+                    <span className="text-sm flex-1 min-w-0 truncate">{field.name}</span>
+                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <button
+                        onClick={() => setExpandedDesc(prev => prev === i ? null : i)}
+                        title="Add description to improve accuracy"
+                        className={cn(
+                          'p-1 rounded transition-colors',
+                          expandedDesc === i
+                            ? 'text-primary bg-primary/10'
+                            : field.description
+                              ? 'text-primary/60 hover:text-primary'
+                              : 'text-muted-foreground hover:text-primary'
+                        )}
+                      >
+                        <StickyNote size={13} />
+                      </button>
+                      <button onClick={() => removeDefaultField(i)} className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  {expandedDesc === i && (
+                    <div className="px-3 py-2 bg-primary/5 border-t border-border">
+                      <textarea
+                        autoFocus
+                        rows={2}
+                        value={field.description}
+                        onChange={e => updateDescription(i, e.target.value)}
+                        placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income ÷ Revenue × 100')…"
+                        className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
