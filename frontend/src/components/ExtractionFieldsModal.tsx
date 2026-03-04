@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 const PRESET_FIELDS = [
-  'Invoice Number', 'Date', 'Total Amount', 'Vendor Name', 'Customer Name',
-  'Description', 'Quantity', 'Unit Price', 'Tax Amount', 'Due Date',
+  'Date', 'Total Amount', 'Company Name', 'Invoice Number',
+  'Revenue', 'Net Income', 'Contract Value', 'Effective Date',
+  'Address', 'Signatory', 'Description', 'Tax Amount',
 ]
 
 interface Props {

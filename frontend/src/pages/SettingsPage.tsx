@@ -20,8 +20,9 @@ interface DefaultField {
 }
 
 const DEFAULT_FIELDS = [
-  'Invoice Number', 'Date', 'Total Amount', 'Vendor Name',
-  'Customer Name', 'Description', 'Tax Amount', 'Due Date',
+  'Date', 'Total Amount', 'Company Name', 'Invoice Number',
+  'Revenue', 'Net Income', 'Contract Value', 'Effective Date',
+  'Address', 'Signatory', 'Description', 'Tax Amount',
 ]
 
 export default function SettingsPage() {
