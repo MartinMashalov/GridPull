@@ -97,33 +97,16 @@ export default function SettingsPage() {
     const dollars = parseFloat(addAmount)
     if (!addAmount) { toast.error('Enter an amount to add'); return }
     if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
-
-    // Open a blank tab NOW (synchronous, so popup blockers don't block it)
-    // We'll point it at Stripe after the API call
-    const stripeTab = window.open('about:blank', '_blank')
-
     setLoadingAdd(true)
     setCheckoutUrl(null)
     try {
       const res = await api.post('/payments/create-checkout', { amount: dollars })
       const url = res.data?.checkout_url
-      if (!url) {
-        stripeTab?.close()
-        toast.error('No checkout URL returned — contact support')
-        return
-      }
-      if (stripeTab) {
-        stripeTab.location.href = url
-      } else {
-        // Tab was blocked — fall back to same-tab + show manual link
-        setCheckoutUrl(url)
-        window.location.href = url
-      }
+      if (!url) { toast.error('No checkout URL returned'); return }
+      setCheckoutUrl(url)
     } catch (err: any) {
-      stripeTab?.close()
       console.error('create-checkout error:', err)
-      const msg = err.response?.data?.detail || err.message || 'Payment service error — please try again'
-      toast.error(msg, { duration: 8000 })
+      toast.error(err.response?.data?.detail || err.message || 'Payment service error', { duration: 8000 })
     } finally {
       setLoadingAdd(false)
     }
@@ -243,48 +226,61 @@ export default function SettingsPage() {
               <CardDescription className="text-xs">Funds are added instantly via Stripe</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-1.5 mb-3">
-                {[5, 10, 20, 50].map(amt => (
-                  <button
-                    key={amt}
-                    onClick={() => setAddAmount(String(amt))}
-                    className={cn(
-                      'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
-                      addAmount === String(amt)
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                    )}
-                  >
-                    ${amt}
+              {checkoutUrl ? (
+                /* Step 2 — session ready, show direct link (real <a> tag, never blocked) */
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Session ready — ${addAmount}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Click the button to open Stripe</p>
+                    </div>
+                    <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
+                      <Button size="sm">Pay on Stripe →</Button>
+                    </a>
+                  </div>
+                  <button onClick={() => { setCheckoutUrl(null); setAddAmount('') }} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    ← Start over
                   </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
-                  <Input
-                    type="number" min="1" step="1" placeholder="Custom amount"
-                    value={addAmount}
-                    onChange={e => setAddAmount(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAddFunds()}
-                    className="pl-7"
-                  />
                 </div>
-                <Button onClick={handleAddFunds} disabled={loadingAdd} size="sm">
-                  {loadingAdd
-                    ? <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" />
-                    : <><Plus size={14} />Add Funds</>}
-                </Button>
-              </div>
-              {checkoutUrl && (
-                <div className="mt-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
-                  <p className="text-xs text-muted-foreground mb-1.5">Redirect didn't open automatically?</p>
-                  <a href={checkoutUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-primary underline">
-                    → Click here to open Stripe Checkout
-                  </a>
-                </div>
+              ) : (
+                /* Step 1 — pick amount and generate session */
+                <>
+                  <div className="flex gap-1.5 mb-3">
+                    {[5, 10, 20, 50].map(amt => (
+                      <button
+                        key={amt}
+                        onClick={() => setAddAmount(String(amt))}
+                        className={cn(
+                          'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                          addAmount === String(amt)
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                        )}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
+                      <Input
+                        type="number" min="1" step="1" placeholder="Custom amount"
+                        value={addAmount}
+                        onChange={e => setAddAmount(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAddFunds()}
+                        className="pl-7"
+                      />
+                    </div>
+                    <Button onClick={handleAddFunds} disabled={loadingAdd} size="sm">
+                      {loadingAdd
+                        ? <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" />
+                        : <><Plus size={14} />Add Funds</>}
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
+                </>
               )}
-              <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
             </CardContent>
           </Card>
 
