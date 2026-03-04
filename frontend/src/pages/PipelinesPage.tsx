@@ -323,13 +323,13 @@ export default function PipelinesPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-6 flex flex-col">
         {loading ? (
-          <div className="flex items-center justify-center h-40">
+          <div className="flex-1 flex items-center justify-center">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-center">
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
               <Workflow size={22} className="text-primary" />
             </div>
