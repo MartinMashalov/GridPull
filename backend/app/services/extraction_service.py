@@ -251,9 +251,23 @@ _SCAN_SINGLE_SYSTEM = (
     "containing an array with exactly ONE object.\n"
     "Rules:\n"
     "- Use null for fields genuinely not found\n"
-    "- For money: preserve currency symbol and formatting\n"
+    "- For money: report the value EXACTLY as it appears in the table cell. "
+    "Do NOT append unit words (million/billion/thousand) from table headers or footnotes — "
+    "only include the unit if it is literally written inside the cell itself.\n"
     "- For dates: use the format as written\n"
+    "- If a field description explains how to compute the value (e.g. a ratio or margin), "
+    "calculate it from the available data and return the computed result\n"
     "- Do not hallucinate — only extract what is present\n"
+    "- Financial terminology synonyms — match these even if the label differs:\n"
+    "  * Revenue = Sales = Net Sales = Total Sales = Net revenues = Total revenues = "
+    "Net interest income + Noninterest revenue (for banks)\n"
+    "  * Net Income = Net Earnings = Net profit = Profit for the year\n"
+    "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
+    "  * Total Assets = Total assets\n"
+    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity\n"
+    "  * Debt = Total Debt = Long-term debt = Long-term borrowings = Total borrowings = "
+    "Notes payable = Senior notes = Bonds payable = "
+    "Short-term borrowings + Long-term debt (sum both if no single 'Total debt' line exists)\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
@@ -283,6 +297,69 @@ def _error(filenames: List[str], field_names: List[str], msg: str) -> List[Dict]
     return [{fn: "" for fn in field_names} | {"_source_file": filenames[0], "_error": msg}]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Value post-processing
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Matches a unit word (million/billion/thousand) appended at the end of a value
+_UNIT_SUFFIX_RE    = re.compile(r'^(.*?)(\s+(?:million|billion|thousand)s?)$', re.I)
+# Detects comma-grouped numbers like 37,531 or 3,822,224 (already in document units)
+_HAS_COMMA_NUM_RE  = re.compile(r'\d{1,3}(?:,\d{3})+')
+# Matches reporting-unit declarations in document text
+_PAREN_UNIT_RE     = re.compile(
+    r'\(\s*(?:in\s+)?(millions?\s+(?:of\s+)?(?:US\s+)?(?:dollars?)?'
+    r'|billions?\s+(?:of\s+)?(?:US\s+)?(?:dollars?)?'
+    r'|thousands?)\s*(?:,?\s*except[^)]{0,60})?\)',
+    re.I,
+)
+_INLINE_UNIT_RE    = re.compile(
+    r'(?:amounts?\s+(?:are\s+)?(?:in|expressed\s+in)|expressed\s+in|'
+    r'reported\s+in|stated\s+in|in)\s+'
+    r'(millions?\s+of\s+(?:US\s+)?dollars?|billions?\s+of\s+(?:US\s+)?dollars?'
+    r'|thousands?\s+of\s+(?:US\s+)?dollars?|millions?|billions?|thousands?)',
+    re.I,
+)
+
+
+def _clean_monetary_value(value: str) -> str:
+    """
+    Strip unit words (million/billion/thousand) that were erroneously appended
+    by the LLM from a table header rather than being literally in the cell.
+
+    Heuristic: if the numeric part already uses comma-grouping (e.g. 37,531 or
+    3,822,224) then the value is already expressed in the document's native unit
+    and any appended unit word is a duplication error — strip it.
+    If the number is small with no commas (e.g. "37.5 billion"), the unit word
+    is genuine and should be kept.
+    """
+    if not value:
+        return value
+    m = _UNIT_SUFFIX_RE.match(value.strip())
+    if not m:
+        return value
+    base = m.group(1).strip()
+    if _HAS_COMMA_NUM_RE.search(base):
+        return base  # large comma-grouped number → strip the appended unit
+    return value    # small decimal number → keep the unit
+
+
+def _detect_reporting_unit(doc: "ParsedDocument") -> str | None:
+    """
+    Scan the first 5 pages for a reporting-unit declaration such as
+    "(in millions, except per share data)" or "amounts in millions of dollars".
+    Returns a human-readable string or None.
+    """
+    search_text = " ".join(p.text for p in doc.pages[:5])[:12_000]
+    m = _PAREN_UNIT_RE.search(search_text)
+    if m:
+        inner = m.group(1).strip() if m.lastindex and m.lastindex >= 1 else m.group(0)
+        return inner.rstrip("s").lower() + "s"  # normalise → "millions"
+    m = _INLINE_UNIT_RE.search(search_text)
+    if m:
+        return m.group(1).strip().lower()
+    return None
+
+
 def _normalise_rows(
     raw: Any,
     field_names: List[str],
@@ -304,7 +381,8 @@ def _normalise_rows(
         norm: Dict[str, Any] = {}
         for fn in field_names:
             val = row.get(fn)
-            norm[fn] = str(val).strip() if val is not None else ""
+            raw_str = str(val).strip() if val is not None else ""
+            norm[fn] = _clean_monetary_value(raw_str)
         norm["_source_file"] = filename
         result.append(norm)
     return result
@@ -407,6 +485,17 @@ _FINANCIAL_KEYWORDS = [
     # Additional financial statement headers
     "consolidated statements", "statement of income", "statement of profit",
     "profit and loss", "earnings per share", "diluted earnings",
+    # Bank-specific terminology
+    "net interest income", "noninterest income", "noninterest revenue",
+    "interest expense", "provision for credit losses", "net charge-offs",
+    "long-term debt", "short-term borrowings", "federal funds",
+    "loans and leases", "total deposits", "tier 1 capital",
+    # Insurance-specific terminology
+    "premiums earned", "net premiums", "claims and benefits",
+    "policyholder benefits", "loss ratio", "combined ratio",
+    "underwriting income", "net investment income",
+    # REIT-specific
+    "funds from operations", "net operating income", "same-store",
 ]
 
 _MAX_FINANCIAL_PAGES   = 14   # 2 cover + up to 12 financial statement pages
@@ -486,16 +575,26 @@ async def extract_single_record(
     ctx   = _doc_context_block(doc, doc_type)
     fblock = _fields_block(fields)
 
-    if doc_type in ("financial_report", "sec_10k") and doc.page_count > 20:
+    is_financial = doc_type in ("financial_report", "sec_10k")
+    if is_financial and doc.page_count > 20:
         content_text, tables_markdown = _build_financial_content(doc)
     else:
         content_text, tables_markdown = doc.content_text, doc.tables_markdown
 
+    reporting_unit = _detect_reporting_unit(doc) if is_financial else None
+
     parts = [
         f"--- Document Info ---\n{ctx}",
         f"\n--- Fields to Extract ---\n{fblock}",
-        f"\n--- Document Text ---\n{content_text}",
     ]
+    if reporting_unit:
+        parts.append(
+            f"\n--- Reporting Unit ---\n"
+            f"Numeric values in this document are expressed in: {reporting_unit}. "
+            f"Report values exactly as they appear in the cells — do NOT append "
+            f"'{reporting_unit}' or any other unit word to the number."
+        )
+    parts.append(f"\n--- Document Text ---\n{content_text}")
     if tables_markdown:
         parts.append(f"\n--- Detected Tables ---\n{tables_markdown}")
 
