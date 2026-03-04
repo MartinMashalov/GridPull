@@ -209,6 +209,12 @@ _SINGLE_SYSTEM = (
     "- If a field description explains how to compute the value (e.g. a ratio or margin), "
     "calculate it from the available data in the document and return the computed result\n"
     "- Do not hallucinate values that cannot be found or computed from the document\n"
+    "- Financial terminology synonyms — match these even if the label differs:\n"
+    "  * Revenue = Sales = Net Sales = Total Sales = Sales to customers = Net revenues = Total revenues\n"
+    "  * Net Income = Net Earnings = Net profit = Profit for the year\n"
+    "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
+    "  * Total Assets = Total assets\n"
+    "  * Equity = Shareholders equity = Stockholders equity = Total equity\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
@@ -384,7 +390,13 @@ _FINANCIAL_KEYWORDS = [
     "total revenue", "shareholders' equity", "shareholders equity",
     "stockholders' equity", "stockholders equity", "total equity",
     "net income", "net earnings", "operating earnings", "operating income",
-    "total liabilities", "total revenues", "net revenues",
+    "total liabilities", "net revenues",
+    # Sales-based revenue terminology (J&J, P&G, consumer companies)
+    "sales to customers", "net sales", "total sales", "sales and revenues",
+    "revenues and sales", "product sales", "service revenues",
+    # Additional financial statement headers
+    "consolidated statements", "statement of income", "statement of profit",
+    "profit and loss", "earnings per share", "diluted earnings",
 ]
 
 _MAX_FINANCIAL_PAGES   = 14   # 2 cover + up to 12 financial statement pages
