@@ -37,6 +37,7 @@ export default function SettingsPage() {
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
   const [addingCard, setAddingCard] = useState(false)
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
     { name: 'Invoice Number', description: '' },
     { name: 'Date', description: '' },
@@ -84,15 +85,19 @@ export default function SettingsPage() {
     if (!addAmount) { toast.error('Enter an amount to add'); return }
     if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
     setLoadingAdd(true)
+    setCheckoutUrl(null)
     try {
       const res = await api.post('/payments/create-checkout', { amount: dollars })
       const url = res.data?.checkout_url
       if (!url) { toast.error('No checkout URL returned — contact support'); return }
+      // Store URL so user can click it manually if auto-redirect fails
+      setCheckoutUrl(url)
+      // Try redirect
       window.location.href = url
     } catch (err: any) {
       console.error('create-checkout error:', err)
       const msg = err.response?.data?.detail || err.message || 'Payment service error — please try again'
-      toast.error(msg, { duration: 6000 })
+      toast.error(msg, { duration: 8000 })
     } finally {
       setLoadingAdd(false)
     }
@@ -235,6 +240,14 @@ export default function SettingsPage() {
                     : <><Plus size={14} />Add Funds</>}
                 </Button>
               </div>
+              {checkoutUrl && (
+                <div className="mt-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                  <p className="text-xs text-muted-foreground mb-1.5">Redirect didn't open automatically?</p>
+                  <a href={checkoutUrl} className="text-sm font-semibold text-primary underline">
+                    → Click here to open Stripe Checkout
+                  </a>
+                </div>
+              )}
               <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
             </CardContent>
           </Card>
