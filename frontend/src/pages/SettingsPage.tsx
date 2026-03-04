@@ -35,7 +35,6 @@ export default function SettingsPage() {
   const [savingRenewal, setSavingRenewal] = useState(false)
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
-  const [addingCard, setAddingCard] = useState(false)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
     { name: 'Invoice Number', description: '' },
     { name: 'Date', description: '' },
@@ -104,26 +103,6 @@ export default function SettingsPage() {
     }
   }
 
-  const handleAddCard = async () => {
-    const stripeTab = window.open('about:blank', '_blank')
-    setAddingCard(true)
-    try {
-      const res = await api.post('/payments/setup-card')
-      const url = res.data?.setup_url
-      if (stripeTab && url) {
-        stripeTab.location.href = url
-      } else {
-        stripeTab?.close()
-        if (url) window.location.href = url
-        else toast.error('Failed to open card setup')
-      }
-    } catch (err: any) {
-      stripeTab?.close()
-      toast.error(err.response?.data?.detail || 'Failed to open card setup')
-    } finally {
-      setAddingCard(false)
-    }
-  }
 
   const handleRemoveCard = async () => {
     setLoadingCard(true)
@@ -274,14 +253,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">No card saved yet</p>
-                  <Button onClick={handleAddCard} disabled={addingCard} size="sm" variant="outline">
-                    {addingCard
-                      ? <div className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-                      : <><Plus size={13} />Add Card</>}
-                  </Button>
-                </div>
+                <p className="text-xs text-muted-foreground">Your card will be saved automatically when you add funds.</p>
               )}
             </CardContent>
           </Card>
