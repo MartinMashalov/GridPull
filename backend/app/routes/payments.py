@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import stripe
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+from jose import jwt, JWTError
 
 from app.database import get_db
 from app.models.user import User
@@ -56,6 +58,96 @@ async def _save_card_from_payment_method(user_id: str, pm_id: str, db: AsyncSess
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.post("/checkout-go")
+async def checkout_go(
+    amount: float = Form(...),
+    token: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Form-POST endpoint: validate token, create Stripe session, return 302 → Stripe.
+    Used by the frontend <form> so no JS redirect is needed — works in any browser.
+    """
+    # Validate JWT from form field (same logic as auth middleware)
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise ValueError("no sub")
+    except (JWTError, ValueError):
+        return HTMLResponse("<h1>Invalid session — please log in again</h1>", status_code=401)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return HTMLResponse("<h1>User not found</h1>", status_code=404)
+
+    if amount < 1.0:
+        return HTMLResponse("<h1>Minimum top-up is $1.00</h1>", status_code=400)
+
+    amount_cents = round(amount * 100)
+
+    try:
+        # Get or create Stripe customer
+        customer_id = user.stripe_customer_id
+        if not customer_id:
+            try:
+                customer_id = await _create_stripe_customer(user.email, user.name, user.id)
+                result2 = await db.execute(select(User).where(User.id == user.id))
+                db_user = result2.scalar_one_or_none()
+                if db_user:
+                    db_user.stripe_customer_id = customer_id
+                    await db.commit()
+            except Exception:
+                customer_id = None
+
+        session_kwargs = dict(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": "PDFExcel.ai Balance Top-Up"},
+                    "unit_amount": amount_cents,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            payment_intent_data={"setup_future_usage": "off_session"},
+            success_url=f"{settings.frontend_url}/settings?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.frontend_url}/settings?payment=cancelled",
+            metadata={"user_id": user.id, "amount_cents": str(amount_cents)},
+        )
+        if customer_id:
+            session_kwargs["customer"] = customer_id
+
+        session = await _create_checkout_session(**session_kwargs)
+
+        payment = Payment(
+            user_id=user.id,
+            stripe_session_id=session.id,
+            amount=amount_cents,
+            credits=0,
+            status="pending",
+        )
+        db.add(payment)
+        await db.commit()
+
+        logger.info("Form checkout: redirecting user %s to Stripe ($%.2f)", user.id, amount)
+        return RedirectResponse(url=session.url, status_code=302)
+
+    except stripe.error.StripeError as e:
+        logger.error("Stripe error in checkout-go: %s", e)
+        return HTMLResponse(f"<h1>Stripe error: {e}</h1>", status_code=400)
+    except Exception as e:
+        logger.error("Unexpected error in checkout-go: %s", e)
+        return HTMLResponse("<h1>Payment error — please try again</h1>", status_code=500)
+
 
 @router.post("/create-checkout")
 async def create_checkout(

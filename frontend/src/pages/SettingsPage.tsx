@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { Wallet, Plus, Zap, User, Trash2, Check, StickyNote, CreditCard, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
@@ -29,7 +29,6 @@ export default function SettingsPage() {
   const { user, updateBalance } = useAuthStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [addAmount, setAddAmount] = useState('')
-  const [loadingAdd, setLoadingAdd] = useState(false)
   const [autoRenewEnabled, setAutoRenewEnabled] = useState(() => user?.auto_renewal_enabled ?? false)
   const [threshold, setThreshold] = useState(() => String(user?.auto_renewal_threshold ?? 5))
   const [refillAmount, setRefillAmount] = useState(() => String(user?.auto_renewal_refill ?? 20))
@@ -37,7 +36,6 @@ export default function SettingsPage() {
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
   const [addingCard, setAddingCard] = useState(false)
-  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
     { name: 'Invoice Number', description: '' },
     { name: 'Date', description: '' },
@@ -52,18 +50,6 @@ export default function SettingsPage() {
     api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
   }, [])
 
-  // Reset loading state if browser restores page from bfcache (user pressed Back from Stripe)
-  useEffect(() => {
-    const handlePageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) {
-        setLoadingAdd(false)
-        setAddingCard(false)
-        setCheckoutUrl(null)
-      }
-    }
-    window.addEventListener('pageshow', handlePageShow)
-    return () => window.removeEventListener('pageshow', handlePageShow)
-  }, [])
 
   // Handle return from Stripe (payment success or card saved)
   useEffect(() => {
@@ -93,23 +79,13 @@ export default function SettingsPage() {
     }
   }, [])
 
-  const handleAddFunds = async () => {
+  const handleFormSubmit = (e: FormEvent) => {
     const dollars = parseFloat(addAmount)
-    if (!addAmount) { toast.error('Enter an amount to add'); return }
-    if (!dollars || dollars < 1) { toast.error('Minimum top-up is $1.00'); return }
-    setLoadingAdd(true)
-    setCheckoutUrl(null)
-    try {
-      const res = await api.post('/payments/create-checkout', { amount: dollars })
-      const url = res.data?.checkout_url
-      if (!url) { toast.error('No checkout URL returned'); return }
-      setCheckoutUrl(url)
-    } catch (err: any) {
-      console.error('create-checkout error:', err)
-      toast.error(err.response?.data?.detail || err.message || 'Payment service error', { duration: 8000 })
-    } finally {
-      setLoadingAdd(false)
+    if (!dollars || dollars < 1) {
+      e.preventDefault()
+      toast.error('Enter at least $1')
     }
+    // Otherwise let the form submit naturally — server returns 302 → Stripe
   }
 
   const handleSaveAutoRenewal = async () => {
@@ -226,61 +202,42 @@ export default function SettingsPage() {
               <CardDescription className="text-xs">Funds are added instantly via Stripe</CardDescription>
             </CardHeader>
             <CardContent>
-              {checkoutUrl ? (
-                /* Step 2 — session ready, show direct link (real <a> tag, never blocked) */
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Session ready — ${addAmount}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Click the button to open Stripe</p>
-                    </div>
-                    <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
-                      <Button size="sm">Pay on Stripe →</Button>
-                    </a>
-                  </div>
-                  <button onClick={() => { setCheckoutUrl(null); setAddAmount('') }} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    ← Start over
-                  </button>
+              <form method="POST" action="/api/payments/checkout-go" onSubmit={handleFormSubmit}>
+                <input type="hidden" name="token" value={useAuthStore.getState().token ?? ''} />
+                <input type="hidden" name="amount" value={addAmount} />
+                <div className="flex gap-1.5 mb-3">
+                  {[5, 10, 20, 50].map(amt => (
+                    <button
+                      type="button"
+                      key={amt}
+                      onClick={() => setAddAmount(String(amt))}
+                      className={cn(
+                        'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                        addAmount === String(amt)
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                      )}
+                    >
+                      ${amt}
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                /* Step 1 — pick amount and generate session */
-                <>
-                  <div className="flex gap-1.5 mb-3">
-                    {[5, 10, 20, 50].map(amt => (
-                      <button
-                        key={amt}
-                        onClick={() => setAddAmount(String(amt))}
-                        className={cn(
-                          'flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
-                          addAmount === String(amt)
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                        )}
-                      >
-                        ${amt}
-                      </button>
-                    ))}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
+                    <Input
+                      type="number" min="1" step="1" placeholder="Custom amount"
+                      value={addAmount}
+                      onChange={e => setAddAmount(e.target.value)}
+                      className="pl-7"
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
-                      <Input
-                        type="number" min="1" step="1" placeholder="Custom amount"
-                        value={addAmount}
-                        onChange={e => setAddAmount(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleAddFunds()}
-                        className="pl-7"
-                      />
-                    </div>
-                    <Button onClick={handleAddFunds} disabled={loadingAdd} size="sm">
-                      {loadingAdd
-                        ? <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" />
-                        : <><Plus size={14} />Add Funds</>}
-                    </Button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
-                </>
-              )}
+                  <Button type="submit" size="sm">
+                    <Plus size={14} />Add Funds
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2.5">Secure payment via Stripe. Balance never expires.</p>
+              </form>
             </CardContent>
           </Card>
 
