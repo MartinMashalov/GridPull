@@ -84,6 +84,7 @@ class PipelineRun(Base):
     records_extracted = Column(Integer, default=0)
     cost_usd = Column(Float, default=0.0)
     error_message = Column(Text, nullable=True)
+    log_lines = Column(JSON, nullable=True, default=list)  # [{ts, msg}, ...]
 
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

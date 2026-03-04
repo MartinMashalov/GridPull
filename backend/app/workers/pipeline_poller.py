@@ -1,7 +1,7 @@
 """
 Pipeline Poller — background asyncio task.
 
-Wakes every 5 minutes and checks every active pipeline for new PDFs.
+Wakes every 2 minutes and checks every active pipeline for new PDFs.
 Each pipeline writes all extracted rows to ONE fixed output file
 (named after the pipeline). Subsequent runs append to that file rather
 than creating new ones.
@@ -83,6 +83,24 @@ def _storage_provider(source_type: str) -> str:
     return "sharepoint" if source_type == "outlook" else source_type
 
 
+# ── Log helper ─────────────────────────────────────────────────────────────────
+
+async def _append_log(run_id: str, msg: str) -> None:
+    """Append a timestamped log line to the PipelineRun's log_lines field."""
+    ts = datetime.utcnow().strftime("%H:%M:%S")
+    logger.info("Run %s | %s", run_id[:8], msg)
+    try:
+        async with _PollerSession() as db:
+            r = await db.get(PipelineRun, run_id)
+            if r:
+                lines = list(r.log_lines or [])
+                lines.append({"ts": ts, "msg": msg})
+                r.log_lines = lines
+                await db.commit()
+    except Exception:
+        logger.warning("_append_log: failed to write log for run %s", run_id)
+
+
 # ── Public entry point ─────────────────────────────────────────────────────────
 
 async def start_pipeline_poller() -> None:
@@ -119,7 +137,7 @@ async def _poll_all() -> None:
         result = await db.execute(select(Pipeline).where(Pipeline.status == "active"))
         pipelines: List[Pipeline] = result.scalars().all()
 
-    logger.debug("Pipeline poller — %d active pipeline(s)", len(pipelines))
+    logger.info("Pipeline poller — checking %d active pipeline(s)", len(pipelines))
     for pipeline in pipelines:
         try:
             await _check_pipeline(pipeline)
@@ -159,11 +177,12 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         new_pdfs = [f for f in pdfs if f["id"] not in processed_ids]
 
         if not new_pdfs:
+            logger.debug("Pipeline %s (%s): no new files", p.id, p.name)
             p.last_checked_at = datetime.utcnow()
             await db.commit()
             return
 
-        logger.info("Pipeline %s: %d new PDF(s) to process", p.id, len(new_pdfs))
+        logger.info("Pipeline %s (%s): %d new PDF(s) to process", p.id, p.name, len(new_pdfs))
 
     for file_info in new_pdfs:
         await _process_file(pipeline.id, file_info)
@@ -202,6 +221,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
             status="running",
             source_file_name=file_info["name"],
             source_file_id=file_info["id"],
+            log_lines=[],
         )
         db.add(run)
         await db.commit()
@@ -217,29 +237,46 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         output_filename = _output_filename(pipeline)
 
     storage = _storage_provider(source_type)
-    logger.info("Pipeline %s: processing %s → %s (run=%s)", pipeline_id, file_info["name"], output_filename, run_id)
+    await _append_log(run_id, f"Starting: {file_info['name']} → {output_filename}")
 
     tmp_path: str | None = None
     try:
         # ── Download source PDF ────────────────────────────────────────────
+        await _append_log(run_id, f"Downloading {file_info['name']}...")
         pdf_bytes = await _download_file(access_token, file_info["id"], source_type, file_info)
+        size_kb = len(pdf_bytes) / 1024
+        await _append_log(run_id, f"Downloaded {size_kb:.0f} KB. Writing to temp file...")
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_info['name']}") as tmp:
             tmp.write(pdf_bytes)
             tmp_path = tmp.name
 
-        # ── Parse + extract ────────────────────────────────────────────────
+        # ── Parse PDF ──────────────────────────────────────────────────────
+        await _append_log(run_id, "Parsing PDF (extracting text and tables)...")
         parsed = await asyncio.to_thread(parse_pdf, tmp_path, file_info["name"])
+        page_count = len(parsed.get("pages", [])) if isinstance(parsed, dict) else "?"
+        await _append_log(run_id, f"PDF parsed: {page_count} pages. Running AI extraction...")
+
+        # ── Extract ────────────────────────────────────────────────────────
         usage = LLMUsage()
         rows = await extract_from_document(parsed, fields, usage)
         for row in rows:
             row["_source_file"] = file_info["name"]
 
+        await _append_log(run_id, f"Extracted {len(rows)} row(s). Cost so far: ${usage.cost_usd:.4f}")
+
         field_names = [f["name"] for f in fields]
 
         # ── Fetch existing output file (for append) ────────────────────────
+        await _append_log(run_id, f"Checking for existing output file: {output_filename}...")
         existing_file_id, existing_bytes = await _get_existing_output(
             access_token, dest_folder_id, output_filename, storage
         )
+
+        if existing_bytes is not None:
+            await _append_log(run_id, f"Found existing file ({len(existing_bytes) // 1024} KB). Appending rows...")
+        else:
+            await _append_log(run_id, "No existing output file. Creating new...")
 
         # ── Build output bytes (append or create) ──────────────────────────
         if dest_format == "csv":
@@ -258,9 +295,11 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
             )
 
         # ── Upload (create or overwrite) ───────────────────────────────────
+        await _append_log(run_id, f"Uploading {output_filename} ({len(out_bytes) // 1024} KB)...")
         dest_url = await _upload_output(
             access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
         )
+        await _append_log(run_id, f"Uploaded successfully.")
 
         # ── Mark email as read (Outlook only) ─────────────────────────────
         if source_type == "outlook" and source_config.get("mark_as_read", True):
@@ -268,6 +307,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
             try:
                 from app.services.outlook_service import mark_as_read
                 await mark_as_read(access_token, msg_id)
+                await _append_log(run_id, "Marked email as read.")
             except Exception:
                 logger.warning("Pipeline %s: could not mark email %s as read", pipeline_id, msg_id)
 
@@ -275,6 +315,9 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         async with _PollerSession() as db:
             r = await db.get(PipelineRun, run_id)
             if r:
+                lines = list(r.log_lines or [])
+                lines.append({"ts": datetime.utcnow().strftime("%H:%M:%S"), "msg": f"Done. {len(rows)} rows extracted. Cost: ${usage.cost_usd:.4f}"})
+                r.log_lines = lines
                 r.status = "completed"
                 r.dest_file_name = output_filename
                 r.dest_file_url = dest_url
@@ -308,6 +351,9 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         async with _PollerSession() as db:
             r = await db.get(PipelineRun, run_id)
             if r:
+                lines = list(r.log_lines or [])
+                lines.append({"ts": datetime.utcnow().strftime("%H:%M:%S"), "msg": f"ERROR: {exc}"})
+                r.log_lines = lines
                 r.status = "failed"
                 r.error_message = str(exc)
                 r.completed_at = datetime.utcnow()

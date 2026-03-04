@@ -77,6 +77,7 @@ def _run_dict(run: PipelineRun) -> dict:
         "records_extracted": run.records_extracted,
         "cost_usd": run.cost_usd,
         "error_message": run.error_message,
+        "log_lines": run.log_lines or [],
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
     }
@@ -544,3 +545,26 @@ async def manual_trigger(
     asyncio.create_task(_check_pipeline(pipeline))
 
     return {"ok": True, "message": "Pipeline check triggered"}
+
+
+@router.get("/runs/{run_id}/logs")
+async def get_run_logs(
+    run_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch log lines for a specific run (ownership verified via user_id)."""
+    result = await db.execute(
+        select(PipelineRun).where(
+            PipelineRun.id == run_id,
+            PipelineRun.user_id == current_user.id,
+        )
+    )
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {
+        "run_id": run_id,
+        "status": run.status,
+        "log_lines": run.log_lines or [],
+    }

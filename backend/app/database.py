@@ -105,6 +105,8 @@ async def init_db():
             "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS last_run_at TIMESTAMP",
             # Outlook source config (from_filter, subject_filter, mark_as_read)
             "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS source_config JSON",
+            # Per-run structured log lines for real-time tracking
+            "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS log_lines JSON",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()
