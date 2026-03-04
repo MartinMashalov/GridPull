@@ -45,8 +45,9 @@ export default function SettingsPage() {
   const [customField, setCustomField] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
 
-  // Fetch saved card on mount
+  // Fetch fresh balance + saved card on mount
   useEffect(() => {
+    api.get('/payments/me').then(r => updateBalance(r.data.balance)).catch(() => {})
     api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
   }, [])
 
