@@ -52,6 +52,19 @@ export default function SettingsPage() {
     api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
   }, [])
 
+  // Reset loading state if browser restores page from bfcache (user pressed Back from Stripe)
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        setLoadingAdd(false)
+        setAddingCard(false)
+        setCheckoutUrl(null)
+      }
+    }
+    window.addEventListener('pageshow', handlePageShow)
+    return () => window.removeEventListener('pageshow', handlePageShow)
+  }, [])
+
   // Handle return from Stripe (payment success or card saved)
   useEffect(() => {
     const payment = searchParams.get('payment')
