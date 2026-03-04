@@ -47,7 +47,9 @@ function runDuration(run: PipelineRun): string {
 }
 
 function providerLabel(type: string): string {
-  return type === 'google_drive' ? 'Google Drive' : 'SharePoint'
+  if (type === 'google_drive') return 'Google Drive'
+  if (type === 'outlook') return 'Outlook'
+  return 'SharePoint'
 }
 
 // ── Run Row ────────────────────────────────────────────────────────────────
@@ -321,15 +323,15 @@ export default function PipelinesPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background relative">
+    <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto flex flex-col">
         {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
               <Workflow size={22} className="text-primary" />
             </div>
@@ -342,24 +344,24 @@ export default function PipelinesPage() {
             </Button>
           </div>
         ) : (
-          <div>
+          <div className="p-6">
             <div className="flex justify-end mb-4">
               <Button size="sm" className="gap-1.5" onClick={openCreate}>
                 <Plus size={15} /> New Pipeline
               </Button>
             </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {pipelines.map(p => (
-              <PipelineCard
-                key={p.id}
-                pipeline={p}
-                onEdit={openEdit}
-                onToggle={handleToggle}
-                onRunNow={handleRunNow}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {pipelines.map(p => (
+                <PipelineCard
+                  key={p.id}
+                  pipeline={p}
+                  onEdit={openEdit}
+                  onToggle={handleToggle}
+                  onRunNow={handleRunNow}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
