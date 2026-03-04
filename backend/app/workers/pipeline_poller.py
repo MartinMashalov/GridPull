@@ -264,7 +264,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 r.dest_file_name = output_filename
                 r.dest_file_url = dest_url
                 r.records_extracted = len(rows)
-                r.cost_usd = usage.total_cost
+                r.cost_usd = usage.cost_usd
                 r.completed_at = datetime.utcnow()
 
             p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
@@ -278,14 +278,14 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
             user_res = await db.execute(select(User).where(User.id == pipeline.user_id))
             user = user_res.scalar_one_or_none()
-            if user and usage.total_cost > 0:
-                user.balance = max(0.0, (user.balance or 0.0) - usage.total_cost)
+            if user and usage.cost_usd > 0:
+                user.balance = max(0.0, (user.balance or 0.0) - usage.cost_usd)
 
             await db.commit()
 
         logger.info(
             "Pipeline %s: done %s — %d rows appended to %s, $%.4f",
-            pipeline_id, file_info["name"], len(rows), output_filename, usage.total_cost,
+            pipeline_id, file_info["name"], len(rows), output_filename, usage.cost_usd,
         )
 
     except Exception as exc:
