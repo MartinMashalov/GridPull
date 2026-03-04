@@ -220,10 +220,14 @@ _SINGLE_SYSTEM = (
     "  * Net Income = Net Earnings = Net profit = Profit for the year = Net income attributable to common stockholders\n"
     "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
     "  * Total Assets = Total assets\n"
-    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity\n"
+    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity = "
+    "Total stockholders equity = Shareholders deficit = Stockholders deficit = "
+    "Total [Company Name] stockholders equity (include even if negative/deficit)\n"
     "  * Debt = Total Debt = Long-term debt = Long-term borrowings = Total borrowings = "
     "Notes payable = Senior notes = Subordinated notes = Bonds payable = "
     "Short-term borrowings + Long-term debt (sum both if no single 'Total debt' line exists)\n"
+    "- IMPORTANT: Never return null for Equity/Shareholders equity fields solely because the "
+    "value is negative. Companies with buyback programs may have negative equity — return it.\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
@@ -264,10 +268,14 @@ _SCAN_SINGLE_SYSTEM = (
     "  * Net Income = Net Earnings = Net profit = Profit for the year\n"
     "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
     "  * Total Assets = Total assets\n"
-    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity\n"
+    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity = "
+    "Total stockholders equity = Shareholders deficit = Stockholders deficit = "
+    "Total [Company Name] stockholders equity (include even if negative/deficit)\n"
     "  * Debt = Total Debt = Long-term debt = Long-term borrowings = Total borrowings = "
     "Notes payable = Senior notes = Bonds payable = "
     "Short-term borrowings + Long-term debt (sum both if no single 'Total debt' line exists)\n"
+    "- IMPORTANT: Never return null for Equity/Shareholders equity fields solely because the "
+    "value is negative. Companies with buyback programs may have negative equity — return it.\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
