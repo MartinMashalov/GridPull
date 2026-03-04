@@ -69,6 +69,8 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   }
 
   // Enter outside the input → submit
+  // Delay adding the listener by 300ms so the keypress that OPENED the modal
+  // doesn't immediately submit it too.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -80,8 +82,8 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
       e.preventDefault()
       handleSubmit()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const t = setTimeout(() => window.addEventListener('keydown', onKey), 300)
+    return () => { clearTimeout(t); window.removeEventListener('keydown', onKey) }
   }, [open, fields, defaultFormat])
 
   return (
