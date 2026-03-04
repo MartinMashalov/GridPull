@@ -323,7 +323,8 @@ export default function PipelinesPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Body */}
-      <div className="flex-1 overflow-y-auto p-6 flex flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="min-h-full flex flex-col p-6">
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
@@ -362,6 +363,7 @@ export default function PipelinesPage() {
           </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Wizard (create + edit) */}
