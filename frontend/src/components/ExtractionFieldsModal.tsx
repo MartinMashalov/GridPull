@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Plus, Trash2 } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
@@ -24,40 +24,55 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     { name: 'Date', description: '' },
     { name: 'Total Amount', description: '' },
   ])
-  const [format, setFormat] = useState<ExportFormat>(defaultFormat)
   const [newFieldName, setNewFieldName] = useState('')
+  const fieldsEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const scrollToBottom = () => {
+    setTimeout(() => fieldsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30)
+  }
 
   const addPreset = (name: string) => {
     if (!fields.find(f => f.name === name)) {
       setFields(prev => [...prev, { name, description: '' }])
+      scrollToBottom()
     }
   }
 
   const addCustom = () => {
-    if (!newFieldName.trim()) return
-    setFields(prev => [...prev, { name: newFieldName.trim(), description: '' }])
+    const trimmed = newFieldName.trim()
+    if (!trimmed) return
+    setFields(prev => [...prev, { name: trimmed, description: '' }])
     setNewFieldName('')
+    scrollToBottom()
+    // Keep focus on input so user can keep typing
+    setTimeout(() => inputRef.current?.focus(), 40)
   }
 
   const removeField = (index: number) => {
     setFields(prev => prev.filter((_, i) => i !== index))
   }
 
-  // Submit on Enter — fires from anywhere in the modal except when the user
-  // is actively typing a custom field name (has text in the input)
+  const handleSubmit = () => {
+    if (fields.length === 0) return
+    onConfirm(fields, defaultFormat)
+  }
+
+  // Enter outside the input → submit
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Enter') return
       const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' && newFieldName.trim()) return
+      // If focus is inside the custom field input, let the input's onKeyDown handle it
+      if (target === inputRef.current) return
       if (fields.length === 0) return
       e.preventDefault()
-      onConfirm(fields, format)
+      handleSubmit()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, fields, format, newFieldName, onConfirm])
+  }, [open, fields, defaultFormat])
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -68,31 +83,12 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <Dialog.Title className="text-sm font-semibold text-foreground">Extraction Fields</Dialog.Title>
-              <div className="flex items-center gap-3">
-                {/* Format toggle inline with header */}
-                <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
-                  {(['xlsx', 'csv'] as ExportFormat[]).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setFormat(f)}
-                      className={cn(
-                        'px-3 py-1 text-xs font-medium transition-colors',
-                        format === f
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                    >
-                      {f.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-                <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-                  <X size={16} />
-                </button>
-              </div>
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X size={16} />
+              </button>
             </div>
 
-            {/* Quick Add */}
+            {/* Quick Add presets */}
             <div className="flex flex-wrap gap-1.5 mb-4">
               {PRESET_FIELDS.map(name => {
                 const added = !!fields.find(f => f.name === name)
@@ -116,7 +112,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
 
             {/* Selected fields */}
             {fields.length > 0 && (
-              <div className="space-y-1 mb-4 max-h-40 overflow-y-auto scrollbar-thin">
+              <div className="space-y-1 mb-4 max-h-48 overflow-y-auto scrollbar-thin pr-0.5">
                 {fields.map((field, i) => (
                   <div key={i} className="flex items-center justify-between px-3 py-2 bg-secondary border border-border rounded-lg">
                     <span className="text-sm text-foreground">{field.name}</span>
@@ -125,16 +121,24 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                     </button>
                   </div>
                 ))}
+                <div ref={fieldsEndRef} />
               </div>
             )}
 
-            {/* Custom field */}
+            {/* Custom field input */}
             <div className="flex gap-2 mb-5">
               <Input
+                ref={inputRef}
                 placeholder="Add custom field…"
                 value={newFieldName}
                 onChange={e => setNewFieldName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addCustom()}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    addCustom()
+                  }
+                }}
                 className="text-sm"
               />
               <Button onClick={addCustom} disabled={!newFieldName.trim()} size="icon" variant="outline">
@@ -147,7 +151,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
               <Button onClick={onClose} variant="outline" className="flex-1" size="sm">
                 Cancel
               </Button>
-              <Button onClick={() => fields.length && onConfirm(fields, format)} disabled={fields.length === 0} className="flex-1" size="sm">
+              <Button onClick={handleSubmit} disabled={fields.length === 0} className="flex-1" size="sm">
                 Start Extraction
               </Button>
             </div>
