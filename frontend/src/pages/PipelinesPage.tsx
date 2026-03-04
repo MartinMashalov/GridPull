@@ -321,16 +321,15 @@ export default function PipelinesPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background">
+    <div className="flex-1 flex flex-col min-h-0 bg-background relative">
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="min-h-full flex flex-col p-6">
+      <div className="flex-1 overflow-y-auto p-6">
         {loading ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center justify-center">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
             <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
               <Workflow size={22} className="text-primary" />
             </div>
@@ -363,7 +362,6 @@ export default function PipelinesPage() {
           </div>
           </div>
         )}
-        </div>
       </div>
 
       {/* Wizard (create + edit) */}
