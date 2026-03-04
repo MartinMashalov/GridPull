@@ -335,7 +335,7 @@ export default function PipelinesPage() {
             </div>
             <p className="font-medium text-sm mb-1">No pipelines yet</p>
             <p className="text-xs text-muted-foreground mb-4 max-w-xs">
-              Connect Google Drive or SharePoint and let GridPull automatically extract data from new PDFs every 5 minutes.
+              Connect Google Drive or SharePoint and let GridPull automatically extract data from new PDFs.
             </p>
             <Button size="sm" className="gap-1.5" onClick={openCreate}>
               <Plus size={14} /> Create your first pipeline
