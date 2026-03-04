@@ -113,7 +113,7 @@ async def process_job(
             job_usage = LLMUsage()  # Accumulates token cost across all docs (safe: asyncio is single-threaded)
             completed_count = 0
             results_ordered: List[List[Dict[str, Any]]] = [[] for _ in range(total_docs)]
-            sem = asyncio.Semaphore(8)  # Up to 8 docs extracted concurrently
+            sem = asyncio.Semaphore(6)  # Up to 6 docs extracted concurrently
 
             async def _process_doc(idx: int, doc_id: str, filename: str, file_path: str) -> None:
                 nonlocal total_pages, completed_count

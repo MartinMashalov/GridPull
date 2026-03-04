@@ -136,6 +136,7 @@ export default function DashboardPage() {
 
     if (event.type === 'complete') {
       localStorage.removeItem(_ACTIVE_JOB_KEY)
+      setActiveJobId(null)
       setJob((prev) =>
         prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
       )
@@ -151,11 +152,11 @@ export default function DashboardPage() {
         a.click()
         document.body.removeChild(a)
       }
-      setFiles([])
     }
 
     if (event.type === 'error') {
       localStorage.removeItem(_ACTIVE_JOB_KEY)
+      setActiveJobId(null)
       setJob((prev) =>
         prev ? { ...prev, status: 'error', message: 'Extraction failed', error: event.error } : null
       )

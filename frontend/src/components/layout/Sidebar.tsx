@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Home, Settings, LogOut, FileSpreadsheet, ChevronsLeft } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -20,6 +21,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate  = useNavigate()
   const location  = useLocation()
   const { user, logout } = useAuthStore()
+  const [userOpen, setUserOpen] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -101,53 +103,67 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
 
         {/* ── User ──────────────────────────────────────────────── */}
-        <div className="px-2 pb-3 space-y-0.5">
+        <div className="px-2 pb-3">
           <Separator className="mb-2" />
 
-          {/* Logout */}
+          {/* Accordion: name + logout — only visible when userOpen */}
+          {!collapsed && userOpen && (
+            <div className="mb-1 space-y-0.5">
+              <div className="px-3 py-2">
+                <p className="text-xs font-medium truncate">{user?.name}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleLogout() }}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"
+              >
+                <LogOut size={15} />
+                Log out
+              </button>
+            </div>
+          )}
+
+          {/* Avatar — always visible, click to toggle */}
           {collapsed ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleLogout() }}
-                  className="w-full flex items-center justify-center p-2.5 rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"
+                  className="w-full flex items-center justify-center p-1.5 rounded-lg hover:bg-accent transition-colors"
                 >
-                  <LogOut size={15} />
+                  <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
+                    {user?.picture ? (
+                      <img src={user.picture} alt={user?.name} className="w-7 h-7 object-cover" />
+                    ) : (
+                      <div className="w-7 h-7 bg-primary/20 flex items-center justify-center">
+                        <span className="text-primary text-xs font-semibold">{user ? getInitials(user.name) : 'U'}</span>
+                      </div>
+                    )}
+                  </div>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Log out</TooltipContent>
             </Tooltip>
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); handleLogout() }}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-red-50 hover:text-red-500 transition-colors"
+              onClick={(e) => { e.stopPropagation(); setUserOpen(o => !o) }}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors hover:bg-accent',
+                userOpen && 'bg-accent'
+              )}
             >
-              <LogOut size={15} />
-              Log out
+              <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
+                {user?.picture ? (
+                  <img src={user.picture} alt={user?.name} className="w-7 h-7 object-cover" />
+                ) : (
+                  <div className="w-7 h-7 bg-primary/20 flex items-center justify-center">
+                    <span className="text-primary text-xs font-semibold">{user ? getInitials(user.name) : 'U'}</span>
+                  </div>
+                )}
+              </div>
+              <span className="text-xs font-medium truncate flex-1 text-left">{user?.name}</span>
             </button>
           )}
-
-          {/* User row */}
-          <div className={cn(
-            'flex items-center rounded-lg px-2 py-2 gap-2.5',
-            collapsed && 'justify-center px-0'
-          )}>
-            <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
-              {user?.picture ? (
-                <img src={user.picture} alt={user?.name} className="w-7 h-7 object-cover" />
-              ) : (
-                <div className="w-7 h-7 bg-primary/20 flex items-center justify-center">
-                  <span className="text-primary text-xs font-semibold">{user ? getInitials(user.name) : 'U'}</span>
-                </div>
-              )}
-            </div>
-            {!collapsed && (
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate">{user?.name}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{user?.email}</p>
-              </div>
-            )}
-          </div>
         </div>
       </aside>
     </TooltipProvider>

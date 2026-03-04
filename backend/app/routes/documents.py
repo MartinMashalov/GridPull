@@ -222,7 +222,10 @@ async def job_progress_sse(
         logger.info("SSE: job %s already complete — sending cached result", job_id)
         docs_res = await db.execute(select(Document).where(Document.job_id == job_id))
         docs = docs_res.scalars().all()
-        results = [d.extracted_data for d in docs if d.extracted_data]
+        results = []
+        for d in docs:
+            if d.extracted_data:
+                results.extend(d.extracted_data if isinstance(d.extracted_data, list) else [d.extracted_data])
         field_names = [f["name"] for f in job.fields]
 
         async def _done_stream() -> AsyncIterator[str]:
@@ -312,11 +315,15 @@ async def get_results(
         raise HTTPException(status_code=400, detail="Job not yet complete")
 
     logger.info("Results DB lookup — job_id=%s docs=%d", job_id, len(job.documents))
+    flat_results = []
+    for d in job.documents:
+        if d.extracted_data:
+            flat_results.extend(d.extracted_data if isinstance(d.extracted_data, list) else [d.extracted_data])
     payload = {
         "job_id": job.id,
         "format": job.format,
         "fields": [f["name"] for f in job.fields],
-        "results": [d.extracted_data for d in job.documents if d.extracted_data],
+        "results": flat_results,
         "cost": job.cost,
     }
     await cache_set_results(job_id, current_user.id, payload)
