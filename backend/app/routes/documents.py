@@ -49,7 +49,7 @@ _SSE_HEADERS = {
     "Access-Control-Allow-Origin": "*",
 }
 
-KEEPALIVE_INTERVAL = 15
+KEEPALIVE_INTERVAL = 20
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -251,6 +251,8 @@ async def job_progress_sse(
     logger.info("SSE: subscribed to live events for job %s", job_id)
 
     async def _live_stream() -> AsyncIterator[str]:
+        # Tell the browser to reconnect after 3s if connection drops
+        yield "retry: 3000\n\n"
         keepalive_count = 0
         try:
             while True:
@@ -266,7 +268,7 @@ async def job_progress_sse(
                 except asyncio.TimeoutError:
                     keepalive_count += 1
                     logger.debug("SSE keepalive #%d — job %s", keepalive_count, job_id)
-                    yield ": keepalive\n\n"
+                    yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
         finally:
             await worker_pool.unsubscribe(job_id, queue)
             logger.info("SSE: stream closed for job %s", job_id)
