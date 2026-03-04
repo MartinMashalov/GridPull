@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   X, ChevronRight, ChevronLeft, FolderOpen,
-  Check, Plus, Trash2, StickyNote, Loader2, Mail,
+  Check, Plus, Trash2, StickyNote, Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -317,31 +317,27 @@ interface Step1Props {
 }
 
 function Step1({ connections, selected, onSelect }: Step1Props) {
-  const providers: { id: Provider; label: string; iconText?: string; iconNode?: React.ReactNode; desc: string }[] = [
+  const providers: { id: Provider; label: string; iconText: string; desc: string }[] = [
     { id: 'google_drive', label: 'Google Drive', iconText: 'G', desc: 'Watch a folder for new PDFs' },
     { id: 'sharepoint', label: 'SharePoint / OneDrive', iconText: 'MS', desc: 'Watch a SharePoint folder for new PDFs' },
-    { id: 'outlook', label: 'Outlook Email', iconNode: <Mail size={18} />, desc: 'Process PDF attachments from emails' },
   ]
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Choose the source to watch for new PDFs.</p>
+      <p className="text-sm text-muted-foreground">Choose the cloud storage to watch for new PDFs.</p>
       <div className="grid grid-cols-2 gap-3">
         {providers.map(p => {
           const connected = connections[p.id]
           const isSelected = selected === p.id
-          // Outlook uses sharepoint connection; check both
-          const isConnected = p.id === 'outlook' ? !!(connections['sharepoint'] || connections['outlook']) : !!connected
           return (
             <button
               key={p.id}
               onClick={() => onSelect(p.id)}
               className={cn(
                 'relative flex flex-col items-start gap-2 p-4 rounded-xl border-2 text-left transition-all',
-                p.id === 'outlook' && 'col-span-2',
                 isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40 bg-white'
               )}
             >
-              {isConnected && (
+              {connected && (
                 <div className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
                   <Check size={9} className="text-white" />
                 </div>
@@ -350,16 +346,12 @@ function Step1({ connections, selected, onSelect }: Step1Props) {
                 'w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm',
                 isSelected ? 'bg-primary text-white' : 'bg-secondary text-muted-foreground'
               )}>
-                {p.iconNode ?? p.iconText}
+                {p.iconText}
               </div>
               <div>
                 <p className="font-medium text-sm">{p.label}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
-                {isConnected && (
-                  <p className="text-xs text-green-600 mt-1">
-                    Connected{connected ? `: ${connected}` : ''}
-                  </p>
-                )}
+                {connected && <p className="text-xs text-green-600 mt-1">Connected: {connected}</p>}
               </div>
             </button>
           )

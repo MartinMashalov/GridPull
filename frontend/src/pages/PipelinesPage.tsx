@@ -325,12 +325,7 @@ export default function PipelinesPage() {
       {/* Header */}
       <div className="px-6 py-4 border-b border-border bg-white">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold">Pipelines</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Auto-extract PDFs from Google Drive or SharePoint every 5 minutes — results append to one file
-            </p>
-          </div>
+          <h1 className="text-lg font-semibold">Pipelines</h1>
           <Button size="sm" className="gap-1.5" onClick={openCreate}>
             <Plus size={15} /> New Pipeline
           </Button>
