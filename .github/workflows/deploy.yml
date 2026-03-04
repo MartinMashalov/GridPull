@@ -27,7 +27,8 @@ jobs:
               git clone https://github.com/${{ github.repository }} /opt/gridpull
             fi
             cd /opt/gridpull
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             # Write backend .env from GitHub secrets
             cat > backend/.env << 'ENVEOF'
