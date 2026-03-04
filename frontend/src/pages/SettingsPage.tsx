@@ -86,9 +86,13 @@ export default function SettingsPage() {
     setLoadingAdd(true)
     try {
       const res = await api.post('/payments/create-checkout', { amount: dollars })
-      window.location.href = res.data.checkout_url
+      const url = res.data?.checkout_url
+      if (!url) { toast.error('No checkout URL returned — contact support'); return }
+      window.location.href = url
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Payment failed')
+      console.error('create-checkout error:', err)
+      const msg = err.response?.data?.detail || err.message || 'Payment service error — please try again'
+      toast.error(msg, { duration: 6000 })
     } finally {
       setLoadingAdd(false)
     }
