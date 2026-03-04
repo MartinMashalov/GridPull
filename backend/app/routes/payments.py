@@ -102,7 +102,8 @@ async def create_checkout(
             }],
             mode="payment",
             payment_intent_data={"setup_future_usage": "off_session"},
-            success_url=f"{settings.frontend_url}/settings?payment=success&amount={request.amount:.2f}",
+            # Include session ID in success URL so frontend can verify immediately
+            success_url=f"{settings.frontend_url}/settings?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{settings.frontend_url}/settings?payment=cancelled",
             metadata={"user_id": current_user.id, "amount_cents": str(amount_cents)},
         )
@@ -130,6 +131,76 @@ async def create_checkout(
     except Exception as e:
         logger.error("Unexpected error creating checkout for user %s: %s", current_user.id, e)
         raise HTTPException(status_code=500, detail="Payment service error — please try again")
+
+
+@router.post("/verify-session/{session_id}")
+async def verify_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Called by the frontend on return from Stripe checkout.
+    Verifies payment directly with Stripe and credits balance — no webhook needed.
+    Idempotent: safe to call multiple times (checks payment record status first).
+    """
+    try:
+        # Check if already credited (idempotency)
+        result = await db.execute(select(Payment).where(Payment.stripe_session_id == session_id))
+        payment = result.scalar_one_or_none()
+        if payment and payment.status == "complete":
+            logger.info("Session %s already credited — skipping", session_id)
+            result2 = await db.execute(select(User).where(User.id == current_user.id))
+            user = result2.scalar_one_or_none()
+            return {"balance": user.balance if user else current_user.balance, "credited": False}
+
+        # Retrieve session from Stripe
+        session = await asyncio.to_thread(stripe.checkout.Session.retrieve, session_id)
+
+        if session.get("payment_status") != "paid":
+            raise HTTPException(status_code=400, detail="Payment not completed")
+
+        # Verify session belongs to this user
+        if session.get("metadata", {}).get("user_id") != current_user.id:
+            raise HTTPException(status_code=403, detail="Session does not belong to this user")
+
+        amount_dollars = (session.get("amount_total") or 0) / 100.0
+
+        # Credit balance
+        result2 = await db.execute(select(User).where(User.id == current_user.id))
+        user = result2.scalar_one_or_none()
+        if user:
+            user.balance += amount_dollars
+            await db.commit()
+            logger.info("Verified and credited $%.2f to user %s (new balance: $%.2f)", amount_dollars, current_user.id, user.balance)
+
+        # Mark payment complete
+        if payment:
+            payment.status = "complete"
+            payment.stripe_payment_intent = session.get("payment_intent")
+            await db.commit()
+
+        # Save card if payment method available
+        pi_id = session.get("payment_intent")
+        if pi_id:
+            try:
+                intent = await asyncio.to_thread(stripe.PaymentIntent.retrieve, pi_id)
+                pm_id = intent.get("payment_method")
+                if pm_id:
+                    await _save_card_from_payment_method(current_user.id, pm_id, db)
+            except Exception as e:
+                logger.warning("Could not save card after verify: %s", e)
+
+        return {"balance": user.balance if user else current_user.balance + amount_dollars, "credited": True, "amount": amount_dollars}
+
+    except HTTPException:
+        raise
+    except stripe.error.StripeError as e:
+        logger.error("Stripe error verifying session %s: %s", session_id, e)
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Error verifying session %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail="Verification failed")
 
 
 @router.post("/setup-card")

@@ -26,7 +26,7 @@ const DEFAULT_FIELDS = [
 ]
 
 export default function SettingsPage() {
-  const { user } = useAuthStore()
+  const { user, updateBalance } = useAuthStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [addAmount, setAddAmount] = useState('')
   const [loadingAdd, setLoadingAdd] = useState(false)
@@ -53,14 +53,24 @@ export default function SettingsPage() {
   // Handle return from Stripe (payment success or card saved)
   useEffect(() => {
     const payment = searchParams.get('payment')
+    const sessionId = searchParams.get('session_id')
     const card = searchParams.get('card')
-    if (payment === 'success') {
-      const amount = searchParams.get('amount')
-      toast.success(`$${amount} added to your balance!`)
-      // Re-fetch card (card was saved during checkout)
-      api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => {})
+
+    if (payment === 'success' && sessionId) {
       setSearchParams({})
+      // Verify directly with Stripe and credit balance immediately
+      api.post(`/payments/verify-session/${sessionId}`)
+        .then(r => {
+          const { balance, credited, amount } = r.data
+          if (credited) {
+            updateBalance(balance)
+            toast.success(`$${amount.toFixed(2)} added to your balance!`)
+          }
+          api.get('/payments/saved-card').then(r2 => setSavedCard(r2.data.card)).catch(() => {})
+        })
+        .catch(() => toast.error('Payment verified by Stripe but balance update failed — refresh the page'))
     }
+
     if (card === 'saved') {
       toast.success('Card saved successfully!')
       api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => {})
