@@ -59,8 +59,8 @@ _PollerSession = async_sessionmaker(
     _poller_engine, class_=AsyncSession, expire_on_commit=False
 )
 
-_POLL_INTERVAL = 300   # 5 minutes
-_STARTUP_DELAY = 60    # 1 minute grace at startup
+_POLL_INTERVAL = 120   # 2 minutes
+_STARTUP_DELAY = 10    # 10 second grace at startup
 
 
 # ── Filename helper ────────────────────────────────────────────────────────────
