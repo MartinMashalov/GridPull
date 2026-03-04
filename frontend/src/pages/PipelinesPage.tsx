@@ -322,16 +322,6 @@ export default function PipelinesPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-border bg-white">
-        <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">Pipelines</h1>
-          <Button size="sm" className="gap-1.5" onClick={openCreate}>
-            <Plus size={15} /> New Pipeline
-          </Button>
-        </div>
-      </div>
-
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-6">
         {loading ? (
@@ -352,6 +342,12 @@ export default function PipelinesPage() {
             </Button>
           </div>
         ) : (
+          <div>
+            <div className="flex justify-end mb-4">
+              <Button size="sm" className="gap-1.5" onClick={openCreate}>
+                <Plus size={15} /> New Pipeline
+              </Button>
+            </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {pipelines.map(p => (
               <PipelineCard
@@ -363,6 +359,7 @@ export default function PipelinesPage() {
                 onDelete={handleDelete}
               />
             ))}
+          </div>
           </div>
         )}
       </div>
