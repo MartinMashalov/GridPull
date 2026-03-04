@@ -242,18 +242,21 @@ export default function DashboardPage() {
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
 
-  // Use refs so the keydown handler always reads the latest state (no stale closures)
-  const stateRef = useRef({ files, isProcessing, showModal, handleProcess })
-  stateRef.current = { files, isProcessing, showModal, handleProcess }
+  // Ref to the submit button so we can programmatically click it on Enter
+  const submitBtnRef = useRef<HTMLButtonElement>(null)
+  const showModalRef = useRef(showModal)
+  showModalRef.current = showModal
 
+  // Use document capture so the event fires before any child handler (dropzone etc.) can block it
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { files, isProcessing, showModal, handleProcess } = stateRef.current
-      if (e.key === 'Enter' && files.length > 0 && !isProcessing && !showModal) handleProcess()
-      if (e.key === 'Escape') setFiles([])
+      if (e.key === 'Escape') { setFiles([]); return }
+      if (e.key === 'Enter' && !showModalRef.current) {
+        submitBtnRef.current?.click()
+      }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [])
 
   return (
@@ -343,6 +346,7 @@ export default function DashboardPage() {
 
       {/* CTA */}
       <Button
+        ref={submitBtnRef}
         onClick={handleProcess}
         disabled={!files.length || isProcessing}
         size="lg"
