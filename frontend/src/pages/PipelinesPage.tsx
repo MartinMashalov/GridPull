@@ -436,7 +436,7 @@ export default function PipelinesPage() {
             </Button>
           </div>
         ) : (
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             <div className="flex justify-end mb-4">
               <Button size="sm" className="gap-1.5" onClick={openCreate}>
                 <Plus size={15} /> New Pipeline

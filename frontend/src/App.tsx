@@ -7,6 +7,7 @@ import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
+import PasswordGate from '@/components/PasswordGate'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null }
@@ -35,6 +36,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
 export default function App() {
   return (
+    <PasswordGate>
     <BrowserRouter>
       <ErrorBoundary>
       <Routes>
@@ -74,5 +76,6 @@ export default function App() {
       </Routes>
       </ErrorBoundary>
     </BrowserRouter>
+    </PasswordGate>
   )
 }

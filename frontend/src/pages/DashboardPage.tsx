@@ -260,12 +260,12 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <div className="relative p-8 max-w-4xl mx-auto">
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
       {/* Subtle gradient wash at the top */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
-      <div className="relative border-b border-border pb-5 mb-6 flex items-start justify-between">
+      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Upload your files, choose the fields to extract, and download a clean spreadsheet</p>
@@ -301,7 +301,7 @@ export default function DashboardPage() {
       <div
         {...getRootProps()}
         className={cn(
-          'border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-all duration-200',
+          'border-2 border-dashed rounded-xl p-8 sm:p-14 text-center cursor-pointer transition-all duration-200',
           'bg-white',
           isDragActive
             ? 'border-primary bg-primary/5'
