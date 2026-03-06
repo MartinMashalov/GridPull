@@ -101,23 +101,6 @@ const PRICING_EXAMPLES = [
 /* ─── Live demo samples ────────────────────────────────────────────────────── */
 const DEMO_SAMPLES = [
   {
-    id: 'invoices',
-    label: 'Invoice Batch (5 invoices)',
-    desc: 'Mixed digital invoices — different vendors, formats, and line items extracted into one spreadsheet.',
-    tag: 'Digital PDFs',
-    files: [
-      '/samples/sample_invoice.pdf',
-      '/samples/sample_invoice_2.pdf',
-      '/samples/sample_invoice_3.pdf',
-    ],
-    fields: ['Invoice #', 'Date', 'Bill To', 'Discount', 'Total'],
-    rows: [
-      ['36258', 'Mar 06 2012', 'Aaron Bergman', '$9.74', '$50.10'],
-      ['36651', 'May 12 2012', 'Aaron Hawkins', '$335.35', '$1,353.08'],
-      ['15978', 'Mar 31 2012', 'Aaron Smayling', '$1,191.80', '$1,910.35'],
-    ],
-  },
-  {
     id: 'scanned',
     label: 'Scanned Receipts (OCR)',
     desc: 'Low-quality scanned receipts and invoices — handwritten notes, poor scan quality, foreign languages.',
@@ -132,6 +115,23 @@ const DEMO_SAMPLES = [
       ['Morganfield\'s', '000039121', '2018-03-23', 'RM 33.57', 'RM 593.10'],
       ['Gin Kee Trading', 'CS00011955', '2017-12-02', 'RM 0.42', 'RM 7.42'],
       ['Book Talk Sdn Bhd', 'TD01167104', '2018-12-25', 'RM 0.00', 'RM 9.00'],
+    ],
+  },
+  {
+    id: 'invoices',
+    label: 'Invoice Batch (5 invoices)',
+    desc: 'Mixed digital invoices — different vendors, formats, and line items extracted into one spreadsheet.',
+    tag: 'Digital PDFs',
+    files: [
+      '/samples/sample_invoice.pdf',
+      '/samples/sample_invoice_2.pdf',
+      '/samples/sample_invoice_3.pdf',
+    ],
+    fields: ['Invoice #', 'Date', 'Bill To', 'Discount', 'Total'],
+    rows: [
+      ['36258', 'Mar 06 2012', 'Aaron Bergman', '$9.74', '$50.10'],
+      ['36651', 'May 12 2012', 'Aaron Hawkins', '$335.35', '$1,353.08'],
+      ['15978', 'Mar 31 2012', 'Aaron Smayling', '$1,191.80', '$1,910.35'],
     ],
   },
   {
