@@ -333,7 +333,6 @@ export default function LandingPage() {
   const [activeCase, setActiveCase] = useState(0)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [activeSample, setActiveSample] = useState(0)
-  const [showSourcePdf, setShowSourcePdf] = useState(false)
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -543,7 +542,7 @@ export default function LandingPage() {
 
       {/* ── Try Sample PDFs (Live Demo) ────────────────────────────────── */}
       <section id="demo" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             See it in action
           </p>
@@ -560,7 +559,7 @@ export default function LandingPage() {
             {DEMO_SAMPLES.map((s, i) => (
               <button
                 key={s.id}
-                onClick={() => { setActiveSample(i); setShowSourcePdf(false); trackEvent('demo_sample_select', { sample: s.id }) }}
+                onClick={() => { setActiveSample(i); trackEvent('demo_sample_select', { sample: s.id }) }}
                 className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
                   activeSample === i
                     ? 'bg-primary text-primary-foreground border-primary shadow-sm'
@@ -584,76 +583,70 @@ export default function LandingPage() {
               <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-lg">
                 {/* Header */}
                 <div className="bg-muted/30 border-b border-border/50 px-5 py-4">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <h3 className="font-semibold text-sm">{sample.label}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
-                    </div>
-                    {sample.files.length > 0 && (
-                      <button
-                        onClick={() => { setShowSourcePdf(!showSourcePdf); trackEvent('demo_pdf_view', { sample: sample.id }) }}
-                        className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
-                      >
-                        <Eye size={12} />
-                        {showSourcePdf ? 'Hide source PDF' : 'View source PDF'}
-                      </button>
-                    )}
-                  </div>
+                  <h3 className="font-semibold text-sm">{sample.label}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
                 </div>
 
-                {/* Inline PDF viewer */}
-                {showSourcePdf && sample.files.length > 0 && (
-                  <div className="border-b border-border/50 bg-muted/10 p-4">
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {sample.files.map((file, fi) => (
-                        <a
-                          key={fi}
-                          href={file}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-muted-foreground hover:text-primary transition-colors underline"
-                        >
-                          Open PDF {sample.files.length > 1 ? fi + 1 : ''} in new tab
-                        </a>
-                      ))}
+                {/* Side-by-side: Source PDF | Extracted Data */}
+                <div className={`grid ${sample.files.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+                  {/* Source PDF panel */}
+                  {sample.files.length > 0 && (
+                    <div className="border-b lg:border-b-0 lg:border-r border-border/50 flex flex-col">
+                      <div className="px-4 py-2.5 bg-muted/20 border-b border-border/50 flex items-center gap-2">
+                        <FileText size={13} className="text-muted-foreground" />
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Source PDF</span>
+                        {sample.files.length > 1 && (
+                          <span className="text-[10px] text-muted-foreground ml-auto">({sample.files.length} files — showing first)</span>
+                        )}
+                      </div>
+                      <div className="flex-1 min-h-[400px]">
+                        <iframe
+                          key={sample.id}
+                          src={sample.files[0]}
+                          title={`Source PDF: ${sample.label}`}
+                          className="w-full h-full min-h-[400px] bg-white"
+                        />
+                      </div>
                     </div>
-                    <iframe
-                      src={sample.files[0]}
-                      title={`Source PDF: ${sample.label}`}
-                      className="w-full h-[500px] rounded-lg border border-border bg-white"
-                    />
-                  </div>
-                )}
+                  )}
 
-                {/* Spreadsheet preview */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/20">
-                        <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground w-8">#</th>
-                        {sample.fields.map((f) => (
-                          <th key={f} className="px-4 py-2.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sample.rows.map((row, ri) => (
-                        <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
-                          <td className="px-4 py-2.5 text-muted-foreground font-mono">{ri + 1}</td>
-                          {row.map((cell, ci) => (
-                            <td key={ci} className="px-4 py-2.5 whitespace-nowrap">{cell}</td>
+                  {/* Extracted data panel */}
+                  <div className="flex flex-col">
+                    <div className="px-4 py-2.5 bg-muted/20 border-b border-border/50 flex items-center gap-2">
+                      <ArrowRight size={13} className="text-emerald-500" />
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Extracted Data</span>
+                      <CheckCircle2 size={12} className="text-emerald-500 ml-auto" />
+                    </div>
+                    <div className="overflow-x-auto flex-1">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/10">
+                            <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground w-8">#</th>
+                            {sample.fields.map((f) => (
+                              <th key={f} className="px-3 py-2.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sample.rows.map((row, ri) => (
+                            <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
+                              <td className="px-3 py-2.5 text-muted-foreground font-mono">{ri + 1}</td>
+                              {row.map((cell, ci) => (
+                                <td key={ci} className="px-3 py-2.5 whitespace-nowrap">{cell}</td>
+                              ))}
+                            </tr>
                           ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Footer */}
                 <div className="px-5 py-3 bg-muted/10 border-t border-border/50 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
                     <CheckCircle2 size={12} className="text-emerald-500 inline mr-1" />
-                    Extracted in &lt;30 seconds · Fields chosen by user · Download as .xlsx or .csv
+                    Extracted in &lt;30 seconds · Fields chosen by you · Download as .xlsx or .csv
                   </p>
                   <SignInButton size="sm" label="Try with your own PDFs" className="shadow-none" />
                 </div>
