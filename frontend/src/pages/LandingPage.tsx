@@ -110,11 +110,11 @@ const DEMO_SAMPLES = [
       '/samples/sample_invoice_2.pdf',
       '/samples/sample_invoice_3.pdf',
     ],
-    fields: ['Invoice #', 'Date', 'Bill To', 'Item Description', 'Subtotal', 'Discount', 'Total'],
+    fields: ['Invoice #', 'Date', 'Bill To', 'Discount', 'Total'],
     rows: [
-      ['36258', 'Mar 06 2012', 'Aaron Bergman', 'Global Push Button Manager\'s Chair, Indigo', '$48.71', '$9.74', '$50.10'],
-      ['36651', 'May 12 2012', 'Aaron Hawkins', 'Iceberg Nesting Folding Chair, 19w x 6d x 43h (×6)', '$1,676.74', '$335.35', '$1,353.08'],
-      ['15978', 'Mar 31 2012', 'Aaron Smayling', 'Apple Signal Booster, Full Size (×6)', '$2,979.50', '$1,191.80', '$1,910.35'],
+      ['36258', 'Mar 06 2012', 'Aaron Bergman', '$9.74', '$50.10'],
+      ['36651', 'May 12 2012', 'Aaron Hawkins', '$335.35', '$1,353.08'],
+      ['15978', 'Mar 31 2012', 'Aaron Smayling', '$1,191.80', '$1,910.35'],
     ],
   },
   {
@@ -127,11 +127,11 @@ const DEMO_SAMPLES = [
       '/samples/sample_scanned_invoice.pdf',
       '/samples/sample_scanned_receipt_2.pdf',
     ],
-    fields: ['Vendor', 'Document #', 'Date', 'Item', 'Tax', 'Total'],
+    fields: ['Vendor', 'Doc #', 'Date', 'Tax', 'Total'],
     rows: [
-      ['Morganfield\'s (Genting Highlands)', '000039121', '2018-03-23', 'Ribs Platter, Spare Rib, Steak, Drinks (8 items)', 'RM 33.57', 'RM 593.10'],
-      ['Syarikat Perniagaan Gin Kee', 'CS00011955', '2017-12-02', 'Spray Paint (1587)', 'RM 0.42', 'RM 7.42'],
-      ['Book Talk (Taman Daya) Sdn Bhd', 'TD01167104', '2018-12-25', 'KF Modelling Clay Kiddy Fish', 'RM 0.00', 'RM 9.00'],
+      ['Morganfield\'s', '000039121', '2018-03-23', 'RM 33.57', 'RM 593.10'],
+      ['Gin Kee Trading', 'CS00011955', '2017-12-02', 'RM 0.42', 'RM 7.42'],
+      ['Book Talk Sdn Bhd', 'TD01167104', '2018-12-25', 'RM 0.00', 'RM 9.00'],
     ],
   },
   {
@@ -146,7 +146,7 @@ const DEMO_SAMPLES = [
       ['Net Earnings', '$96,223M', '$(22,819)M', '$89,795M'],
       ['Total Assets', '$1,069,846M', '$948,452M', '$958,784M'],
       ['Shareholders\' Equity', '$561,199M', '$472,381M', '$500,140M'],
-      ['Class A Book Value / Share', '$393,194', '$328,078', '$343,890'],
+      ['Book Value / Share', '$393,194', '$328,078', '$343,890'],
     ],
   },
 ]
