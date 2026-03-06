@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoogleLogin } from '@react-oauth/google'
 import {
-  FileSpreadsheet, Zap, Shield, ArrowRight, Clock,
+  FileSpreadsheet, ArrowRight,
   Building2, GitBranch, Lock, Mail,
   Receipt, BarChart3, FileText, ShoppingCart, TrendingUp, ClipboardList,
   CheckCircle2, ChevronRight, ChevronDown,
@@ -376,7 +376,7 @@ export default function LandingPage() {
     </svg>
   )
 
-  const SignInButton = ({ size = 'xl' as const, label = 'Get started free', className = '' }) => (
+  const SignInButton = ({ size = 'xl', label = 'Get started free', className = '' }: { size?: 'default' | 'sm' | 'lg' | 'xl' | 'icon'; label?: string; className?: string }) => (
     <Button
       size={size}
       onClick={() => { trackEvent('cta_click', { label, location: 'landing' }); googleLogin() }}
