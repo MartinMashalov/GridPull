@@ -333,6 +333,7 @@ export default function LandingPage() {
   const [activeCase, setActiveCase] = useState(0)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [activeSample, setActiveSample] = useState(0)
+  const [showSourcePdf, setShowSourcePdf] = useState(false)
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -559,7 +560,7 @@ export default function LandingPage() {
             {DEMO_SAMPLES.map((s, i) => (
               <button
                 key={s.id}
-                onClick={() => { setActiveSample(i); trackEvent('demo_sample_select', { sample: s.id }) }}
+                onClick={() => { setActiveSample(i); setShowSourcePdf(false); trackEvent('demo_sample_select', { sample: s.id }) }}
                 className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
                   activeSample === i
                     ? 'bg-primary text-primary-foreground border-primary shadow-sm'
@@ -589,19 +590,40 @@ export default function LandingPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
                     </div>
                     {sample.files.length > 0 && (
-                      <a
-                        href={sample.files[0]}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => trackEvent('demo_pdf_download', { sample: sample.id })}
+                      <button
+                        onClick={() => { setShowSourcePdf(!showSourcePdf); trackEvent('demo_pdf_view', { sample: sample.id }) }}
                         className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
                       >
-                        <Download size={12} />
-                        View source PDF
-                      </a>
+                        <Eye size={12} />
+                        {showSourcePdf ? 'Hide source PDF' : 'View source PDF'}
+                      </button>
                     )}
                   </div>
                 </div>
+
+                {/* Inline PDF viewer */}
+                {showSourcePdf && sample.files.length > 0 && (
+                  <div className="border-b border-border/50 bg-muted/10 p-4">
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {sample.files.map((file, fi) => (
+                        <a
+                          key={fi}
+                          href={file}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-muted-foreground hover:text-primary transition-colors underline"
+                        >
+                          Open PDF {sample.files.length > 1 ? fi + 1 : ''} in new tab
+                        </a>
+                      ))}
+                    </div>
+                    <iframe
+                      src={sample.files[0]}
+                      title={`Source PDF: ${sample.label}`}
+                      className="w-full h-[500px] rounded-lg border border-border bg-white"
+                    />
+                  </div>
+                )}
 
                 {/* Spreadsheet preview */}
                 <div className="overflow-x-auto">
