@@ -94,11 +94,16 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
           <div className="p-5">
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <Dialog.Title className="text-sm font-semibold text-foreground">Extraction Fields</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-foreground">Choose fields to extract</Dialog.Title>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                 <X size={16} />
               </button>
             </div>
+
+            {/* Helper text */}
+            <p className="text-xs text-muted-foreground mb-3">
+              Select the data points you want to extract from each document. Each field becomes a column in your spreadsheet.
+            </p>
 
             {/* Quick Add presets */}
             <div className="flex flex-wrap gap-1.5 mb-4">
@@ -194,7 +199,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                 Cancel
               </Button>
               <Button onClick={handleSubmit} disabled={fields.length === 0} className="flex-1" size="sm">
-                Start Extraction
+                Extract {fields.length > 0 ? `${fields.length} field${fields.length > 1 ? 's' : ''}` : ''}
               </Button>
             </div>
           </div>
