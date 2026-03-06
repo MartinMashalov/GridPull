@@ -110,11 +110,11 @@ const DEMO_SAMPLES = [
       '/samples/sample_scanned_invoice.pdf',
       '/samples/sample_scanned_receipt_2.pdf',
     ],
-    fields: ['Vendor', 'Doc #', 'Date', 'Tax', 'Total'],
+    fields: ['Vendor', 'Company #', 'Doc #', 'Date', 'Cashier', 'Address', 'Subtotal', 'Tax', 'Total', 'Currency'],
     rows: [
-      ['Morganfield\'s', '000039121', '2018-03-23', 'RM 33.57', 'RM 593.10'],
-      ['Gin Kee Trading', 'CS00011955', '2017-12-02', 'RM 0.42', 'RM 7.42'],
-      ['Book Talk Sdn Bhd', 'TD01167104', '2018-12-25', 'RM 0.00', 'RM 9.00'],
+      ['Morganfield\'s', '1174703-K', '000039121', '2018-03-23', 'Mizan Genting', 'Lot 50, Floor T2, Sky Avenue Genting Highlands', 'RM 559.53', 'RM 33.57', 'RM 593.10', 'MYR'],
+      ['Gin Kee Trading', '001188498-D', 'CS00011955', '2017-12-02', 'CASHIER4', '15, Jalan Desa Bakti, Taman Desa', 'RM 7.00', 'RM 0.42', 'RM 7.42', 'MYR'],
+      ['Book Talk Sdn Bhd', '659437-H', 'TD01167104', '2018-12-25', 'Pn. Yati', 'No. 12, Jalan SS 2/64, Petaling Jaya', 'RM 9.00', 'RM 0.00', 'RM 9.00', 'MYR'],
     ],
   },
   {
@@ -127,11 +127,11 @@ const DEMO_SAMPLES = [
       '/samples/sample_invoice_2.pdf',
       '/samples/sample_invoice_3.pdf',
     ],
-    fields: ['Invoice #', 'Date', 'Bill To', 'Discount', 'Total'],
+    fields: ['Invoice #', 'Date', 'Bill To', 'Ship To', 'Region', 'Items', 'Subtotal', 'Discount', 'Shipping', 'Total'],
     rows: [
-      ['36258', 'Mar 06 2012', 'Aaron Bergman', '$9.74', '$50.10'],
-      ['36651', 'May 12 2012', 'Aaron Hawkins', '$335.35', '$1,353.08'],
-      ['15978', 'Mar 31 2012', 'Aaron Smayling', '$1,191.80', '$1,910.35'],
+      ['36258', 'Mar 06 2012', 'Aaron Bergman', '6 Elm St, New York', 'East', '3', '$45.62', '$9.74', '$14.22', '$50.10'],
+      ['36651', 'May 12 2012', 'Aaron Hawkins', '820 Oak Ave, Seattle', 'West', '7', '$1,512.43', '$335.35', '$176.00', '$1,353.08'],
+      ['15978', 'Mar 31 2012', 'Aaron Smayling', '44 Pine Rd, Houston', 'Central', '5', '$2,890.15', '$1,191.80', '$212.00', '$1,910.35'],
     ],
   },
   {
@@ -140,13 +140,14 @@ const DEMO_SAMPLES = [
     desc: '100+ page SEC annual report — complex multi-page financial tables, dense layouts, footnotes.',
     tag: '100+ pages',
     files: [],
-    fields: ['Metric', '2023', '2022', '2021'],
+    fields: ['Metric', '2023', '2022', '2021', '2020', '2019'],
     rows: [
-      ['Total Revenues', '$364,482M', '$302,089M', '$276,094M'],
-      ['Net Earnings', '$96,223M', '$(22,819)M', '$89,795M'],
-      ['Total Assets', '$1,069,846M', '$948,452M', '$958,784M'],
-      ['Shareholders\' Equity', '$561,199M', '$472,381M', '$500,140M'],
-      ['Book Value / Share', '$393,194', '$328,078', '$343,890'],
+      ['Total Revenues', '$364,482M', '$302,089M', '$276,094M', '$245,510M', '$254,616M'],
+      ['Net Earnings', '$96,223M', '$(22,819)M', '$89,795M', '$42,521M', '$81,417M'],
+      ['Operating Expenses', '$268,259M', '$280,908M', '$243,299M', '$232,989M', '$231,199M'],
+      ['Total Assets', '$1,069,846M', '$948,452M', '$958,784M', '$873,729M', '$817,729M'],
+      ['Shareholders\' Equity', '$561,199M', '$472,381M', '$500,140M', '$443,164M', '$424,791M'],
+      ['Book Value / Share', '$393,194', '$328,078', '$343,890', '$287,237', '$261,417'],
     ],
   },
 ]
@@ -377,7 +378,7 @@ export default function LandingPage() {
     </svg>
   )
 
-  const SignInButton = ({ size = 'xl', label = 'Get started free', className = '' }: { size?: 'default' | 'sm' | 'lg' | 'xl' | 'icon'; label?: string; className?: string }) => (
+  const SignInButton = ({ size = 'xl', label = 'Get started', className = '' }: { size?: 'default' | 'sm' | 'lg' | 'xl' | 'icon'; label?: string; className?: string }) => (
     <Button
       size={size}
       onClick={() => { trackEvent('cta_click', { label, location: 'landing' }); googleLogin() }}
@@ -478,7 +479,7 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col items-center gap-3">
-            <SignInButton label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton label="Start extracting" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             {loginError && (
               <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
                 {loginError}
@@ -588,11 +589,11 @@ export default function LandingPage() {
                   <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
                 </div>
 
-                {/* Side-by-side: Source PDF | Extracted Data */}
-                <div className={`grid ${sample.files.length > 0 ? 'lg:grid-cols-2' : ''}`}>
+                {/* Stacked: Source PDF on top, Extracted Data below */}
+                <div className="flex flex-col">
                   {/* Source PDF panel */}
                   {sample.files.length > 0 && (
-                    <div className="border-b lg:border-b-0 lg:border-r border-border/50 flex flex-col">
+                    <div className="border-b border-border/50 flex flex-col">
                       <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
                         <FileText size={13} className="text-muted-foreground" />
                         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Source PDF</span>
@@ -614,12 +615,12 @@ export default function LandingPage() {
                           </div>
                         )}
                       </div>
-                      <div className="flex-1 min-h-[400px]">
+                      <div className="h-[300px] sm:h-[400px]">
                         <iframe
                           key={`${sample.id}-${activePdfFile}`}
                           src={sample.files[activePdfFile]}
                           title={`Source PDF ${activePdfFile + 1}: ${sample.label}`}
-                          className="w-full h-full min-h-[400px] bg-white"
+                          className="w-full h-full bg-white"
                         />
                       </div>
                     </div>
@@ -632,13 +633,13 @@ export default function LandingPage() {
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Extracted Data</span>
                       <CheckCircle2 size={12} className="text-emerald-500 ml-auto" />
                     </div>
-                    <div className="flex-1">
-                      <table className="w-full text-[11px]">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] min-w-[600px]">
                         <thead>
                           <tr className="border-b border-border bg-muted/10">
                             <th className="px-2 py-2 text-left font-semibold text-muted-foreground w-6">#</th>
                             {sample.fields.map((f) => (
-                              <th key={f} className="px-2 py-2 text-left font-semibold text-muted-foreground">{f}</th>
+                              <th key={f} className="px-2 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
                             ))}
                           </tr>
                         </thead>
@@ -647,7 +648,7 @@ export default function LandingPage() {
                             <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
                               <td className="px-2 py-2 text-muted-foreground font-mono">{ri + 1}</td>
                               {row.map((cell, ci) => (
-                                <td key={ci} className="px-2 py-2 max-w-[140px] truncate" title={cell}>{cell}</td>
+                                <td key={ci} className="px-2 py-2 whitespace-nowrap" title={cell}>{cell}</td>
                               ))}
                             </tr>
                           ))}
@@ -821,7 +822,7 @@ export default function LandingPage() {
               <DollarSign size={12} className="inline mr-1 text-primary" />
               Example: 200 annual reports (avg 80 pages each) = 16,000 pages = <strong>$800 total</strong>. Manually, that's 400+ analyst-hours at $50/hr = <strong>$20,000</strong>. You save <strong>96%</strong>.
             </p>
-            <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Start extracting" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
@@ -992,7 +993,7 @@ export default function LandingPage() {
             <Lock size={10} />
             Your files are encrypted and deleted after processing
           </p>
-          <SignInButton label="Get started free" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
+          <SignInButton label="Get started" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
         </div>
       </section>
 
