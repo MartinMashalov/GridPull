@@ -267,8 +267,8 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="relative border-b border-border pb-5 mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">PDF Extractor</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, define fields, export to spreadsheet</p>
+          <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload your files, choose the fields to extract, and download a clean spreadsheet</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Balance:</span>
@@ -320,8 +320,8 @@ export default function DashboardPage() {
             <p className="text-primary font-medium">Drop your files here</p>
           ) : (
             <div>
-              <p className="text-foreground font-medium">Drop files here</p>
-              <p className="text-muted-foreground text-sm mt-1">PDF, PNG, JPEG — multiple files supported</p>
+              <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
+              <p className="text-muted-foreground text-sm mt-1">Supports PDF, PNG, and JPEG — upload multiple files at once</p>
             </div>
           )}
         </div>
