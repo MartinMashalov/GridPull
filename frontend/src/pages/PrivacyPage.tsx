@@ -6,7 +6,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Navbar */}
       <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50 bg-background/80">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <FileSpreadsheet size={14} className="text-white" />
@@ -17,9 +17,9 @@ export default function PrivacyPage() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 py-16 px-6">
+      <main className="flex-1 py-10 sm:py-16 px-4 sm:px-6">
         <div className="max-w-3xl mx-auto">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Privacy & Security</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Privacy & Security</h1>
           <p className="text-muted-foreground text-sm mb-4">Last updated: March 2026</p>
           <p className="text-muted-foreground text-sm mb-10 leading-relaxed">
             We understand that the documents you upload — invoices, financial reports, contracts — may contain
@@ -265,8 +265,8 @@ export default function PrivacyPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/50 py-6 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+      <footer className="border-t border-border/50 py-6 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 text-xs text-muted-foreground text-center">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
               <FileSpreadsheet size={11} className="text-white" />

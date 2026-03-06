@@ -280,7 +280,7 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
       <header className="border-b border-border/50 backdrop-blur-sm sticky top-0 z-50 bg-background/80">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <FileSpreadsheet size={14} className="text-white" />
@@ -323,7 +323,7 @@ export default function LandingPage() {
       </header>
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <section className="flex-1 flex flex-col items-center justify-center px-6 py-20 text-center relative overflow-hidden">
+      <section className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 sm:py-20 text-center relative overflow-hidden">
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-[700px] h-[500px] bg-primary/5 rounded-full blur-3xl" />
         </div>
@@ -336,13 +336,13 @@ export default function LandingPage() {
             Your files are encrypted and deleted after processing
           </Badge>
 
-          <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
             Extract data from any PDF{' '}
-            <br />
+            <br className="hidden sm:block" />
             <span className="text-primary">into a clean spreadsheet</span>
           </h1>
 
-          <p className="text-muted-foreground text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
             Upload your PDFs, tell it what data you need, and get a structured Excel file in seconds.
             Works on invoices, financial reports, insurance forms, contracts, and more —
             even messy, scanned, or inconsistently formatted documents.
@@ -353,7 +353,7 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col items-center gap-3">
-            <SignInButton label="Start extracting — it's free" className="min-w-[280px]" />
+            <SignInButton label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             {loginError && (
               <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
                 {loginError}
@@ -367,7 +367,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Stats strip ───────────────────────────────────────────────────── */}
-      <section className="border-y border-border/50 bg-card/50 py-8 px-6">
+      <section className="border-y border-border/50 bg-card/50 py-6 sm:py-8 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-6">
           {STATS.map((s) => (
             <div key={s.label} className="text-center">
@@ -379,7 +379,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── How It Works ──────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-20 px-6 scroll-mt-16">
+      <section id="how-it-works" className="py-12 sm:py-20 px-4 sm:px-6 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             How it works
@@ -411,13 +411,13 @@ export default function LandingPage() {
           </div>
 
           <div className="text-center mt-10">
-            <SignInButton size="xl" label="Try it now — upload your first PDF" className="min-w-[300px]" />
+            <SignInButton size="xl" label="Try it now — upload your first PDF" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
 
       {/* ── Use Cases ─────────────────────────────────────────────────────── */}
-      <section id="use-cases" className="py-20 px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
+      <section id="use-cases" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
         <div className="max-w-5xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Use cases
@@ -492,7 +492,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Why This Tool / Features ──────────────────────────────────────── */}
-      <section className="py-20 px-6 border-t border-border/50 scroll-mt-16">
+      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Why PDF to Excel
@@ -522,7 +522,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Security & Privacy ────────────────────────────────────────────── */}
-      <section id="security" className="py-20 px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
+      <section id="security" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Security & Privacy
@@ -559,7 +559,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── FAQ ───────────────────────────────────────────────────────────── */}
-      <section id="faq" className="py-20 px-6 border-t border-border/50 scroll-mt-16">
+      <section id="faq" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
         <div className="max-w-3xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Frequently asked questions
@@ -603,7 +603,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Enterprise Deployments ────────────────────────────────────────── */}
-      <section className="py-20 px-6 border-t border-border/50 bg-card/30">
+      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30">
         <div className="max-w-4xl mx-auto text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Enterprise
@@ -641,7 +641,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── CTA banner ────────────────────────────────────────────────────── */}
-      <section className="py-16 px-6 border-t border-border/50 bg-primary/5">
+      <section className="py-12 sm:py-16 px-4 sm:px-6 border-t border-border/50 bg-primary/5">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl font-bold tracking-tight mb-3">
             Stop copying data from PDFs by hand
@@ -653,26 +653,26 @@ export default function LandingPage() {
             <Lock size={10} />
             Your files are encrypted and deleted after processing
           </p>
-          <SignInButton label="Get started free" className="min-w-[220px]" />
+          <SignInButton label="Get started free" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
         </div>
       </section>
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
-      <footer className="border-t border-border/50 py-6 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+      <footer className="border-t border-border/50 py-6 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto flex flex-col items-center gap-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
               <FileSpreadsheet size={11} className="text-white" />
             </div>
             PDF to Excel
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
             <a href="#security" className="hover:text-foreground transition-colors">Security</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="mailto:contact@pdfexcel.ai" className="hover:text-foreground transition-colors">Contact</a>
-            <span>© 2026 PDF to Excel. All rights reserved.</span>
           </div>
+          <span>© 2026 PDF to Excel. All rights reserved.</span>
         </div>
       </footer>
     </div>
