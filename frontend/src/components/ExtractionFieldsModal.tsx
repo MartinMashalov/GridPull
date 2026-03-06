@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Plus, Trash2, StickyNote } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
@@ -37,6 +38,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   const addPreset = (name: string) => {
     if (!fields.find(f => f.name === name)) {
       setFields(prev => [...prev, { name, description: '' }])
+      trackEvent('field_added', { field: name, type: 'preset' })
       scrollToBottom()
     }
   }
@@ -45,6 +47,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     const trimmed = newFieldName.trim()
     if (!trimmed) return
     setFields(prev => [...prev, { name: trimmed, description: '' }])
+    trackEvent('field_added', { field: trimmed, type: 'custom' })
     setNewFieldName('')
     scrollToBottom()
     setTimeout(() => inputRef.current?.focus(), 40)

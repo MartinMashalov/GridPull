@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -137,6 +138,7 @@ export default function DashboardPage() {
     if (event.type === 'complete') {
       localStorage.removeItem(_ACTIVE_JOB_KEY)
       setActiveJobId(null)
+      trackEvent('extraction_complete', { cost: event.cost ?? 0, file_count: event.results?.length ?? 0 })
       setJob((prev) =>
         prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
       )
@@ -144,6 +146,7 @@ export default function DashboardPage() {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
       if (event.download_url) {
+        trackEvent('file_download', { format: exportFormat })
         const token = useAuthStore.getState().token ?? ''
         const a = document.createElement('a')
         a.href = `${event.download_url}?token=${encodeURIComponent(token)}`
@@ -170,6 +173,7 @@ export default function DashboardPage() {
     } else {
       setValidationMsg(null)
     }
+    trackEvent('files_uploaded', { count: valid.length })
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size))
       return [...prev, ...valid.filter((f) => !seen.has(f.name + f.size))]
@@ -194,6 +198,7 @@ export default function DashboardPage() {
   }
 
   const handleExtract = async (fields: ExtractionField[], format: ExportFormat) => {
+    trackEvent('extraction_start', { field_count: fields.length, format, file_count: files.length })
     setShowModal(false)
     setExportFormat(format)
     setActiveJobId(null)

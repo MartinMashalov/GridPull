@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import {
   Workflow, Plus, Play, Pause, Trash2, ExternalLink,
   CheckCircle2, XCircle, Loader2, RefreshCw, MoreVertical,
@@ -379,6 +380,7 @@ export default function PipelinesPage() {
     })
     setWizardOpen(false)
     setEditingPipeline(undefined)
+    trackEvent(editingPipeline ? 'pipeline_updated' : 'pipeline_created', { name: pipeline.name })
     toast.success(editingPipeline ? 'Pipeline updated' : `Pipeline "${pipeline.name}" created!`)
   }
 
@@ -387,6 +389,7 @@ export default function PipelinesPage() {
     try {
       const r = await api.patch(`/pipelines/${id}`, { status: newStatus })
       setPipelines(prev => prev.map(p => p.id === id ? { ...p, ...r.data } : p))
+      trackEvent('pipeline_toggle', { status: newStatus })
       toast.success(newStatus === 'active' ? 'Pipeline resumed' : 'Pipeline paused')
     } catch {
       toast.error('Failed to update pipeline')
@@ -396,6 +399,7 @@ export default function PipelinesPage() {
   const handleRunNow = async (id: string) => {
     try {
       await api.post(`/pipelines/${id}/run`)
+      trackEvent('pipeline_run_now')
       toast.success('Pipeline check triggered — new PDFs will be processed shortly')
       setTimeout(fetchPipelines, 1500)
     } catch {
