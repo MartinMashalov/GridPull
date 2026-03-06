@@ -1,7 +1,9 @@
-import { Component, ReactNode } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Component, ReactNode, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { trackPageView } from '@/lib/analytics'
 import LandingPage from '@/pages/LandingPage'
 import PrivacyPage from '@/pages/PrivacyPage'
+import TermsPage from '@/pages/TermsPage'
 import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
@@ -34,10 +36,19 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function PageViewTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname, document.title)
+  }, [location.pathname])
+  return null
+}
+
 export default function App() {
   return (
     <PasswordGate>
     <BrowserRouter>
+      <PageViewTracker />
       <ErrorBoundary>
       <Routes>
         <Route path="/" element={<LandingPage />} />
@@ -72,6 +83,7 @@ export default function App() {
           }
         />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </ErrorBoundary>

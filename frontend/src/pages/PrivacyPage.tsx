@@ -62,8 +62,8 @@ export default function PrivacyPage() {
                 </p>
                 <p>
                   We also store basic usage data — the number of documents you've processed and your account
-                  balance — to calculate billing. We do not track your browsing activity, and we do not use
-                  third-party analytics or advertising trackers.
+                  balance — to calculate billing. We use Google Analytics to understand how visitors interact
+                  with our website (pages visited, feature usage). We do not use advertising trackers.
                 </p>
               </div>
             </section>
@@ -147,6 +147,7 @@ export default function PrivacyPage() {
                 <p>We use the following third-party services:</p>
                 <ul className="list-disc list-inside space-y-1 pl-1">
                   <li><strong>Google OAuth</strong> — for secure sign-in (we only receive your name, email, and profile picture)</li>
+                  <li><strong>Google Analytics</strong> — for anonymous website usage analytics (no personal data is shared)</li>
                   <li><strong>AI processing APIs</strong> — for document extraction and OCR (your documents are processed but not stored or used for training)</li>
                   <li><strong>Stripe</strong> — for secure payment processing (we never see or store your full credit card number)</li>
                 </ul>
@@ -175,9 +176,10 @@ export default function PrivacyPage() {
                 7. Cookies & Tracking
               </h2>
               <p className="text-muted-foreground">
-                We use session-only cookies and localStorage to keep you signed in. <strong>We do not use
-                third-party tracking cookies, analytics scripts, or advertising pixels.</strong> We do not
-                track your activity across other websites.
+                We use session-only cookies and localStorage to keep you signed in. We use Google Analytics
+                to collect anonymous usage data (pages visited, time on site, general geographic region).
+                Google Analytics uses cookies to distinguish unique users. <strong>We do not use advertising
+                pixels or track your activity across other websites.</strong>
               </p>
             </section>
 
@@ -200,8 +202,8 @@ export default function PrivacyPage() {
                 <p>
                   <strong>Deletion requests:</strong> You may request complete deletion of your account and all
                   associated data at any time by emailing{' '}
-                  <a href="mailto:privacy@pdfexcel.ai" className="text-primary underline">
-                    privacy@pdfexcel.ai
+                  <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
+                    bigvisionsystems@gmail.com
                   </a>
                   . We will process deletion requests within 30 days.
                 </p>
@@ -221,7 +223,7 @@ export default function PrivacyPage() {
                   <li>API keys and credentials are stored as environment variables and never exposed to clients</li>
                   <li>Authentication uses secure OAuth 2.0 and JWT tokens</li>
                   <li>Payment processing is handled entirely by Stripe (PCI-compliant)</li>
-                  <li>No third-party tracking or analytics scripts</li>
+                  <li>Google Analytics for anonymous usage data only — no advertising trackers</li>
                 </ul>
               </div>
             </section>
@@ -235,8 +237,8 @@ export default function PrivacyPage() {
                 <p>
                   If your organization requires additional security measures, compliance documentation, or
                   a private deployment where no data leaves your network, please contact us at{' '}
-                  <a href="mailto:contact@pdfexcel.ai" className="text-primary underline">
-                    contact@pdfexcel.ai
+                  <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
+                    bigvisionsystems@gmail.com
                   </a>
                   .
                 </p>
@@ -254,8 +256,8 @@ export default function PrivacyPage() {
               </h2>
               <p className="text-muted-foreground">
                 For privacy-related questions, data deletion requests, or security inquiries, contact us at{' '}
-                <a href="mailto:privacy@pdfexcel.ai" className="text-primary underline">
-                  privacy@pdfexcel.ai
+                <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
+                  bigvisionsystems@gmail.com
                 </a>
                 .
               </p>
@@ -273,11 +275,12 @@ export default function PrivacyPage() {
             </div>
             PDF to Excel
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
-            <a href="mailto:contact@pdfexcel.ai" className="hover:text-foreground transition-colors">Contact</a>
-            <span>© 2026 PDF to Excel. All rights reserved.</span>
+            <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+            <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
+          <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>
       </footer>
     </div>

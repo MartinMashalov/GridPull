@@ -10,6 +10,7 @@ import {
   ShieldCheck, Trash2, ServerCrash, KeyRound,
   HelpCircle,
 } from 'lucide-react'
+import { trackEvent } from '@/lib/analytics'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
@@ -226,20 +227,26 @@ export default function LandingPage() {
     onSuccess: async (tokenResponse) => {
       setLoading(true)
       setLoginError(null)
+      trackEvent('login_start', { method: 'google' })
       try {
         const res = await api.post('/auth/google', {
           access_token: tokenResponse.access_token,
         })
         setUser(res.data.user, res.data.access_token)
+        trackEvent('login_success', { method: 'google' })
         navigate('/dashboard')
       } catch (err: any) {
         const detail = err.response?.data?.detail
         setLoginError(typeof detail === 'string' ? detail : 'Login failed. Please try again.')
+        trackEvent('login_error', { method: 'google' })
       } finally {
         setLoading(false)
       }
     },
-    onError: () => setLoginError('Google sign-in was cancelled or failed. Please try again.'),
+    onError: () => {
+      setLoginError('Google sign-in was cancelled or failed. Please try again.')
+      trackEvent('login_cancelled', { method: 'google' })
+    },
   })
 
   if (user) {
@@ -261,7 +268,7 @@ export default function LandingPage() {
   const SignInButton = ({ size = 'xl' as const, label = 'Get started free', className = '' }) => (
     <Button
       size={size}
-      onClick={() => googleLogin()}
+      onClick={() => { trackEvent('cta_click', { label, location: 'landing' }); googleLogin() }}
       disabled={loading}
       className={`gap-3 shadow-lg shadow-primary/20 ${className}`}
     >
@@ -300,13 +307,13 @@ export default function LandingPage() {
             <a href="#faq" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               FAQ
             </a>
-            <a href="mailto:contact@pdfexcel.ai" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+            <a href="mailto:bigvisionsystems@gmail.com" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden md:block">
               Enterprise
             </a>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => googleLogin()}
+              onClick={() => { trackEvent('cta_click', { label: 'navbar_sign_in', location: 'header' }); googleLogin() }}
               disabled={loading}
             >
               {loading ? (
@@ -436,7 +443,7 @@ export default function LandingPage() {
               {USE_CASES.map((c, i) => (
                 <button
                   key={c.label}
-                  onClick={() => setActiveCase(i)}
+                  onClick={() => { setActiveCase(i); trackEvent('use_case_select', { case: c.label }) }}
                   className={`w-full text-left rounded-xl p-4 border transition-all flex items-center gap-3 ${
                     activeCase === i
                       ? 'border-primary/40 bg-primary/5 shadow-sm'
@@ -479,7 +486,7 @@ export default function LandingPage() {
                   <div className="mt-5 pt-4 border-t border-border/50">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">+ any custom fields you define</span>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-primary" onClick={() => googleLogin()}>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-primary" onClick={() => { trackEvent('cta_click', { label: 'try_it_use_case', location: 'use_cases' }); googleLogin() }}>
                         Try it <ArrowRight size={11} />
                       </Button>
                     </div>
@@ -575,7 +582,7 @@ export default function LandingPage() {
                 className="border border-border rounded-xl overflow-hidden bg-card"
               >
                 <button
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  onClick={() => { const next = openFaq === i ? null : i; setOpenFaq(next); if (next !== null) trackEvent('faq_expand', { question: item.q }) }}
                   className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/30 transition-colors"
                 >
                   <span className="text-sm font-medium pr-4 flex items-center gap-2.5">
@@ -632,7 +639,7 @@ export default function LandingPage() {
           </div>
 
           <Button variant="outline" size="sm" className="gap-2" asChild>
-            <a href="mailto:contact@pdfexcel.ai">
+            <a href="mailto:bigvisionsystems@gmail.com">
               <Mail size={14} />
               Contact us for enterprise pricing
             </a>
@@ -668,11 +675,12 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
+            <a href="/terms" className="hover:text-foreground transition-colors">Terms of Service</a>
             <a href="#security" className="hover:text-foreground transition-colors">Security</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
-            <a href="mailto:contact@pdfexcel.ai" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
-          <span>© 2026 PDF to Excel. All rights reserved.</span>
+          <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>
       </footer>
     </div>
