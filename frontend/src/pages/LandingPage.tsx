@@ -333,6 +333,7 @@ export default function LandingPage() {
   const [activeCase, setActiveCase] = useState(0)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [activeSample, setActiveSample] = useState(0)
+  const [activePdfFile, setActivePdfFile] = useState(0)
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
@@ -559,7 +560,7 @@ export default function LandingPage() {
             {DEMO_SAMPLES.map((s, i) => (
               <button
                 key={s.id}
-                onClick={() => { setActiveSample(i); trackEvent('demo_sample_select', { sample: s.id }) }}
+                onClick={() => { setActiveSample(i); setActivePdfFile(0); trackEvent('demo_sample_select', { sample: s.id }) }}
                 className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
                   activeSample === i
                     ? 'bg-primary text-primary-foreground border-primary shadow-sm'
@@ -592,18 +593,32 @@ export default function LandingPage() {
                   {/* Source PDF panel */}
                   {sample.files.length > 0 && (
                     <div className="border-b lg:border-b-0 lg:border-r border-border/50 flex flex-col">
-                      <div className="px-4 py-2.5 bg-muted/20 border-b border-border/50 flex items-center gap-2">
+                      <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
                         <FileText size={13} className="text-muted-foreground" />
                         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Source PDF</span>
                         {sample.files.length > 1 && (
-                          <span className="text-[10px] text-muted-foreground ml-auto">({sample.files.length} files — showing first)</span>
+                          <div className="flex items-center gap-1 ml-auto">
+                            {sample.files.map((_file, fi) => (
+                              <button
+                                key={fi}
+                                onClick={() => setActivePdfFile(fi)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                                  activePdfFile === fi
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-secondary text-muted-foreground hover:text-foreground'
+                                }`}
+                              >
+                                Doc {fi + 1}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                       <div className="flex-1 min-h-[400px]">
                         <iframe
-                          key={sample.id}
-                          src={sample.files[0]}
-                          title={`Source PDF: ${sample.label}`}
+                          key={`${sample.id}-${activePdfFile}`}
+                          src={sample.files[activePdfFile]}
+                          title={`Source PDF ${activePdfFile + 1}: ${sample.label}`}
                           className="w-full h-full min-h-[400px] bg-white"
                         />
                       </div>
@@ -612,27 +627,27 @@ export default function LandingPage() {
 
                   {/* Extracted data panel */}
                   <div className="flex flex-col">
-                    <div className="px-4 py-2.5 bg-muted/20 border-b border-border/50 flex items-center gap-2">
+                    <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
                       <ArrowRight size={13} className="text-emerald-500" />
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Extracted Data</span>
                       <CheckCircle2 size={12} className="text-emerald-500 ml-auto" />
                     </div>
-                    <div className="overflow-x-auto flex-1">
-                      <table className="w-full text-xs">
+                    <div className="flex-1">
+                      <table className="w-full text-[11px]">
                         <thead>
                           <tr className="border-b border-border bg-muted/10">
-                            <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground w-8">#</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground w-6">#</th>
                             {sample.fields.map((f) => (
-                              <th key={f} className="px-3 py-2.5 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
+                              <th key={f} className="px-2 py-2 text-left font-semibold text-muted-foreground">{f}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {sample.rows.map((row, ri) => (
                             <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
-                              <td className="px-3 py-2.5 text-muted-foreground font-mono">{ri + 1}</td>
+                              <td className="px-2 py-2 text-muted-foreground font-mono">{ri + 1}</td>
                               {row.map((cell, ci) => (
-                                <td key={ci} className="px-3 py-2.5 whitespace-nowrap">{cell}</td>
+                                <td key={ci} className="px-2 py-2 max-w-[140px] truncate" title={cell}>{cell}</td>
                               ))}
                             </tr>
                           ))}
