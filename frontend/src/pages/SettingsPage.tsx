@@ -62,14 +62,19 @@ export default function SettingsPage() {
       // Verify directly with Stripe and credit balance immediately
       api.post(`/payments/verify-session/${sessionId}`)
         .then(r => {
-          const { balance, credited, amount } = r.data
-          if (credited) {
-            updateBalance(balance)
-            toast.success(`$${amount.toFixed(2)} added to your balance!`)
-          }
+          const { balance, amount } = r.data
+          // Always update displayed balance — server returns fresh value regardless
+          // of whether it was credited now or already via webhook
+          updateBalance(balance)
+          const added = amount ?? 0
+          toast.success(added > 0 ? `$${added.toFixed(2)} added to your balance!` : 'Payment successful!')
           api.get('/payments/saved-card').then(r2 => setSavedCard(r2.data.card)).catch(() => {})
         })
-        .catch(() => toast.error('Payment verified by Stripe but balance update failed — refresh the page'))
+        .catch(() => {
+          // Verification call failed — still fetch fresh balance directly
+          api.get('/payments/me').then(r => updateBalance(r.data.balance)).catch(() => {})
+          toast.error('Payment received but balance update failed — refresh the page')
+        })
     }
 
     if (card === 'saved') {

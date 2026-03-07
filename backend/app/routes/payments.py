@@ -383,21 +383,26 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         mode = session.get("mode")
 
         if mode == "payment":
-            amount_dollars = (session.get("amount_total") or 0) / 100.0
-            if user_id and amount_dollars > 0:
-                result = await db.execute(select(User).where(User.id == user_id))
-                user = result.scalar_one_or_none()
-                if user:
-                    user.balance += amount_dollars
-                    await db.commit()
-                    logger.info("Credited $%.2f to user %s (new balance: $%.2f)", amount_dollars, user_id, user.balance)
-
             result = await db.execute(select(Payment).where(Payment.stripe_session_id == session["id"]))
             payment = result.scalar_one_or_none()
-            if payment:
-                payment.status = "complete"
-                payment.stripe_payment_intent = session.get("payment_intent")
-                await db.commit()
+
+            # Idempotency: skip if already credited (verify-session may have run first)
+            if payment and payment.status == "complete":
+                logger.info("Webhook: session %s already credited — skipping", session["id"])
+            else:
+                amount_dollars = (session.get("amount_total") or 0) / 100.0
+                if user_id and amount_dollars > 0:
+                    result2 = await db.execute(select(User).where(User.id == user_id))
+                    user = result2.scalar_one_or_none()
+                    if user:
+                        user.balance += amount_dollars
+                        await db.commit()
+                        logger.info("Webhook credited $%.2f to user %s (new balance: $%.2f)", amount_dollars, user_id, user.balance)
+
+                if payment:
+                    payment.status = "complete"
+                    payment.stripe_payment_intent = session.get("payment_intent")
+                    await db.commit()
 
             # Save card from PaymentIntent
             if user_id and session.get("payment_intent"):
