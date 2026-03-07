@@ -159,7 +159,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="balance">
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 w-full sm:w-auto">
           <TabsTrigger value="balance"><Wallet size={13} />Balance</TabsTrigger>
           <TabsTrigger value="defaults"><Zap size={13} />Default Fields</TabsTrigger>
           <TabsTrigger value="profile"><User size={13} />Profile</TabsTrigger>

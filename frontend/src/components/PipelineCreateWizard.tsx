@@ -805,7 +805,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
         <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[520px] max-w-[95vw] max-h-[90vh] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-4 border-b border-border">
             <div>
               <Dialog.Title className="font-semibold text-base">
                 {isEdit ? `Edit: ${pipeline?.name}` : 'New Pipeline'}
@@ -828,13 +828,13 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
 
           {/* Step nav pills (edit mode: all clickable) */}
           {isEdit && (
-            <div className="flex gap-1 px-5 py-2.5 border-b border-border bg-secondary/30">
+            <div className="flex gap-1 px-3 sm:px-5 py-2.5 border-b border-border bg-secondary/30 overflow-x-auto">
               {STEP_LABELS.map((label, idx) => (
                 <button
                   key={idx}
                   onClick={() => setStep(idx < 1 ? 1 : idx)}
                   className={cn(
-                    'flex-1 py-1 text-xs rounded-md transition-colors',
+                    'flex-1 py-1 text-[11px] sm:text-xs rounded-md transition-colors whitespace-nowrap',
                     step === idx
                       ? 'bg-primary text-white font-medium'
                       : 'text-muted-foreground hover:bg-accent'
@@ -847,7 +847,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
           )}
 
           {/* Step content */}
-          <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">
             {step === 0 && (
               <Step1 connections={connections} selected={provider} onSelect={setProvider} />
             )}
@@ -888,7 +888,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-secondary/20">
+          <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-t border-border bg-secondary/20">
             <Button
               variant="ghost"
               size="sm"
