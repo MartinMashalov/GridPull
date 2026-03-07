@@ -265,6 +265,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         output_filename = _output_filename(pipeline)
 
     storage = _storage_provider(source_type)
+    logger.info("Pipeline run_id=%s file=%s → %s", run_id, file_info["name"], output_filename)
     await _append_log(run_id, f"Starting: {file_info['name']} → {output_filename}")
 
     tmp_path: str | None = None
@@ -273,6 +274,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         await _append_log(run_id, f"Downloading {file_info['name']}...")
         pdf_bytes = await _download_file(access_token, file_info["id"], source_type, file_info)
         size_kb = len(pdf_bytes) / 1024
+        logger.info("Pipeline run_id=%s downloaded %s %.0f KB", run_id, file_info["name"], size_kb)
         await _append_log(run_id, f"Downloaded {size_kb:.0f} KB. Writing to temp file...")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_info['name']}") as tmp:
@@ -282,7 +284,8 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         # ── Parse PDF ──────────────────────────────────────────────────────
         await _append_log(run_id, "Parsing PDF (extracting text and tables)...")
         parsed = await asyncio.to_thread(parse_pdf, tmp_path, file_info["name"])
-        page_count = len(parsed.get("pages", [])) if isinstance(parsed, dict) else "?"
+        page_count = getattr(parsed, "page_count", len(parsed.get("pages", [])) if isinstance(parsed, dict) else "?")
+        logger.info("Pipeline run_id=%s parse_pdf done: %s pages=%s", run_id, file_info["name"], page_count)
         await _append_log(run_id, f"PDF parsed: {page_count} pages. Running AI extraction...")
 
         # ── Extract ────────────────────────────────────────────────────────
@@ -291,6 +294,10 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         for row in rows:
             row["_source_file"] = file_info["name"]
 
+        logger.info(
+            "Pipeline run_id=%s extract done: %s rows=%d cost_usd=%.4f",
+            run_id, file_info["name"], len(rows), usage.cost_usd,
+        )
         await _append_log(run_id, f"Extracted {len(rows)} row(s). Cost so far: ${usage.cost_usd:.4f}")
 
         field_names = [f["name"] for f in fields]
@@ -345,6 +352,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         dest_url = await _upload_output(
             access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
         )
+        logger.info("Pipeline run_id=%s upload done: %s %s KB", run_id, output_filename, len(out_bytes) // 1024)
         await _append_log(run_id, f"Uploaded successfully.")
 
         # ── Mark email as read (Outlook only) ─────────────────────────────
@@ -396,7 +404,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         )
 
     except Exception as exc:
-        logger.exception("Pipeline %s: failed %s", pipeline_id, file_info["name"])
+        logger.exception("Pipeline %s run_id=%s failed file=%s: %s", pipeline_id, run_id, file_info["name"], exc)
         async with _PollerSession() as db:
             r = await db.get(PipelineRun, run_id)
             if r:

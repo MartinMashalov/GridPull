@@ -248,16 +248,19 @@ export default function DashboardPage() {
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
 
-  // Ref to the submit button so we can programmatically click it on Enter
   const submitBtnRef = useRef<HTMLButtonElement>(null)
   const showModalRef = useRef(showModal)
   showModalRef.current = showModal
+  const filesLengthRef = useRef(files.length)
+  filesLengthRef.current = files.length
+  const isProcessingRef = useRef(isProcessing)
+  isProcessingRef.current = isProcessing
 
-  // Use document capture so the event fires before any child handler (dropzone etc.) can block it
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { setFiles([]); return }
-      if (e.key === 'Enter' && !showModalRef.current) {
+      if (e.key === 'Enter' && !showModalRef.current && filesLengthRef.current > 0 && !isProcessingRef.current) {
+        e.preventDefault()
         submitBtnRef.current?.click()
       }
     }

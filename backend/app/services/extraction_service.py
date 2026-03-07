@@ -1349,4 +1349,8 @@ async def extract_from_document(
         field_names = [f["name"] for f in fields]
         rows = _empty([doc.filename], field_names)
 
+    logger.info(
+        "extract_from_document done: filename=%s rows=%d cost_usd=%.6f input_tokens=%d output_tokens=%d",
+        doc.filename, len(rows), usage.cost_usd, usage.input_tokens, usage.output_tokens,
+    )
     return rows

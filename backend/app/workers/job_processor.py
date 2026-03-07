@@ -66,7 +66,10 @@ async def process_job(
     logger.info("=== Job %s started ===", job_id)
 
     async def emit(status: str, progress: int, message: str, completed_docs: int = 0, total_docs_count: int = 0) -> None:
-        logger.debug("Job %s progress — status=%s pct=%d msg=%r", job_id, status, progress, message)
+        logger.info(
+            "Job %s progress — status=%s progress=%d%% completed=%s/%s msg=%s",
+            job_id, status, progress, completed_docs, total_docs_count, message,
+        )
         await broadcast(
             job_id,
             {
@@ -149,9 +152,12 @@ async def process_job(
 
                             completed_count += 1
                             doc_elapsed = (time.monotonic() - doc_start) * 1000
+                            error_rows = sum(1 for r in rows if r.get("_error"))
+                            filled = sum(1 for r in rows for k, v in r.items() if k not in ("_source_file", "_error") and v not in (None, ""))
+                            total_cells = len(rows) * len(field_names)
                             logger.info(
-                                "Job %s — extracted %s: %d row(s) in %.0fms",
-                                job_id, filename, len(rows), doc_elapsed,
+                                "Job %s — extracted %s: rows=%d filled_cells=%d/%d error_rows=%d in %.0fms cost=$%.6f",
+                                job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, job_usage.cost_usd,
                             )
                             # Persist completed_docs so polling endpoint shows real progress
                             job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
@@ -170,6 +176,10 @@ async def process_job(
                             logger.error(
                                 "Job %s — error processing %s: %s",
                                 job_id, filename, exc, exc_info=True,
+                            )
+                            logger.error(
+                                "Job %s — doc %s failed; recording error row for downstream",
+                                job_id, filename,
                             )
                             doc_obj.status = "error"
                             row: Dict[str, Any] = {f: "" for f in field_names}

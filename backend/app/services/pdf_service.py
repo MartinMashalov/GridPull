@@ -10,12 +10,14 @@ Extracts rich content from PDFs using PyMuPDF 1.24+:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional
-
 import fitz  # PyMuPDF >= 1.23
+
+logger = logging.getLogger(__name__)
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -176,6 +178,8 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     if not filename:
         filename = os.path.basename(file_path)
 
+    logger.info("parse_pdf start: filename=%s file_path=%s", filename, file_path)
+
     ext = os.path.splitext(filename.lower())[1]
     force_scanned = ext in _IMAGE_EXTENSIONS
 
@@ -306,6 +310,11 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
 
     doc_type_hint = _classify_doc_hint(pages, all_tables)
     is_scanned    = force_scanned or _detect_scan(pages)
+
+    logger.info(
+        "parse_pdf done: filename=%s pages=%d tables=%d doc_type_hint=%s is_scanned=%s",
+        filename, page_count, len(all_tables), doc_type_hint, is_scanned,
+    )
 
     return ParsedDocument(
         filename=filename,
