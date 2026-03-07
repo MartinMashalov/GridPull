@@ -3,7 +3,7 @@ import { trackEvent } from '@/lib/analytics'
 import {
   Workflow, Plus, Play, Pause, Trash2, ExternalLink,
   CheckCircle2, XCircle, Loader2, RefreshCw, MoreVertical,
-  ChevronRight, FolderOpen, Pencil, ChevronDown, Terminal,
+  FolderOpen, Pencil, ChevronDown, Terminal,
   ArrowRight, FolderInput, Settings2, Zap,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
