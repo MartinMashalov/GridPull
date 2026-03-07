@@ -429,7 +429,7 @@ export default function PipelinesPage() {
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+          <div className="flex-1 flex flex-col items-center sm:justify-center px-4 py-8 sm:py-12">
             <div className="max-w-md w-full text-center">
               <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
                 <Workflow size={22} className="text-primary" />
