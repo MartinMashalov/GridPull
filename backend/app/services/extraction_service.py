@@ -1220,14 +1220,15 @@ async def extract_from_scanned_document(
               Long multi-record docs are chunked and run concurrently.
     """
     from app.services.ocr_service import run_mistral_ocr
+    field_names = [f["name"] for f in fields]
 
     if not settings.mistral_api_key:
-        logger.warning(
-            "Scanned doc detected (%s) but MISTRAL_API_KEY not set — "
-            "falling back to TEXT pipeline",
+        msg = "Scanned OCR unavailable: MISTRAL_API_KEY not set"
+        logger.error(
+            "Scanned doc detected (%s) but MISTRAL_API_KEY not set — returning error row",
             doc.filename,
         )
-        return await extract_single_record(doc, fields, usage, instructions)
+        return _error([doc.filename], field_names, msg)
 
     logger.info(
         "SCAN pipeline — Mistral OCR starting: %s (%d pages)",
@@ -1242,13 +1243,18 @@ async def extract_from_scanned_document(
             doc.filename, ocr_page_count, len(ocr_text), ocr_cost_usd,
         )
     except Exception as exc:
+        msg = f"Scanned OCR failed: {exc}"
         logger.error(
-            "SCAN pipeline — OCR failed for %s: %s — falling back to TEXT pipeline",
+            "SCAN pipeline — OCR failed for %s: %s — returning error row",
             doc.filename, exc,
         )
-        return await extract_single_record(doc, fields, usage, instructions)
+        return _error([doc.filename], field_names, msg)
 
-    field_names = [f["name"] for f in fields]
+    if not ocr_text.strip():
+        msg = "Scanned OCR failed: empty OCR text"
+        logger.error("SCAN pipeline — OCR returned empty text for %s", doc.filename)
+        return _error([doc.filename], field_names, msg)
+
     fblock      = _fields_block(fields)
     extraction_mode = "single"
     planner_prompt = (

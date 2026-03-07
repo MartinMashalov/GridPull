@@ -21,13 +21,14 @@ import os
 import tempfile
 
 import fitz  # PyMuPDF — already a project dependency
-import litellm
+from mistralai import DocumentURLChunk, File, Mistral
 
 logger = logging.getLogger(__name__)
 
 # ── Mistral OCR safety thresholds (with buffer below hard limits) ─────────────
 _MAX_PAGES_PER_CALL = 950     # hard limit: 1,000   — we stay at 950
 _MAX_FILE_MB        = 45.0    # hard limit: 50 MB   — we stay at 45 MB
+_MISTRAL_OCR_PAGE_PRICE_USD = 0.001
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,23 +71,53 @@ def _extract_chunk_to_tempfile(file_path: str, start_page: int, end_page: int) -
 
 async def _ocr_file(file_path: str, api_key: str) -> tuple[list[str], float]:
     """
-    LiteLLM OCR call on a single PDF or image path.
-    Returns per-page markdown plus the OCR cost for this call.
+    Mistral SDK OCR call on a single PDF or image path.
+    Returns per-page markdown plus the estimated OCR cost for this call.
     """
-    response = await litellm.aocr(
-        model="mistral/mistral-ocr-latest",
-        document={"type": "file", "file": file_path},
-        api_key=api_key,
-    )
+    client = Mistral(api_key=api_key)
+    ext = os.path.splitext(file_path.lower())[1]
+    content_type = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+    }.get(ext, "application/octet-stream")
+
+    with open(file_path, "rb") as f:
+        uploaded = await client.files.upload_async(
+            file=File(
+                file_name=os.path.basename(file_path),
+                content=f.read(),
+                content_type=content_type,
+            ),
+            purpose="ocr",
+        )
+
+    try:
+        signed = await client.files.get_signed_url_async(file_id=uploaded.id)
+        response = await client.ocr.process_async(
+            model="mistral-ocr-latest",
+            document=DocumentURLChunk(
+                document_url=signed.url,
+                document_name=os.path.basename(file_path),
+            ),
+        )
+    finally:
+        try:
+            await client.files.delete_async(file_id=uploaded.id)
+        except Exception as exc:
+            logger.warning("Mistral OCR cleanup failed for %s: %s", file_path, exc)
+
     pages = []
     for page in response.pages:
         md = getattr(page, "markdown", getattr(page, "text", ""))
         pages.append(md)
-    ocr_cost_usd = litellm.completion_cost(
-        model="mistral/mistral-ocr-latest",
-        completion_response=response,
-        call_type="ocr",
-    )
+    ocr_cost_usd = len(pages) * _MISTRAL_OCR_PAGE_PRICE_USD
     return pages, ocr_cost_usd
 
 

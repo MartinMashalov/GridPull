@@ -307,6 +307,7 @@ async def run_folder(
         pdf_elapsed = time.perf_counter() - pdf_t0
         single_record_fill_rate = None
         single_record_missing_fields: List[str] = []
+        error_messages = sorted({str(r.get("_error")).strip() for r in rows if r.get("_error")})
         if len(rows) == 1:
             doc_result = Document(extracted_data=rows)
             single_record_fill_rate = doc_result.single_record_fill_rate(field_names)
@@ -326,6 +327,8 @@ async def run_folder(
                 if len(rows) == 1 and single_record_missing_fields:
                     print(f"        Missing: {', '.join(single_record_missing_fields)}")
                     print(f"        Single-row fill rate: {_pct(single_record_fill_rate or 0.0)}")
+                if error_messages:
+                    print(f"        Error: {error_messages[0]}")
                 print()
 
         all_rows.extend(rows)
@@ -340,9 +343,11 @@ async def run_folder(
             "numeric_parse_rate": pdf_report.numeric_parse_rate,
             "date_parse_rate": pdf_report.date_parse_rate,
             "error_row_rate": pdf_report.error_row_rate,
+            "ffr_target": case.get("ffr_target", FFR_TARGET),
             "single_record_fill_rate": single_record_fill_rate,
             "missing_fields": single_record_missing_fields,
             "missing_count": len(single_record_missing_fields),
+            "error_messages": error_messages,
         })
 
     elapsed = time.perf_counter() - t0
@@ -374,9 +379,11 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
 
     for case in cases:
         folder = case["folder"]
+        folder_ffr_target = case.get("ffr_target", FFR_TARGET)
         print(f"{BOLD}▶ {folder}{RESET}  —  {case['description']}")
         fields_str = ", ".join(f["name"] for f in case["fields"])
         print(f"  Fields ({len(case['fields'])}): {fields_str}")
+        print(f"  Targets: FFR≥{_pct(folder_ffr_target)}  NPR≥{_pct(NPR_TARGET)}  DPR≥{_pct(DPR_TARGET)}  ERR=0.0%")
 
         report, elapsed, n_rows, document_reports = await run_folder(case, verbose=verbose)
         all_reports.append(report)
@@ -384,16 +391,16 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
         overall_rows += n_rows
         all_document_reports.extend(document_reports)
 
-        folder_ffr_target = case.get("ffr_target", FFR_TARGET)
         ffr_ok = report.field_fill_rate >= folder_ffr_target
         npr_ok = report.numeric_parse_rate >= NPR_TARGET
         dpr_ok = report.date_parse_rate >= DPR_TARGET
-        passed = ffr_ok and npr_ok and dpr_ok
+        err_ok = report.error_row_rate == 0.0
+        passed = ffr_ok and npr_ok and dpr_ok and err_ok
 
         status = f"{GREEN}PASS{RESET}" if passed else f"{RED}FAIL{RESET}"
         print(
             f"  {status}  rows={n_rows}  "
-            f"FFR={_colored(report.field_fill_rate, FFR_TARGET)} {_bar(report.field_fill_rate)}  "
+            f"FFR={_colored(report.field_fill_rate, folder_ffr_target)} {_bar(report.field_fill_rate)}  "
             f"NPR={_colored(report.numeric_parse_rate, NPR_TARGET)}  "
             f"DPR={_colored(report.date_parse_rate, DPR_TARGET)}  "
             f"ERR={_pct(report.error_row_rate)}  "
@@ -411,6 +418,18 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
             if not dpr_ok:
                 print(f"    {RED}✗ DPR {_pct(report.date_parse_rate)} < target {_pct(DPR_TARGET)}"
                       f"  ({report.date_hits}/{report.date_total} date fields){RESET}")
+            if not err_ok:
+                error_rows = int(round(report.row_count * report.error_row_rate))
+                print(f"    {RED}✗ ERR {_pct(report.error_row_rate)} > target 0.0%"
+                      f"  ({error_rows}/{report.row_count} error rows){RESET}")
+            folder_error_messages = sorted({
+                msg
+                for d in document_reports
+                for msg in d.get("error_messages", [])
+                if msg
+            })
+            if folder_error_messages:
+                print(f"    {RED}✗ Cause: {folder_error_messages[0]}{RESET}")
         print()
 
         avg_time_per_doc = elapsed / len(document_reports) if document_reports else 0
@@ -439,6 +458,7 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
                 f"  {d['folder']}/{d['pdf_name']}  "
                 f"rows={d['rows']}  "
                 f"FFR={_pct(d['field_fill_rate'])}  "
+                f"target={_pct(d['ffr_target'])}  "
                 f"NPR={_pct(d['numeric_parse_rate'])}  "
                 f"DPR={_pct(d['date_parse_rate'])}  "
                 f"ERR={_pct(d['error_row_rate'])}  "
@@ -452,6 +472,8 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
             )
             if d.get("missing_fields"):
                 print(f"    Missing fields: {', '.join(d['missing_fields'])}")
+            if d.get("error_messages"):
+                print(f"    Error: {d['error_messages'][0]}")
         print(f"  Total LLM cost: ${total_doc_cost:.4f}\n")
 
         missing_field_counts: Dict[str, int] = {}
@@ -506,6 +528,7 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
             agg_ffr >= FFR_TARGET
             and agg_npr >= NPR_TARGET
             and agg_dpr >= DPR_TARGET
+            and agg_err == 0.0
             and not failures
         )
 
