@@ -411,7 +411,7 @@ export default function LandingPage() {
             <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               How It Works
             </a>
-            <a href="#pipelines" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors hidden sm:block">
+            <a href="#pipelines" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Automation
             </a>
             <a href="#demo" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
@@ -554,16 +554,15 @@ export default function LandingPage() {
 
         <div className="max-w-5xl mx-auto relative">
           <div className="text-center mb-12">
-            <Badge variant="outline" className="mb-4 gap-1.5 px-3 py-1 text-xs font-medium border-primary/30 text-primary">
-              <Cpu size={10} />
-              Our key differentiator
-            </Badge>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+              Automation
+            </p>
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
               Set it once, extract forever
             </h2>
             <p className="text-muted-foreground text-sm sm:text-base mb-3 max-w-2xl mx-auto leading-relaxed">
               Most tools make you upload files one by one. Our pipelines connect directly to your cloud storage
-              and <span className="text-foreground font-medium">automatically process every new document</span> the moment it arrives — hands-free, 24/7.
+              and <span className="text-foreground font-medium">automatically process every new document</span> the moment it arrives — hands-free, around the clock.
             </p>
             <p className="text-muted-foreground text-xs max-w-lg mx-auto">
               Works with Google Drive, SharePoint, and Outlook. New integrations added regularly.
@@ -610,23 +609,22 @@ export default function LandingPage() {
           <div className="bg-card/60 border border-border/60 rounded-xl p-5 sm:p-6 mb-10">
             <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 text-center">
               <div>
-                <p className="text-2xl font-bold text-foreground">Zero</p>
-                <p className="text-xs text-muted-foreground mt-0.5">manual uploads after setup</p>
+                <p className="text-2xl font-bold text-foreground">Hands-free</p>
+                <p className="text-xs text-muted-foreground mt-0.5">files are processed automatically as they arrive</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">24/7</p>
-                <p className="text-xs text-muted-foreground mt-0.5">monitoring — files processed as they arrive</p>
+                <p className="text-2xl font-bold text-foreground">Always on</p>
+                <p className="text-xs text-muted-foreground mt-0.5">monitoring your folders around the clock</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">Any volume</p>
-                <p className="text-xs text-muted-foreground mt-0.5">5 files or 5,000 — same accuracy, same speed</p>
+                <p className="text-xs text-muted-foreground mt-0.5">5 files or 5,000 — same accuracy every time</p>
               </div>
             </div>
           </div>
 
           <div className="text-center">
             <SignInButton size="lg" label="Set up your first pipeline" className="shadow-none" />
-            <p className="text-xs text-muted-foreground mt-3">No credit card required. Takes under 2 minutes to configure.</p>
           </div>
         </div>
       </section>
