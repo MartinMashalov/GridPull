@@ -449,7 +449,7 @@ export default function LandingPage() {
       </header>
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <section className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12 sm:py-20 text-center relative overflow-hidden">
+      <section className="flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-20 text-center relative overflow-hidden">
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-[700px] h-[500px] bg-primary/5 rounded-full blur-3xl" />
         </div>
@@ -457,7 +457,7 @@ export default function LandingPage() {
         <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-violet-200/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative max-w-3xl mx-auto">
-          <Badge variant="outline" className="mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
+          <Badge variant="outline" className="mb-4 sm:mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
             <Lock size={10} />
             Your files are encrypted and deleted after processing
           </Badge>
@@ -474,7 +474,7 @@ export default function LandingPage() {
             even messy, scanned, or inconsistently formatted documents.
           </p>
 
-          <p className="text-muted-foreground text-sm mb-10 max-w-xl mx-auto">
+          <p className="text-muted-foreground text-sm mb-6 sm:mb-10 max-w-xl mx-auto">
             No templates. No manual reformatting. Just the fields you need, organized in rows and columns.
           </p>
 
