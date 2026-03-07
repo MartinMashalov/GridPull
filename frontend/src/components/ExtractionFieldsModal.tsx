@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Plus, Trash2, StickyNote } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
@@ -37,6 +38,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   const addPreset = (name: string) => {
     if (!fields.find(f => f.name === name)) {
       setFields(prev => [...prev, { name, description: '' }])
+      trackEvent('field_added', { field: name, type: 'preset' })
       scrollToBottom()
     }
   }
@@ -45,6 +47,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     const trimmed = newFieldName.trim()
     if (!trimmed) return
     setFields(prev => [...prev, { name: trimmed, description: '' }])
+    trackEvent('field_added', { field: trimmed, type: 'custom' })
     setNewFieldName('')
     scrollToBottom()
     setTimeout(() => inputRef.current?.focus(), 40)
@@ -90,15 +93,20 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
-          <div className="p-5">
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-2xl shadow-xl w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto">
+          <div className="p-4 sm:p-5">
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
-              <Dialog.Title className="text-sm font-semibold text-foreground">Extraction Fields</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold text-foreground">Choose fields to extract</Dialog.Title>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
                 <X size={16} />
               </button>
             </div>
+
+            {/* Helper text */}
+            <p className="text-xs text-muted-foreground mb-3">
+              Select the data points you want to extract from each document. Each field becomes a column in your spreadsheet.
+            </p>
 
             {/* Quick Add presets */}
             <div className="flex flex-wrap gap-1.5 mb-4">
@@ -194,7 +202,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                 Cancel
               </Button>
               <Button onClick={handleSubmit} disabled={fields.length === 0} className="flex-1" size="sm">
-                Start Extraction
+                Extract {fields.length > 0 ? `${fields.length} field${fields.length > 1 ? 's' : ''}` : ''}
               </Button>
             </div>
           </div>

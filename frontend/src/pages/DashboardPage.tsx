@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -137,6 +138,7 @@ export default function DashboardPage() {
     if (event.type === 'complete') {
       localStorage.removeItem(_ACTIVE_JOB_KEY)
       setActiveJobId(null)
+      trackEvent('extraction_complete', { cost: event.cost ?? 0, file_count: event.results?.length ?? 0 })
       setJob((prev) =>
         prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
       )
@@ -144,6 +146,7 @@ export default function DashboardPage() {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
       if (event.download_url) {
+        trackEvent('file_download', { format: exportFormat })
         const token = useAuthStore.getState().token ?? ''
         const a = document.createElement('a')
         a.href = `${event.download_url}?token=${encodeURIComponent(token)}`
@@ -170,6 +173,7 @@ export default function DashboardPage() {
     } else {
       setValidationMsg(null)
     }
+    trackEvent('files_uploaded', { count: valid.length })
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size))
       return [...prev, ...valid.filter((f) => !seen.has(f.name + f.size))]
@@ -194,6 +198,7 @@ export default function DashboardPage() {
   }
 
   const handleExtract = async (fields: ExtractionField[], format: ExportFormat) => {
+    trackEvent('extraction_start', { field_count: fields.length, format, file_count: files.length })
     setShowModal(false)
     setExportFormat(format)
     setActiveJobId(null)
@@ -260,15 +265,15 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <div className="relative p-8 max-w-4xl mx-auto">
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
       {/* Subtle gradient wash at the top */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
-      <div className="relative border-b border-border pb-5 mb-6 flex items-start justify-between">
+      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">PDF Extractor</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, define fields, export to spreadsheet</p>
+          <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload your files, choose the fields to extract, and download a clean spreadsheet</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Balance:</span>
@@ -301,7 +306,7 @@ export default function DashboardPage() {
       <div
         {...getRootProps()}
         className={cn(
-          'border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-all duration-200',
+          'border-2 border-dashed rounded-xl p-8 sm:p-14 text-center cursor-pointer transition-all duration-200',
           'bg-white',
           isDragActive
             ? 'border-primary bg-primary/5'
@@ -320,8 +325,8 @@ export default function DashboardPage() {
             <p className="text-primary font-medium">Drop your files here</p>
           ) : (
             <div>
-              <p className="text-foreground font-medium">Drop files here</p>
-              <p className="text-muted-foreground text-sm mt-1">PDF, PNG, JPEG — multiple files supported</p>
+              <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
+              <p className="text-muted-foreground text-sm mt-1">Supports PDF, PNG, and JPEG — upload multiple files at once</p>
             </div>
           )}
         </div>

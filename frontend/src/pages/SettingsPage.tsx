@@ -1,4 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
+import { trackEvent } from '@/lib/analytics'
 import { Wallet, Plus, Zap, User, Trash2, Check, StickyNote, CreditCard, X } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
@@ -83,8 +84,9 @@ export default function SettingsPage() {
     if (!dollars || dollars < 1) {
       e.preventDefault()
       toast.error('Enter at least $1')
+      return
     }
-    // Otherwise let the form submit naturally — server returns 302 → Stripe
+    trackEvent('add_funds_click', { amount: dollars })
   }
 
   const handleSaveAutoRenewal = async () => {
@@ -95,6 +97,7 @@ export default function SettingsPage() {
         threshold: parseFloat(threshold),
         refill_amount: parseFloat(refillAmount),
       })
+      trackEvent('auto_renewal_saved', { enabled: autoRenewEnabled, threshold: parseFloat(threshold), refill: parseFloat(refillAmount) })
       toast.success('Saved')
     } catch {
       toast.error('Failed to save')
@@ -144,7 +147,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-2xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-2xl mx-auto">
       <div className="mb-7">
         <h1 className="text-xl font-semibold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage your account, balance, and extraction defaults</p>
