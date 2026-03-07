@@ -609,8 +609,8 @@ export default function LandingPage() {
           <div className="bg-card/60 border border-border/60 rounded-xl p-5 sm:p-6 mb-10">
             <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 text-center">
               <div>
-                <p className="text-2xl font-bold text-foreground">Hands-free</p>
-                <p className="text-xs text-muted-foreground mt-0.5">files are processed automatically as they arrive</p>
+                <p className="text-2xl font-bold text-foreground">Automatic</p>
+                <p className="text-xs text-muted-foreground mt-0.5">new files processed the moment they arrive</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">Always on</p>
