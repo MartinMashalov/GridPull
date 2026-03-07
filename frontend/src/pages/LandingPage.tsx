@@ -562,7 +562,7 @@ export default function LandingPage() {
             </h2>
             <p className="text-muted-foreground text-sm sm:text-base mb-3 max-w-2xl mx-auto leading-relaxed">
               Most tools make you upload files one by one. Our pipelines connect directly to your cloud storage
-              and <span className="text-foreground font-medium">automatically process every new document</span> the moment it arrives — hands-free, around the clock.
+              and <span className="text-foreground font-medium">automatically process every new document</span> the moment it arrives — fully automated, around the clock.
             </p>
             <p className="text-muted-foreground text-xs max-w-lg mx-auto">
               Works with Google Drive, SharePoint, and Outlook. New integrations added regularly.
