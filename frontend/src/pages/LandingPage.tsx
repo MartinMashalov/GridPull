@@ -489,7 +489,7 @@ export default function LandingPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              No credit card required · Pay only when you extract · Files deleted after processing
+              No setup required · Pay as you go · Files deleted after processing
             </p>
           </div>
         </div>
@@ -1074,7 +1074,7 @@ export default function LandingPage() {
             Stop copying data from PDFs by hand
           </h2>
           <p className="text-muted-foreground text-sm mb-3">
-            Upload your first PDF and see structured results in seconds. No credit card, no setup, no commitment.
+            Upload your first PDF and see structured results in seconds. No setup, pay as you go, no commitment.
           </p>
           <p className="text-muted-foreground text-xs mb-8 flex items-center justify-center gap-1.5">
             <Lock size={10} />
