@@ -40,7 +40,7 @@ from typing import Any, Dict, List
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.services.pdf_service import ParsedDocument
+from app.services.pdf_service import ParsedDocument, ParsedPage
 
 logger = logging.getLogger(__name__)
 
@@ -396,6 +396,141 @@ def _normalise_rows(
     return result
 
 
+_FINANCIAL_TIME_SERIES_LABEL_ALIASES: Dict[str, List[str]] = {
+    "revenue": [
+        "total revenues", "net revenues", "total revenue", "net revenue",
+        "sales to customers", "net sales", "total sales", "sales and revenues",
+        "revenues and sales",
+    ],
+    "total revenue": [
+        "total revenues", "net revenues", "total revenue", "net revenue",
+        "sales to customers", "net sales", "total sales", "sales and revenues",
+        "revenues and sales",
+    ],
+    "net income": [
+        "net income", "net earnings", "profit for the year",
+        "net income attributable to common stockholders",
+    ],
+    "net earnings": [
+        "net earnings", "net income", "profit for the year",
+        "net income attributable to common stockholders",
+    ],
+    "operating income": [
+        "operating income", "income from operations",
+        "operating earnings", "operating profit",
+    ],
+    "total assets": ["total assets"],
+    "total equity": [
+        "total equity", "total stockholders equity", "total shareholders equity",
+        "stockholders equity", "shareholders equity",
+    ],
+    "total shareholders equity": [
+        "total shareholders equity", "total stockholders equity",
+        "shareholders equity", "stockholders equity", "total equity",
+    ],
+    "ebitda": ["adjusted ebitda", "ebitda"],
+}
+
+
+def _direct_financial_time_series_rows(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    field_names = [f["name"] for f in fields]
+    normalised_field_names = [name.lower().strip() for name in field_names]
+    period_field_idx = next(
+        (
+            idx for idx, name in enumerate(normalised_field_names)
+            if name in {"year", "years", "quarter", "quarters", "period", "periods"}
+        ),
+        None,
+    )
+    if period_field_idx is None:
+        return []
+
+    period_field = field_names[period_field_idx]
+    period_kind = normalised_field_names[period_field_idx]
+    metric_fields = [name for idx, name in enumerate(field_names) if idx != period_field_idx]
+    if not metric_fields:
+        return []
+
+    year_re = re.compile(r"^(?:19|20)\d{2}$")
+    quarter_re = re.compile(r"^(?:q[1-4][-\s]?\d{4}|\d{4}\s*q[1-4])$", re.I)
+    best_rows: List[Dict[str, Any]] = []
+
+    for table in doc.tables:
+        parsed_rows: List[List[str]] = []
+        for line in table.markdown.splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if cells and all(re.fullmatch(r"-+", cell) for cell in cells):
+                continue
+            parsed_rows.append(cells)
+        if len(parsed_rows) < 2:
+            continue
+
+        header_row: List[str] | None = None
+        period_columns: List[int] = []
+        for candidate in parsed_rows[:4]:
+            matches: List[int] = []
+            for col_idx, cell in enumerate(candidate):
+                cell_norm = re.sub(r"\s+", " ", cell).strip()
+                if period_kind in {"year", "years"}:
+                    is_match = bool(year_re.fullmatch(cell_norm))
+                elif period_kind in {"quarter", "quarters"}:
+                    is_match = bool(quarter_re.fullmatch(cell_norm))
+                else:
+                    is_match = bool(year_re.fullmatch(cell_norm) or quarter_re.fullmatch(cell_norm))
+                if is_match:
+                    matches.append(col_idx)
+            if len(matches) >= 2:
+                header_row = candidate
+                period_columns = matches
+                break
+        if not header_row or not period_columns:
+            continue
+
+        metric_rows: Dict[str, List[str]] = {}
+        for metric_field in metric_fields:
+            aliases = _FINANCIAL_TIME_SERIES_LABEL_ALIASES.get(
+                metric_field.lower().strip(),
+                [metric_field.lower().strip()],
+            )
+            for row in parsed_rows:
+                label = re.sub(r"\s+", " ", row[0]).strip().lower() if row else ""
+                if label and any(alias in label for alias in aliases):
+                    metric_rows[metric_field] = row
+                    break
+        if not metric_rows:
+            continue
+
+        candidate_rows: List[Dict[str, Any]] = []
+        for col_idx in period_columns:
+            period_label = re.sub(r"\s+", " ", header_row[col_idx]).strip()
+            if not period_label or period_label.lower() == "yoy":
+                continue
+
+            row_out: Dict[str, Any] = {name: "" for name in field_names}
+            row_out[period_field] = period_label
+            has_metric_value = False
+
+            for metric_field, metric_row in metric_rows.items():
+                value = metric_row[col_idx].strip() if col_idx < len(metric_row) else ""
+                row_out[metric_field] = _clean_monetary_value(value)
+                has_metric_value = has_metric_value or bool(value)
+
+            if has_metric_value:
+                row_out["_source_file"] = doc.filename
+                candidate_rows.append(row_out)
+
+        if len(candidate_rows) > len(best_rows):
+            best_rows = candidate_rows
+
+    return best_rows
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TEXT pipeline — LLM call (gpt-4o-mini, OpenAI SDK)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -626,24 +761,51 @@ async def extract_multi_record(
     field_names = [f["name"] for f in fields]
     ctx    = _doc_context_block(doc, doc_type)
     fblock = _fields_block(fields)
+    normalised_field_names = [name.lower().strip() for name in field_names]
+    financial_time_series = (
+        doc_type in ("financial_report", "sec_10k")
+        and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
+    )
 
-    # Rebuild table markdown at full budget — tables are the primary data source
-    table_parts, tbudget = [], 30_000
-    for t in doc.tables:
-        entry = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
-        table_parts.append(entry[:3_000])
-        tbudget -= len(entry)
-        if tbudget <= 0:
-            break
-    full_tables_md = "\n\n".join(table_parts)
+    if financial_time_series:
+        direct_rows = _direct_financial_time_series_rows(doc, fields)
+        if direct_rows:
+            logger.info(
+                "TEXT direct financial time-series extraction: %s (%d rows)",
+                doc.filename, len(direct_rows),
+            )
+            return direct_rows
+        content_text, full_tables_md = _build_financial_content(doc)
+    else:
+        content_text = doc.content_text
+        # Rebuild table markdown at full budget — tables are the primary data source
+        table_parts, tbudget = [], 30_000
+        for t in doc.tables:
+            entry = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
+            table_parts.append(entry[:3_000])
+            tbudget -= len(entry)
+            if tbudget <= 0:
+                break
+        full_tables_md = "\n\n".join(table_parts)
 
     parts = [
         f"--- Document Info ---\n{ctx}",
         f"\n--- Fields to Extract (one object per data row) ---\n{fblock}",
     ]
+    if financial_time_series:
+        parts.append(
+            "\n--- Extraction Mode ---\n"
+            "This is a financial time-series extraction. If the tables are organised with "
+            "reporting periods as columns (for example 2020, 2021, 2022, 2023, 2024 or "
+            "Q1-2024 through Q4-2024) and financial metrics as rows, create one record per "
+            "reporting period column rather than one record per metric row. Use the exact "
+            "period labels from the table, map requested metric fields to the closest row "
+            "labels, and ignore YoY or percentage-change columns unless a requested field "
+            "explicitly asks for them."
+        )
     if full_tables_md:
         parts.append(f"\n--- Detected Tables ---\n{full_tables_md}")
-    parts.append(f"\n--- Document Text ---\n{doc.content_text}")
+    parts.append(f"\n--- Document Text ---\n{content_text}")
 
     user_prompt = (
         "\n".join(parts)
@@ -856,15 +1018,23 @@ async def extract_from_scanned_document(
 _SINGLE_RECORD_TYPES = {"financial_report", "sec_10k", "tax_form", "contract"}
 
 
-def _should_extract_multi(doc: ParsedDocument, doc_type: str) -> bool:
+def _should_extract_multi(doc: ParsedDocument, doc_type: str, fields: List[Dict[str, str]]) -> bool:
     """
     Return True if this native (non-scanned) document should produce multiple rows.
 
     Triggers when:
+    - a financial report explicitly asks for period-based rows (e.g. Year/Quarter)
     - doc_type is NOT in _SINGLE_RECORD_TYPES (those always want one row)
     - At least one table has ≥4 rows AND ≥2 cols
       (≥4 rows rules out single-row summary cells; ≥2 cols rules out bare lists)
     """
+    normalised_field_names = [f["name"].lower().strip() for f in fields]
+    if (
+        doc_type in {"financial_report", "sec_10k"}
+        and doc.has_tables
+        and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
+    ):
+        return True
     if doc_type in _SINGLE_RECORD_TYPES:
         return False
     data_tables = [t for t in doc.tables if t.row_count >= 4 and t.col_count >= 2]
@@ -910,14 +1080,34 @@ async def extract_from_document(
         rows = await extract_from_scanned_document(doc, fields, usage)
 
     else:
+        normalised_field_names = [f["name"].lower().strip() for f in fields]
+        if (
+            doc.has_tables
+            and any(name in {"year", "years", "quarter", "quarters", "period", "periods"} for name in normalised_field_names)
+        ):
+            direct_rows = _direct_financial_time_series_rows(doc, fields)
+            if direct_rows:
+                logger.info(
+                    "Routing %s → direct table extraction (%d rows)",
+                    doc.filename, len(direct_rows),
+                )
+                return direct_rows
+
         doc_type = await classify_document(doc, usage)
         logger.info(
             "Routing %s → TEXT pipeline (type=%s hint=%s)",
             doc.filename, doc_type, doc.doc_type_hint,
         )
 
-        if _should_extract_multi(doc, doc_type):
-            if doc.page_count > _CHUNK_THRESHOLD_PAGES:
+        if _should_extract_multi(doc, doc_type, fields):
+            normalised_field_names = [f["name"].lower().strip() for f in fields]
+            financial_time_series = (
+                doc_type in {"financial_report", "sec_10k"}
+                and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
+            )
+            if financial_time_series:
+                rows = await extract_multi_record(doc, fields, doc_type, usage)
+            elif doc.page_count > _CHUNK_THRESHOLD_PAGES:
                 n_chunks = -(-doc.page_count // _CHUNK_SIZE)  # ceiling division
                 logger.info(
                     "TEXT chunked multi-record: %s (%d pages, %d chunks)",

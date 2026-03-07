@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -489,6 +489,9 @@ async def delete_pipeline(
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
 
+    await db.execute(
+        delete(PipelineRun).where(PipelineRun.pipeline_id == pipeline.id)
+    )
     await db.delete(pipeline)
     await db.commit()
     return {"ok": True}
