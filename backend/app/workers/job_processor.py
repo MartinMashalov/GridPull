@@ -21,6 +21,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
+from app.services.billing_service import maybe_auto_renew
 from app.services.extraction_service import LLMUsage, extract_from_document
 from app.services.pdf_service import parse_pdf
 from app.services.spreadsheet_service import generate_csv, generate_excel
@@ -235,6 +236,7 @@ async def process_job(
                     job_cost, job_usage.input_tokens, job_usage.output_tokens,
                     total_pages, job.user_id,
                 )
+                await maybe_auto_renew(user, db)
 
             # ── Mark complete ──────────────────────────────────────────
             job.status = "complete"

@@ -10,6 +10,7 @@ than creating new ones.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.models.pipeline import OAuthConnection, Pipeline, PipelineRun
 from app.models.user import User
+from app.services.billing_service import maybe_auto_renew
 from app.services.extraction_service import LLMUsage, extract_from_document
 from app.services.pdf_service import parse_pdf
 from app.services.spreadsheet_service import (
@@ -30,6 +32,7 @@ from app.services.spreadsheet_service import (
     append_to_excel_bytes,
     generate_csv_bytes,
     generate_excel_bytes,
+    read_headers_from_bytes,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,12 +68,29 @@ _STARTUP_DELAY = 10    # 10 second grace at startup
 
 # ── Filename helper ────────────────────────────────────────────────────────────
 
+def _safe_pipeline_name(pipeline: Pipeline) -> str:
+    return re.sub(r'[<>:"/\\|?*]', "_", pipeline.name).strip()
+
+
+def _fields_hash(fields: list) -> str:
+    """8-char hex fingerprint of the sorted field names."""
+    names = ",".join(sorted(f["name"] for f in fields))
+    return hashlib.md5(names.encode()).hexdigest()[:8]
+
+
 def _output_filename(pipeline: Pipeline) -> str:
-    """Derive a stable output filename from the pipeline name + format.
-    e.g.  "My Invoice Pipeline"  →  "My Invoice Pipeline.xlsx"
+    """Primary output filename (legacy / first-run): "{name}.{format}"."""
+    return f"{_safe_pipeline_name(pipeline)}.{pipeline.dest_format}"
+
+
+def _versioned_output_filename(pipeline: Pipeline) -> str:
+    """Fields-specific output filename: "{name}_{hash}.{format}".
+    Used when the primary file exists but has different headers than the
+    current extraction fields.  Same fields always produce the same hash,
+    so the correct file is found on subsequent runs without any extra storage.
     """
-    safe = re.sub(r'[<>:"/\\|?*]', "_", pipeline.name).strip()
-    return f"{safe}.{pipeline.dest_format}"
+    fhash = _fields_hash(pipeline.fields or [])
+    return f"{_safe_pipeline_name(pipeline)}_{fhash}.{pipeline.dest_format}"
 
 
 def _oauth_provider(source_type: str) -> str:
@@ -274,6 +294,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         await _append_log(run_id, f"Extracted {len(rows)} row(s). Cost so far: ${usage.cost_usd:.4f}")
 
         field_names = [f["name"] for f in fields]
+        expected_headers = ["Source File"] + field_names
 
         # ── Fetch existing output file (for append) ────────────────────────
         await _append_log(run_id, f"Checking for existing output file: {output_filename}...")
@@ -282,7 +303,24 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         )
 
         if existing_bytes is not None:
-            await _append_log(run_id, f"Found existing file ({len(existing_bytes) // 1024} KB). Appending rows...")
+            actual_headers = read_headers_from_bytes(existing_bytes, dest_format)
+            if actual_headers == expected_headers:
+                await _append_log(run_id, f"Found existing file ({len(existing_bytes) // 1024} KB). Appending rows...")
+            else:
+                # Headers differ — find or create the fields-specific versioned file
+                versioned_name = _versioned_output_filename(pipeline)
+                await _append_log(
+                    run_id,
+                    f"Existing file has different headers — switching to {versioned_name}",
+                )
+                output_filename = versioned_name
+                existing_file_id, existing_bytes = await _get_existing_output(
+                    access_token, dest_folder_id, versioned_name, storage
+                )
+                if existing_bytes is not None:
+                    await _append_log(run_id, f"Found versioned file ({len(existing_bytes) // 1024} KB). Appending rows...")
+                else:
+                    await _append_log(run_id, f"Creating new versioned file: {versioned_name}...")
         else:
             await _append_log(run_id, "No existing output file. Creating new...")
 
@@ -348,6 +386,9 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 user.balance = max(0.0, (user.balance or 0.0) - usage.cost_usd)
 
             await db.commit()
+
+            if user:
+                await maybe_auto_renew(user, db)
 
         logger.info(
             "Pipeline %s: done %s — %d rows appended to %s, $%.4f",

@@ -214,7 +214,7 @@ export default function SettingsPage() {
                       className="pl-7"
                     />
                   </div>
-                  <Button type="submit" size="sm">
+                  <Button type="submit">
                     <Plus size={14} />Add Funds
                   </Button>
                 </div>

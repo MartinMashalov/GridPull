@@ -193,6 +193,24 @@ def generate_csv_bytes(
     return buf.getvalue().encode("utf-8")
 
 
+def read_headers_from_bytes(data: bytes, fmt: str) -> List[str]:
+    """Return the header row (first row) from an existing xlsx or csv spreadsheet."""
+    if fmt == "csv":
+        text = data.decode("utf-8-sig")
+        reader = csv.reader(io.StringIO(text))
+        try:
+            return next(reader)
+        except StopIteration:
+            return []
+    else:
+        buf = io.BytesIO(data)
+        wb = openpyxl.load_workbook(buf, read_only=True)
+        ws = wb.active
+        for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+            return [str(c) if c is not None else "" for c in row]
+        return []
+
+
 def generate_csv(
     data: List[Dict[str, Any]],
     output_path: str,
