@@ -105,7 +105,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
 
             {/* Helper text */}
             <p className="text-xs text-muted-foreground mb-3">
-              Select the data points you want to extract from each document. Each field becomes a column in your spreadsheet.
+              Select the data points you want to pull from each document. Each field becomes a column in your spreadsheet, and each document becomes a row.
             </p>
 
             {/* Quick Add presets */}

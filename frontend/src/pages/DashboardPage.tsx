@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
 import SpreadsheetViewer from '@/components/SpreadsheetViewer'
 import api from '@/lib/api'
@@ -264,6 +265,8 @@ export default function DashboardPage() {
     return () => document.removeEventListener('keydown', onKey, true)
   }, [])
 
+  const navigate = useNavigate()
+
   return (
     <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
       {/* Subtle gradient wash at the top */}
@@ -281,9 +284,45 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* How it works — inline guide */}
+      {!job && files.length === 0 && (
+        <div className="mb-6 bg-primary/[0.03] border border-border rounded-xl p-4">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How it works</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex items-start gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Upload size={12} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">1. Upload your documents</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">PDF, PNG, or JPEG — one or many at a time</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <FileText size={12} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">2. Pick the fields to extract</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">e.g. Invoice #, Date, Total — or any custom field</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <ArrowRight size={12} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">3. Get your spreadsheet</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">One row per document, one column per field — download instantly</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Format toggle */}
       <div className="flex items-center gap-3 mb-4">
-        <span className="text-xs text-muted-foreground">Format</span>
+        <span className="text-xs text-muted-foreground">Output format</span>
         <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
           {(['xlsx', 'csv'] as ExportFormat[]).map((fmt) => (
             <button
@@ -300,6 +339,9 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
+        <span className="text-[11px] text-muted-foreground hidden sm:inline">
+          {exportFormat === 'xlsx' ? 'Excel spreadsheet — opens in Excel, Google Sheets, etc.' : 'Comma-separated values — universal format for any spreadsheet app'}
+        </span>
       </div>
 
       {/* Drop zone */}
@@ -362,8 +404,10 @@ export default function DashboardPage() {
             <Loader2 size={15} className="animate-spin" />
             Processing…
           </>
+        ) : files.length > 0 ? (
+          `Choose fields & extract ${files.length} file${files.length > 1 ? 's' : ''}`
         ) : (
-          'Extract & Export'
+          'Upload files to get started'
         )}
       </Button>
 
@@ -380,6 +424,27 @@ export default function DashboardPage() {
           cost={job.cost}
           onNew={handleNew}
         />
+      )}
+
+      {/* Pipeline nudge — show when no active job */}
+      {!job && files.length === 0 && (
+        <div className="mt-8 bg-card border border-border rounded-xl p-4 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Workflow size={15} className="text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Process documents automatically?</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Set up a Pipeline to connect a Google Drive or SharePoint folder. New documents added to that folder will be extracted automatically — no manual uploads needed.
+            </p>
+            <button
+              onClick={() => navigate('/pipelines')}
+              className="mt-2 text-xs font-medium text-primary hover:underline flex items-center gap-1"
+            >
+              Set up a Pipeline <ArrowRight size={11} />
+            </button>
+          </div>
+        </div>
       )}
 
       <ExtractionFieldsModal

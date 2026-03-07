@@ -4,6 +4,7 @@ import {
   Workflow, Plus, Play, Pause, Trash2, ExternalLink,
   CheckCircle2, XCircle, Loader2, RefreshCw, MoreVertical,
   ChevronRight, FolderOpen, Pencil, ChevronDown, Terminal,
+  ArrowRight, FolderInput, Settings2, Zap,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -240,16 +241,17 @@ function PipelineCard({ pipeline, onEdit, onToggle, onRunNow, onDelete }: Pipeli
 
       {/* Folder flow */}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider font-medium">Source</span>
         <FolderOpen size={12} className="text-primary/50 flex-shrink-0" />
         <span className="truncate max-w-[100px]">{pipeline.source_folder_name}</span>
-        <ChevronRight size={11} className="flex-shrink-0" />
+        <ArrowRight size={11} className="flex-shrink-0 text-primary/40" />
+        <span className="text-[10px] uppercase tracking-wider font-medium">Output</span>
         <FolderOpen size={12} className="text-primary/50 flex-shrink-0" />
         <span className="truncate max-w-[100px]">{pipeline.dest_folder_name}</span>
-        <span className="text-border">·</span>
         <span className="font-mono text-[10px] bg-secondary px-1.5 py-0.5 rounded">.{pipeline.dest_format}</span>
       </div>
       <p className="text-xs text-muted-foreground -mt-2">
-        {providerLabel(pipeline.source_type)} · output: <span className="font-medium text-foreground">{outputName}</span>
+        {providerLabel(pipeline.source_type)} · Spreadsheet saved as <span className="font-medium text-foreground">{outputName}</span>
       </p>
 
       {/* Stats */}
@@ -427,22 +429,66 @@ export default function PipelinesPage() {
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
-              <Workflow size={22} className="text-primary" />
+          <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+            <div className="max-w-md w-full text-center">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
+                <Workflow size={22} className="text-primary" />
+              </div>
+              <h2 className="font-semibold text-lg mb-1">Automate your document processing</h2>
+              <p className="text-sm text-muted-foreground mb-8 max-w-sm mx-auto">
+                Pipelines watch a folder in Google Drive or SharePoint. When new files appear, they're automatically extracted into a spreadsheet — no manual uploads needed.
+              </p>
+
+              {/* How pipelines work — steps */}
+              <div className="bg-card border border-border rounded-xl p-5 mb-6 text-left">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">How pipelines work</p>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <FolderInput size={14} className="text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">1. Connect a source folder</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Link a folder in Google Drive, SharePoint, or Outlook where your documents arrive.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Settings2 size={14} className="text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">2. Define the fields to extract</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Choose what data to pull from each document — e.g. Invoice #, Date, Total, Vendor.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Zap size={14} className="text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">3. It runs automatically</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">When new files land in your source folder, the pipeline extracts data and saves a spreadsheet to your destination folder.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Button className="gap-1.5" onClick={openCreate}>
+                <Plus size={14} /> Create your first pipeline
+              </Button>
             </div>
-            <p className="font-medium text-sm mb-1">No pipelines yet</p>
-            <p className="text-xs text-muted-foreground mb-4 max-w-xs">
-              Connect Google Drive or SharePoint and let GridPull automatically extract data from new PDFs.
-            </p>
-            <Button size="sm" className="gap-1.5" onClick={openCreate}>
-              <Plus size={14} /> Create your first pipeline
-            </Button>
           </div>
         ) : (
-          <div className="p-4 sm:p-6">
-            <div className="flex justify-end mb-4">
-              <Button size="sm" className="gap-1.5" onClick={openCreate}>
+          <div className="p-4 sm:p-6 max-w-5xl mx-auto w-full">
+            {/* Header with description */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-5">
+              <div>
+                <h1 className="text-lg font-semibold text-foreground">Pipelines</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Your automated extraction workflows. Each pipeline watches a folder and processes new documents automatically.
+                </p>
+              </div>
+              <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
                 <Plus size={15} /> New Pipeline
               </Button>
             </div>
