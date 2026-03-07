@@ -747,6 +747,56 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Pipeline Automation ────────────────────────────────────────── */}
+      <section id="pipelines" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
+        <div className="max-w-4xl mx-auto">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+            Automation
+          </p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
+            Set it once, extract forever
+          </h2>
+          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
+            Pipelines connect to your cloud storage and automatically process new documents as they arrive — no manual uploads, no repetitive work.
+          </p>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <GitBranch size={17} className="text-primary" />
+              </div>
+              <h3 className="font-semibold text-sm mb-1.5">Connect a folder</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Link a Google Drive, SharePoint, or Outlook folder where your documents arrive.</p>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <ClipboardList size={17} className="text-primary" />
+              </div>
+              <h3 className="font-semibold text-sm mb-1.5">Define your fields</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Choose what data to extract — Invoice #, Date, Total, or any custom field you need.</p>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <Upload size={17} className="text-primary" />
+              </div>
+              <h3 className="font-semibold text-sm mb-1.5">Drop in new files</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Whenever a new PDF lands in your source folder, the pipeline picks it up automatically.</p>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4">
+                <Download size={17} className="text-emerald-600" />
+              </div>
+              <h3 className="font-semibold text-sm mb-1.5">Spreadsheet delivered</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">The extracted data is saved as an Excel or CSV file in your chosen destination folder.</p>
+            </div>
+          </div>
+
+          <div className="text-center">
+            <SignInButton size="lg" label="Try Pipelines" className="shadow-none" />
+          </div>
+        </div>
+      </section>
+
       {/* ── Why This Tool / Purpose-Built AI ─────────────────────────────── */}
       <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
