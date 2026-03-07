@@ -37,6 +37,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Dict, List
 
 import httpx
@@ -170,7 +171,10 @@ def _fields_block(fields: List[Dict[str, str]]) -> str:
         if desc and desc != name:
             lines.append(f"  - {name}\n    description: {desc}")
         else:
-            lines.append(f"  - {name}\n    description: use the best semantic match from document context")
+            lines.append(
+                f"  - {name}\n"
+                "    description: use the best semantic match from document context; return null if genuinely not present"
+            )
     return "\n".join(lines)
 
 
@@ -178,9 +182,11 @@ def _doc_context_block(doc: ParsedDocument) -> str:
     parts = [
         f"Filename: {doc.filename}",
         f"Total pages: {doc.page_count}",
+        f"Document structure hint: {doc.doc_type_hint}",
+        f"Tables detected: {len(doc.tables)}",
     ]
-    if doc.has_tables:
-        parts.append(f"Tables detected: {len(doc.tables)}")
+    if doc.is_scanned:
+        parts.append("Scan detected: yes")
     return "\n".join(parts)
 
 
@@ -245,6 +251,10 @@ async def _maybe_compress_with_bear(
 # System prompts
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _system_with_date(system: str) -> str:
+    return date.today().strftime("%d-%m-%Y") + "\n\n" + system
+
+
 _SINGLE_SYSTEM = (
     "You are a precise data extraction assistant for enterprise document processing.\n"
     "Extract the requested fields and return a JSON object with key \"records\" "
@@ -257,12 +267,14 @@ _SINGLE_SYSTEM = (
     "only include the unit if it is literally written inside the cell itself. "
     "Example: cell says '37,531' in a table headed 'in millions' → output '$37,531'; "
     "cell says '$37.5 billion' → output '$37.5 billion'.\n"
-    "- For dates: use the format as written in the document\n"
+    "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
     "- If a field description explains how to compute the value (e.g. a ratio or margin), "
     "calculate it from the available data in the document and return the computed result\n"
+    "- For long annual reports, filings, and financial statements, prioritize consolidated statement pages, "
+    "financial statement notes, and detected tables over cover pages, letters, and general narrative sections\n"
     "- Do not hallucinate values that cannot be found or computed from the document\n"
     "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
     "- Field labels may vary across documents; use the field description and nearby context "
@@ -282,7 +294,7 @@ _MULTI_SYSTEM = (
     "- Use null for fields not present in a given record\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers — only include units literally in the cell\n"
-    "- For dates: use the format as written in the document\n"
+    "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
@@ -305,7 +317,7 @@ _SCAN_SINGLE_SYSTEM = (
     "- For money: report the value EXACTLY as it appears in the table cell. "
     "Do NOT append unit words (million/billion/thousand) from table headers or footnotes — "
     "only include the unit if it is literally written inside the cell itself.\n"
-    "- For dates: use the format as written\n"
+    "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
@@ -329,6 +341,7 @@ _SCAN_MULTI_SYSTEM = (
     "- Repeated records may appear across table rows, table columns, repeated sections, or repeated line-item blocks\n"
     "- Skip pure headers and decorative content that are not actual records\n"
     "- Use null for fields not present in a given record\n"
+    "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
@@ -379,7 +392,7 @@ def _single_record_valid(row: Dict[str, Any], field_names: List[str]) -> tuple[b
     Returns (valid, reason). Valid is False if any scalar field contains formula/explanation
     or if no requested field is filled.
     """
-    filled = [fn for fn in field_names if row.get(fn) is not None and str(row.get(fn)).strip()]
+    filled = [fn for fn in field_names if _is_filled_value(row.get(fn))]
     if not filled:
         return (False, "no fields filled")
     for fn in field_names:
@@ -420,11 +433,11 @@ def _single_quality_gate(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _empty(filenames: List[str], field_names: List[str]) -> List[Dict]:
-    return [{fn: "" for fn in field_names} | {"_source_file": filenames[0]}]
+    return [{fn: None for fn in field_names} | {"_source_file": filenames[0]}]
 
 
 def _error(filenames: List[str], field_names: List[str], msg: str) -> List[Dict]:
-    return [{fn: "" for fn in field_names} | {"_source_file": filenames[0], "_error": msg}]
+    return [{fn: None for fn in field_names} | {"_source_file": filenames[0], "_error": msg}]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -511,8 +524,11 @@ def _normalise_rows(
         norm: Dict[str, Any] = {}
         for fn in field_names:
             val = row.get(fn)
-            raw_str = str(val).strip() if val is not None else ""
-            norm[fn] = _clean_monetary_value(raw_str)
+            if val is None:
+                norm[fn] = None
+                continue
+            raw_str = str(val).strip()
+            norm[fn] = None if raw_str.lower() in _EMPTY_VALUES else _clean_monetary_value(raw_str)
         norm["_source_file"] = filename
         result.append(norm)
     return result
@@ -535,7 +551,7 @@ async def _llm_extract(
             resp = await _openai.chat.completions.create(
                 model=_TEXT_MODEL,
                 messages=[
-                    {"role": "system", "content": system},
+                    {"role": "system", "content": _system_with_date(system)},
                     {"role": "user",   "content": user_prompt},
                 ],
                 temperature=0,
@@ -613,7 +629,7 @@ async def _litellm_extract(
             resp = await litellm.acompletion(
                 model=_VISION_MODEL,
                 messages=[
-                    {"role": "system", "content": system},
+                    {"role": "system", "content": _system_with_date(system)},
                     {"role": "user",   "content": user_prompt},
                 ],
                 temperature=0,
@@ -703,30 +719,193 @@ async def extract_single_record(
     field_names = [f["name"] for f in fields]
     ctx   = _doc_context_block(doc)
     fblock = _fields_block(fields)
-    single_text_budget = min(_SINGLE_TEXT_BUDGET_CHARS, max(24_000, doc.page_count * 4_000))
-    text_parts: List[str] = []
+    single_text_budget = min(_SINGLE_TEXT_BUDGET_CHARS, max(36_000, doc.page_count * 4_500))
+    field_phrases: List[str] = []
+    for f in fields:
+        name = str(f["name"]).strip().lower()
+        desc = str(f.get("description", "") or "").strip().lower()
+        if name:
+            field_phrases.append(name)
+        if desc and desc != name:
+            field_phrases.append(desc)
+
+    ignored_terms = {
+        "best", "context", "description", "document", "field", "fields",
+        "from", "match", "present", "primary", "report", "reported",
+        "return", "semantic", "shown", "this", "that", "use", "value", "values", "with",
+    }
+    field_terms = {
+        term
+        for phrase in field_phrases
+        for term in re.findall(r"[a-z][a-z0-9]{3,}", phrase)
+        if term not in ignored_terms
+    }
+    priority_keywords = (
+        "balance sheet",
+        "statement of financial position",
+        "statement of operations",
+        "statement of income",
+        "income statement",
+        "statement of earnings",
+        "statement of comprehensive income",
+        "statement of stockholders",
+        "statement of shareholders",
+        "statement of equity",
+        "statement of cash flows",
+        "cash flow",
+        "assets",
+        "liabilities",
+        "equity",
+        "revenue",
+        "revenues",
+        "net income",
+        "net earnings",
+        "operating income",
+        "operating earnings",
+        "total assets",
+        "total equity",
+    )
+    scored_pages = []
     for p in doc.pages:
-        if single_text_budget <= 0:
+        text_lower = p.text.lower()
+        keyword_hits = sum(1 for kw in priority_keywords if kw in text_lower)
+        phrase_hits = sum(1 for phrase in field_phrases if phrase and phrase in text_lower)
+        term_hits = sum(1 for term in field_terms if term in text_lower)
+        score = (
+            len(p.tables) * 450
+            + (160 if p.has_numbers else 0)
+            + (60 if p.has_dates else 0)
+            + keyword_hits * 180
+            + phrase_hits * 140
+            + min(term_hits, 10) * 40
+            + min(p.word_count, 1_200) * 0.1
+        )
+        if p.page_num <= 3:
+            score += 20
+        if p.page_num >= max(1, doc.page_count - 12):
+            score += 20
+        scored_pages.append((score, p))
+    scored_pages.sort(key=lambda item: (item[0], item[1].page_num), reverse=True)
+
+    priority_pages: List[Any] = []
+    priority_page_nums: set[int] = set()
+    for _, page in scored_pages[:18]:
+        for page_num in (page.page_num - 1, page.page_num, page.page_num + 1):
+            if page_num < 1 or page_num > doc.page_count or page_num in priority_page_nums:
+                continue
+            priority_pages.append(doc.pages[page_num - 1])
+            priority_page_nums.add(page_num)
+        if len(priority_pages) >= 24:
+            break
+
+    text_sections: List[str] = []
+    remaining_text_budget = single_text_budget
+    priority_text_parts: List[str] = []
+    for p in priority_pages:
+        if remaining_text_budget <= 0:
             break
         part = f"=== Page {p.page_num} ===\n{p.text}"
-        text_parts.append(part[:3_500])
-        single_text_budget -= len(part)
-    raw_single_text = "\n\n".join(text_parts)[:_SINGLE_TEXT_BUDGET_CHARS] or doc.content_text
+        clipped = part[: min(4_500, remaining_text_budget)]
+        if not clipped:
+            break
+        priority_text_parts.append(clipped)
+        remaining_text_budget -= len(clipped)
+    if priority_text_parts:
+        text_sections.append(
+            "[Priority pages likely to contain the requested facts]\n" + "\n\n".join(priority_text_parts)
+        )
+
+    sampled_text = doc.content_text or ""
+    if sampled_text.strip() and remaining_text_budget > 0:
+        sampled_text_parts: List[str] = []
+        sampled_matches = list(
+            re.finditer(r"=== Page (\d+) ===\n(.*?)(?=\n\n=== Page \d+ ===|\Z)", sampled_text, re.S)
+        )
+        if sampled_matches:
+            for match in sampled_matches:
+                page_num = int(match.group(1))
+                if page_num in priority_page_nums:
+                    continue
+                part = f"=== Page {page_num} ===\n{match.group(2).strip()}"
+                clipped = part[: min(1_600, remaining_text_budget)]
+                if not clipped:
+                    break
+                sampled_text_parts.append(clipped)
+                remaining_text_budget -= len(clipped)
+                if remaining_text_budget <= 0:
+                    break
+        else:
+            clipped = sampled_text[:remaining_text_budget]
+            if clipped:
+                sampled_text_parts.append(clipped)
+                remaining_text_budget -= len(clipped)
+        if sampled_text_parts:
+            text_sections.append(
+                "[Parser-selected document sample]\n" + "\n\n".join(sampled_text_parts)
+            )
+
+    if not text_sections:
+        fallback_text_parts: List[str] = []
+        for p in doc.pages:
+            if remaining_text_budget <= 0:
+                break
+            part = f"=== Page {p.page_num} ===\n{p.text}"
+            clipped = part[: min(3_500, remaining_text_budget)]
+            if not clipped:
+                break
+            fallback_text_parts.append(clipped)
+            remaining_text_budget -= len(clipped)
+        if fallback_text_parts:
+            text_sections.append("\n\n".join(fallback_text_parts))
+
+    raw_single_text = "\n\n".join(text_sections)[:_SINGLE_TEXT_BUDGET_CHARS] or doc.content_text
     content_text = await _maybe_compress_with_bear(
         raw_single_text, doc.page_count, usage, f"{doc.filename} single text"
     )
 
-    single_table_budget = min(_SINGLE_TABLE_BUDGET_CHARS, max(12_000, doc.page_count * 2_000))
-    table_parts: List[str] = []
+    single_table_budget = min(_SINGLE_TABLE_BUDGET_CHARS, max(18_000, doc.page_count * 2_500))
+    table_candidates = []
     for t in doc.tables:
+        page_text_lower = doc.pages[t.page_num - 1].text.lower() if 1 <= t.page_num <= len(doc.pages) else ""
+        keyword_hits = sum(1 for kw in priority_keywords if kw in page_text_lower)
+        phrase_hits = sum(1 for phrase in field_phrases if phrase and phrase in page_text_lower)
+        term_hits = sum(1 for term in field_terms if term in page_text_lower)
+        score = (
+            (600 if t.page_num in priority_page_nums else 0)
+            + keyword_hits * 200
+            + phrase_hits * 160
+            + min(term_hits, 10) * 50
+            + t.row_count * 25
+            + t.col_count * 15
+        )
+        table_candidates.append((score, t))
+    table_candidates.sort(
+        key=lambda item: (item[0], item[1].page_num, item[1].row_count * item[1].col_count),
+        reverse=True,
+    )
+
+    table_parts: List[str] = []
+    selected_table_pages: List[int] = []
+    for _, t in table_candidates:
         if single_table_budget <= 0:
             break
         part = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
-        table_parts.append(part[:5_000])
-        single_table_budget -= len(part)
+        clipped = part[: min(6_000, single_table_budget)]
+        if not clipped:
+            break
+        table_parts.append(clipped)
+        single_table_budget -= len(clipped)
+        if t.page_num not in selected_table_pages:
+            selected_table_pages.append(t.page_num)
     raw_single_tables = "\n\n".join(table_parts)[:_SINGLE_TABLE_BUDGET_CHARS] or doc.tables_markdown
     tables_markdown = await _maybe_compress_with_bear(
         raw_single_tables, doc.page_count, usage, f"{doc.filename} single tables"
+    )
+    logger.info(
+        "Single-record context for %s: priority_pages=%s selected_table_pages=%s",
+        doc.filename,
+        sorted(priority_page_nums),
+        selected_table_pages,
     )
     # Reporting-unit hints are generic and help any table-heavy document where
     # values are displayed in a shared unit in the header instead of each cell.

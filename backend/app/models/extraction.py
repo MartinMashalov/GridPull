@@ -5,6 +5,8 @@ import uuid
 from typing import Any
 from app.database import Base
 
+_EMPTY_VALUES = {"", "null", "none", "n/a", "na", "-", "unknown", "not found", "not available"}
+
 
 class ExtractionJob(Base):
     __tablename__ = "extraction_jobs"
@@ -61,18 +63,28 @@ class Document(Base):
     def _is_filled_value(value: Any) -> bool:
         if value is None:
             return False
+        if isinstance(value, (list, dict)):
+            return bool(value)
         text = str(value).strip().lower()
-        return text not in {"", "null", "none", "n/a", "na", "-", "unknown", "not found", "not available"}
+        return text not in _EMPTY_VALUES
 
     def single_record_fill_rate(self, field_names: list[str]) -> float:
-        if not field_names or not isinstance(self.extracted_data, list) or not self.extracted_data:
+        if not field_names or not self.extracted_data:
             return 0.0
-        row = self.extracted_data[0] if isinstance(self.extracted_data[0], dict) else {}
+        if isinstance(self.extracted_data, list):
+            row_data = self.extracted_data[0] if self.extracted_data else {}
+        else:
+            row_data = self.extracted_data
+        row = row_data if isinstance(row_data, dict) else {}
         filled = sum(1 for name in field_names if self._is_filled_value(row.get(name)))
         return round(filled / len(field_names), 4)
 
     def missing_fields(self, field_names: list[str]) -> list[str]:
-        if not field_names or not isinstance(self.extracted_data, list) or not self.extracted_data:
+        if not field_names or not self.extracted_data:
             return list(field_names)
-        row = self.extracted_data[0] if isinstance(self.extracted_data[0], dict) else {}
+        if isinstance(self.extracted_data, list):
+            row_data = self.extracted_data[0] if self.extracted_data else {}
+        else:
+            row_data = self.extracted_data
+        row = row_data if isinstance(row_data, dict) else {}
         return [name for name in field_names if not self._is_filled_value(row.get(name))]

@@ -53,6 +53,7 @@ try:
 except ImportError:
     pass  # python-dotenv optional; rely on env vars already set
 
+from app.models.extraction import Document                               # noqa: E402
 from app.services.extraction_service import extract_from_document, LLMUsage  # noqa: E402
 from app.services.pdf_service import parse_pdf                      # noqa: E402
 from app.services.validator_service import ValidationReport, score_extraction  # noqa: E402
@@ -304,6 +305,12 @@ async def run_folder(
         pdf_t0 = time.perf_counter()
         rows = await extract_from_document(parsed, fields, usage)
         pdf_elapsed = time.perf_counter() - pdf_t0
+        single_record_fill_rate = None
+        single_record_missing_fields: List[str] = []
+        if len(rows) == 1:
+            doc_result = Document(extracted_data=rows)
+            single_record_fill_rate = doc_result.single_record_fill_rate(field_names)
+            single_record_missing_fields = doc_result.missing_fields(field_names)
 
         if verbose:
             print(f"  → {len(rows)} row(s)")
@@ -316,6 +323,9 @@ async def run_folder(
                         print(f"        {fn}: {val}")
                 if len(rows) > 3:
                     print(f"        ... ({len(rows) - 3} more rows)")
+                if len(rows) == 1 and single_record_missing_fields:
+                    print(f"        Missing: {', '.join(single_record_missing_fields)}")
+                    print(f"        Single-row fill rate: {_pct(single_record_fill_rate or 0.0)}")
                 print()
 
         all_rows.extend(rows)
@@ -330,6 +340,9 @@ async def run_folder(
             "numeric_parse_rate": pdf_report.numeric_parse_rate,
             "date_parse_rate": pdf_report.date_parse_rate,
             "error_row_rate": pdf_report.error_row_rate,
+            "single_record_fill_rate": single_record_fill_rate,
+            "missing_fields": single_record_missing_fields,
+            "missing_count": len(single_record_missing_fields),
         })
 
     elapsed = time.perf_counter() - t0
@@ -431,8 +444,25 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
                 f"ERR={_pct(d['error_row_rate'])}  "
                 f"⏱ {d['elapsed']:.1f}s  "
                 f"${d['cost_usd']:.4f}"
+                + (
+                    f"  missing={d['missing_count']}"
+                    if d.get("single_record_fill_rate") is not None
+                    else ""
+                )
             )
+            if d.get("missing_fields"):
+                print(f"    Missing fields: {', '.join(d['missing_fields'])}")
         print(f"  Total LLM cost: ${total_doc_cost:.4f}\n")
+
+        missing_field_counts: Dict[str, int] = {}
+        for d in all_document_reports:
+            for field in d.get("missing_fields", []):
+                missing_field_counts[field] = missing_field_counts.get(field, 0) + 1
+        if missing_field_counts:
+            print(f"{BOLD}  SINGLE-RECORD MISSING FIELDS{RESET}")
+            for field, count in sorted(missing_field_counts.items(), key=lambda item: (-item[1], item[0])):
+                print(f"  {field}: {count}")
+            print()
 
     # ── Benchmark report ──────────────────────────────────────────────────────
     if benchmark_data:
