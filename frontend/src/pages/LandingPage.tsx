@@ -409,7 +409,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-4">
             <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              How It Works
+              From Document to Data
             </a>
             <a href="#pipelines" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Automation
@@ -511,7 +511,7 @@ export default function LandingPage() {
       <section id="how-it-works" className="py-12 sm:py-20 px-4 sm:px-6 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            How it works
+            From document to data
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
             Three steps. No learning curve.
