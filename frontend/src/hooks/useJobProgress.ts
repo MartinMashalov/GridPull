@@ -67,7 +67,7 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
 
     // ── PRIMARY: Polling every 2s ─────────────────────────────────────────────
     // Runs from the very start. Always reads from DB. Guaranteed delivery.
-    pollRef.current = setInterval(async () => {
+    const pollOnce = async () => {
       if (resolvedRef.current) return
       try {
         const res = await fetch(`/api/documents/job/${jobId}`, {
@@ -104,18 +104,28 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
           return
         }
 
-        // While in progress, update doc count from DB so progress shows even without SSE
-        if (!resolvedRef.current && data.completed_docs != null) {
+        // While in progress, update from DB so the bar moves even if SSE lands on another worker.
+        if (!resolvedRef.current) {
           setEvent((prev) => {
-            // Only update via poll if SSE hasn't sent a more recent count
             const pollCount = data.completed_docs ?? 0
             const prevCount = prev?.completed_docs ?? 0
-            if (pollCount <= prevCount) return prev
+            const pollProgress = data.progress ?? 0
+            const prevProgress = prev?.progress ?? 0
+            const statusChanged = data.status !== prev?.status
+            if (pollCount <= prevCount && pollProgress <= prevProgress && !statusChanged) return prev
             return {
               type: 'progress',
               status: data.status,
-              progress: data.progress ?? 0,
-              message: `${pollCount}/${data.total_docs} files processed`,
+              progress: pollProgress,
+              message: pollCount > 0
+                ? `${pollCount}/${data.total_docs} files processed`
+                : data.status === 'processing'
+                  ? 'Preparing extraction…'
+                  : data.status === 'extracting'
+                    ? 'Extracting documents…'
+                    : data.status === 'generating'
+                      ? 'Generating spreadsheet…'
+                      : 'Processing…',
               completed_docs: pollCount,
               total_docs: data.total_docs,
             }
@@ -124,7 +134,10 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
       } catch {
         // network blip — keep polling
       }
-    }, POLL_INTERVAL_MS)
+    }
+
+    void pollOnce()
+    pollRef.current = setInterval(() => { void pollOnce() }, POLL_INTERVAL_MS)
 
     // ── SECONDARY: SSE for real-time per-doc events ───────────────────────────
     // Enhances progress display. If it fails, polling above handles everything.

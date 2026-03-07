@@ -66,6 +66,9 @@ class CachedUser:
     picture: Optional[str]
     balance: float
     is_active: bool
+    stripe_payment_method_id: Optional[str] = None
+    stripe_card_brand: Optional[str] = None
+    stripe_card_last4: Optional[str] = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -76,12 +79,19 @@ class CachedUser:
                 "picture": self.picture,
                 "balance": self.balance,
                 "is_active": self.is_active,
+                "stripe_payment_method_id": self.stripe_payment_method_id,
+                "stripe_card_brand": self.stripe_card_brand,
+                "stripe_card_last4": self.stripe_card_last4,
             }
         )
 
     @classmethod
     def from_json(cls, data: str) -> "CachedUser":
-        return cls(**json.loads(data))
+        d = json.loads(data)
+        d.setdefault("stripe_payment_method_id", None)
+        d.setdefault("stripe_card_brand", None)
+        d.setdefault("stripe_card_last4", None)
+        return cls(**d)
 
     @classmethod
     def from_user(cls, user) -> "CachedUser":
@@ -92,6 +102,9 @@ class CachedUser:
             picture=getattr(user, "picture", None),
             balance=user.balance,
             is_active=user.is_active,
+            stripe_payment_method_id=getattr(user, "stripe_payment_method_id", None),
+            stripe_card_brand=getattr(user, "stripe_card_brand", None),
+            stripe_card_last4=getattr(user, "stripe_card_last4", None),
         )
 
 

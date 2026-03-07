@@ -110,6 +110,7 @@ async def process_job(
 
             # ── Phase 1: processing ────────────────────────────────────
             job.status = "processing"
+            job.progress = 5
             await db.commit()
             await emit("processing", 5, f"Starting extraction of {total_docs} document(s)…", 0, total_docs)
 
@@ -128,10 +129,24 @@ async def process_job(
                         "Job %s — processing doc %d/%d: %s",
                         job_id, idx + 1, total_docs, filename,
                     )
+                    pct_start = 5 + int((idx / total_docs) * 65)
                     async with _WorkerSession() as doc_db:
                         doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
                         doc_obj = doc_res.scalar_one()
                         try:
+                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                            job_rec = job_res2.scalar_one_or_none()
+                            if job_rec:
+                                job_rec.status = "extracting"
+                                job_rec.progress = pct_start
+                                job_rec.completed_docs = completed_count
+                                await doc_db.commit()
+                            await emit(
+                                "extracting", pct_start,
+                                f"Processing {idx + 1}/{total_docs}: {filename}",
+                                completed_count, total_docs,
+                            )
+
                             parsed_doc = await asyncio.to_thread(parse_pdf, file_path, filename)
                             doc_obj.page_count = parsed_doc.page_count
                             total_pages += parsed_doc.page_count
@@ -144,7 +159,10 @@ async def process_job(
                                 getattr(parsed_doc, "doc_type_hint", "unknown"),
                             )
 
-                            rows = await extract_from_document(parsed_doc, fields, job_usage, instructions)
+                            rows = await asyncio.wait_for(
+                                extract_from_document(parsed_doc, fields, job_usage, instructions),
+                                timeout=settings.extraction_timeout_seconds,
+                            )
                             doc_obj.extracted_data = rows
                             doc_obj.status = "complete"
                             results_ordered[idx] = rows
@@ -160,18 +178,38 @@ async def process_job(
                                 job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, job_usage.cost_usd,
                             )
                             # Persist completed_docs so polling endpoint shows real progress
+                            pct = 5 + int((completed_count / total_docs) * 65)
                             job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
                             job_rec = job_res2.scalar_one_or_none()
                             if job_rec:
+                                job_rec.status = "extracting"
+                                job_rec.progress = pct
                                 job_rec.completed_docs = completed_count
                                 await doc_db.commit()
-                            pct = 5 + int((completed_count / total_docs) * 65)
                             await emit(
                                 "extracting", pct,
                                 f"✓ {filename} done ({completed_count}/{total_docs})",
                                 completed_count, total_docs,
                             )
 
+                        except asyncio.TimeoutError:
+                            exc_msg = f"Extraction timed out after {int(settings.extraction_timeout_seconds)}s (file may be too large or API slow)"
+                            logger.error("Job %s — timeout processing %s", job_id, filename)
+                            doc_obj.status = "error"
+                            row = {f: "" for f in field_names}
+                            row["_source_file"] = filename
+                            row["_error"] = exc_msg
+                            results_ordered[idx] = [row]
+                            completed_count += 1
+                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                            job_rec = job_res2.scalar_one_or_none()
+                            if job_rec:
+                                pct = 5 + int((completed_count / total_docs) * 65)
+                                job_rec.status = "extracting"
+                                job_rec.progress = pct
+                                job_rec.completed_docs = completed_count
+                            await doc_db.commit()
+                            await emit("extracting", pct, f"✗ {filename} timed out ({completed_count}/{total_docs})", completed_count, total_docs)
                         except Exception as exc:
                             logger.error(
                                 "Job %s — error processing %s: %s",
@@ -191,11 +229,16 @@ async def process_job(
                             job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
                             job_rec = job_res2.scalar_one_or_none()
                             if job_rec:
+                                pct = 5 + int((completed_count / total_docs) * 65)
+                                job_rec.status = "extracting"
+                                job_rec.progress = pct
                                 job_rec.completed_docs = completed_count
                             await doc_db.commit()
+                            await emit("extracting", pct, f"✗ {filename} failed ({completed_count}/{total_docs})", completed_count, total_docs)
 
             # Kick off all docs in parallel (semaphore caps at 8 concurrent)
             job.status = "extracting"
+            job.progress = 5
             await db.commit()
             await emit("extracting", 5, f"Extracting {total_docs} document(s) in parallel…", 0, total_docs)
 
@@ -210,6 +253,7 @@ async def process_job(
 
             # ── Phase 2: generate spreadsheet ─────────────────────────
             job.status = "generating"
+            job.progress = 75
             await db.commit()
             await emit("generating", 75, "Generating spreadsheet…", total_docs, total_docs)
 
@@ -230,6 +274,8 @@ async def process_job(
             )
 
             await emit("generating", 90, "Spreadsheet ready — updating balance…", total_docs, total_docs)
+            job.progress = 90
+            await db.commit()
 
             # ── Phase 3: deduct balance (actual token cost + 20% markup) ──
             result = await db.execute(select(User).where(User.id == job.user_id))

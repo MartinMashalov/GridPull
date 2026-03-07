@@ -44,9 +44,10 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
   const totalDocs = job.total_docs ?? 0
   const completedDocs = job.completed_docs ?? 0
 
-  // Drive bar from doc count so it only moves on real completions.
-  // While waiting (no docs counted yet) use an indeterminate pulse.
-  const barPct = isComplete ? 100 : totalDocs > 0 ? Math.round((completedDocs / totalDocs) * 100) : 0
+  // Prefer completed-doc progress, but fall back to backend percentage so the UI
+  // still moves before the first document finishes or when SSE is unavailable.
+  const docPct = totalDocs > 0 ? Math.round((completedDocs / totalDocs) * 100) : 0
+  const barPct = isComplete ? 100 : Math.max(docPct, job.progress ?? 0)
   const indeterminate = !isComplete && !isError && barPct === 0
 
   return (
@@ -82,6 +83,11 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             isComplete && '[&>div]:bg-emerald-500'
           )}
         />
+        {!isError && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {job.message}
+          </p>
+        )}
       </div>
       {isError && job.error && (
         <div className="px-5 py-2.5 border-t border-border">

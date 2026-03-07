@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     bear_min_page_count: int = 10
     bear_timeout_seconds: float = 20.0
 
+    # Per-document extraction timeout (seconds); prevents one large doc from hanging the job
+    extraction_timeout_seconds: float = 600.0
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
