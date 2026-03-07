@@ -48,8 +48,8 @@ class ParsedDocument:
     page_count: int
     pages: List[ParsedPage]
     tables: List[ParsedTable]   # all tables across all pages
-    content_text: str           # LLM-ready text (smart-selected, ≤32 000 chars)
-    tables_markdown: str        # all tables as Markdown (≤8 000 chars)
+    content_text: str           # LLM-ready text from the selected pages
+    tables_markdown: str        # all detected tables as Markdown
     doc_type_hint: str          # 'dense_tables' | 'form' | 'narrative' | 'mixed'
     has_tables: bool
     is_scanned: bool = False    # True if PDF appears to be a scan (image-based)
@@ -138,16 +138,16 @@ def _classify_doc_hint(pages: List[ParsedPage], tables: List[ParsedTable]) -> st
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_MAX_CONTENT_CHARS  = 32_000
-_MAX_TABLE_CHARS    = 8_000
-_CHARS_PER_PAGE     = 1_200   # per-page budget when building content_text
 _MAX_SELECTED_PAGES = 25
+_LONG_DOC_HEADER_THRESHOLD = 20
+_LONG_DOC_HEADER_TARGETS   = 5
 
 # Two-pass table detection: for large documents only run find_tables() on the
 # pages that will actually be used, rather than every page in the file.
-# Benchmark: find_tables on 152-page Berkshire PDF = 38 s all pages vs 2 s × 20 pages.
+# Benchmark: find_tables on 152-page Berkshire PDF = 38 s all pages vs a much
+# smaller focused subset on likely financial-statement pages.
 _TABLE_SCAN_ALL_THRESHOLD = 30   # pages — docs ≤ this get find_tables on every page
-_MAX_TABLE_DETECT_PAGES   = 20   # for larger docs, run find_tables on at most this many pages
+_MAX_TABLE_DETECT_PAGES   = 40   # for larger docs, run find_tables on at most this many pages
 
 # Keywords used to score pages for table-detection priority in the fast pass
 _TABLE_SCORE_KEYWORDS = [
@@ -170,7 +170,7 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
 
     Performance optimisation — two-pass table detection for large documents:
       Pass 1  text + image extraction on ALL pages        (always fast, ~0.6s/150 pages)
-      Pass 2  find_tables() only on high-value pages      (≤20 pages → ~2-4 s vs 38 s)
+      Pass 2  find_tables() only on high-value pages      (focused windows vs 38 s on all pages)
 
     This is 8-10× faster than running find_tables() on every page for large docs
     while maintaining full accuracy because we target the pages the LLM will actually see.
@@ -191,6 +191,7 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     for i in range(page_count_raw):
         p = doc[i]
         text = p.get_text("text").strip()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
         try:
             image_count = len(p.get_images(full=False))
         except Exception:
@@ -202,13 +203,144 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
             "word_count":  len(text.split()),
             "has_numbers": bool(_NUM_RE.search(text)),
             "has_dates":   bool(_DATE_RE.search(text)),
+            "title_text":  " ".join(lines[:4]),
+            "header_text": " ".join(lines[:8]),
+            "early_text":  " ".join(lines[:20]),
         })
+
+    long_doc_focus_indices: set[int] = set()
+    if page_count_raw > _LONG_DOC_HEADER_THRESHOLD:
+        exact_statement_indices: list[int] = []
+        header_scored: list[tuple[float, int]] = []
+        for i, row in enumerate(raw):
+            title_lower = row["title_text"].lower().replace("’", "'")
+            header_lower = row["header_text"].lower().replace("’", "'")
+            early_lower = row["early_text"].lower().replace("’", "'")
+            if not early_lower:
+                continue
+
+            exact_statement_hits = sum(
+                1
+                for phrase in (
+                    "consolidated balance sheet",
+                    "consolidated balance sheets",
+                    "consolidated statements of operations",
+                    "consolidated statement of operations",
+                    "consolidated statements of income",
+                    "consolidated statement of income",
+                    "consolidated statements of earnings",
+                    "consolidated statement of earnings",
+                    "consolidated statements of comprehensive income",
+                    "consolidated statement of comprehensive income",
+                    "consolidated statements of cash flows",
+                    "consolidated statement of cash flows",
+                    "consolidated statements of stockholders' equity",
+                    "consolidated statement of stockholders' equity",
+                    "consolidated statements of shareholders' equity",
+                    "consolidated statement of shareholders' equity",
+                    "consolidated statements of equity",
+                    "consolidated statement of equity",
+                )
+                if phrase in title_lower
+            )
+            if exact_statement_hits:
+                exact_statement_indices.append(i)
+
+            score = 0.0
+            score += 3_000 * exact_statement_hits
+            score += 900 * sum(
+                1
+                for phrase in (
+                    "statement of financial position",
+                    "income statement",
+                    "cash flow statement",
+                )
+                if phrase in title_lower
+            )
+            score += 900 * sum(
+                1
+                for phrase in (
+                    "financial statements and supplementary data",
+                    "index to consolidated financial statements",
+                )
+                if phrase in title_lower
+            )
+            score += 500 * sum(
+                1
+                for phrase in (
+                    "notes to consolidated financial statements",
+                    "management's discussion and analysis",
+                )
+                if phrase in title_lower
+            )
+            score += 220 * sum(1 for kw in _TABLE_SCORE_KEYWORDS if kw in title_lower)
+            score += 120 * sum(1 for kw in _TABLE_SCORE_KEYWORDS if kw in header_lower)
+            score += 80 * sum(1 for kw in _TABLE_SCORE_KEYWORDS if kw in early_lower)
+            if "table of contents" in title_lower:
+                score -= 900
+            if "report of independent registered public accounting firm" in title_lower:
+                score -= 1_200
+            if "exhibits and financial statement schedules" in title_lower:
+                score -= 1_200
+            if "item 8" in title_lower and "financial statements" in title_lower:
+                score += 750
+            if row["has_numbers"]:
+                score += 140
+            if row["has_dates"]:
+                score += 60
+            score += min(row["word_count"], 1_000) * 0.08
+
+            if score > 0:
+                header_scored.append((score, i))
+
+        header_scored.sort(
+            key=lambda item: (item[0], raw[item[1]]["word_count"], -item[1]),
+            reverse=True,
+        )
+
+        anchor_indices: list[int] = []
+        for idx in sorted(exact_statement_indices):
+            if idx in anchor_indices:
+                continue
+            anchor_indices.append(idx)
+            if len(anchor_indices) >= _LONG_DOC_HEADER_TARGETS:
+                break
+
+        for _, idx in header_scored:
+            if any(abs(idx - existing) <= 2 for existing in anchor_indices):
+                continue
+            anchor_indices.append(idx)
+            if len(anchor_indices) >= _LONG_DOC_HEADER_TARGETS:
+                break
+
+        if len(anchor_indices) < _LONG_DOC_HEADER_TARGETS:
+            fallback_scored = sorted(
+                range(page_count_raw),
+                key=lambda i: (
+                    sum(1 for kw in _TABLE_SCORE_KEYWORDS if kw in raw[i]["text"].lower()),
+                    raw[i]["has_numbers"],
+                    raw[i]["has_dates"],
+                    raw[i]["word_count"],
+                ),
+                reverse=True,
+            )
+            for idx in fallback_scored:
+                if any(abs(idx - existing) <= 2 for existing in anchor_indices):
+                    continue
+                anchor_indices.append(idx)
+                if len(anchor_indices) >= _LONG_DOC_HEADER_TARGETS:
+                    break
+
+        for idx in anchor_indices:
+            for neighbor in range(max(0, idx - 1), min(page_count_raw, idx + 3)):
+                long_doc_focus_indices.add(neighbor)
 
     # ── Determine which page indices get find_tables() ────────────────────────
     if page_count_raw <= _TABLE_SCAN_ALL_THRESHOLD:
         table_detect_indices: set[int] = set(range(page_count_raw))
     else:
-        # Always include first 3 pages; supplement with highest-scoring pages.
+        # Always include first 3 pages; for long docs add the header-focused
+        # windows, then supplement with highest-scoring pages.
         kw_scored = sorted(
             range(page_count_raw),
             key=lambda i: sum(1 for kw in _TABLE_SCORE_KEYWORDS
@@ -216,8 +348,13 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
             reverse=True,
         )
         table_detect_indices = set(range(min(3, page_count_raw)))
+        table_detect_indices.update(long_doc_focus_indices)
+        target_table_detect_pages = min(
+            page_count_raw,
+            max(_MAX_TABLE_DETECT_PAGES, len(long_doc_focus_indices) + 10),
+        )
         for idx in kw_scored:
-            if len(table_detect_indices) >= _MAX_TABLE_DETECT_PAGES:
+            if len(table_detect_indices) >= target_table_detect_pages:
                 break
             table_detect_indices.add(idx)
 
@@ -269,51 +406,47 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     if page_count <= 20:
         selected = pages
     else:
-        first_three = pages[:3]
-        remainder   = pages[3:]
+        combined = {p.page_num: p for p in pages[:3]}
+        for idx in sorted(long_doc_focus_indices):
+            combined[idx + 1] = pages[idx]
 
-        # Uniform sampling — guarantees every section of the doc is represented
-        n_uniform = 12
-        step    = max(1, len(remainder) // n_uniform)
-        uniform = remainder[::step][:n_uniform]
+        remainder = pages[3:]
+        for p in sorted(remainder, key=_score_page, reverse=True):
+            if len(combined) >= _MAX_SELECTED_PAGES:
+                break
+            combined[p.page_num] = p
 
-        # Top-scored pages for data-dense content
-        top_scored = sorted(remainder, key=_score_page, reverse=True)[:10]
+        if len(combined) < _MAX_SELECTED_PAGES:
+            n_uniform = 12
+            step = max(1, len(remainder) // n_uniform)
+            for p in remainder[::step][:n_uniform]:
+                if len(combined) >= _MAX_SELECTED_PAGES:
+                    break
+                combined[p.page_num] = p
 
-        combined = {p.page_num: p for p in first_three + uniform + top_scored}
         selected = sorted(combined.values(), key=lambda p: p.page_num)
-        selected = selected[:_MAX_SELECTED_PAGES]
 
-    # Build content_text within budget
-    content_parts: List[str] = []
-    budget = _MAX_CONTENT_CHARS
-    for p in selected:
-        if budget <= 0:
-            break
-        chunk = f"=== Page {p.page_num} ===\n{p.text}"[:_CHARS_PER_PAGE]
-        content_parts.append(chunk)
-        budget -= len(chunk)
+    # Build content_text from the selected pages without clipping characters.
+    content_text = "\n\n".join(f"=== Page {p.page_num} ===\n{p.text}" for p in selected)
 
-    content_text = "\n\n".join(content_parts)[:_MAX_CONTENT_CHARS]
-
-    # Build tables_markdown within budget
-    table_parts: List[str] = []
-    tbudget = _MAX_TABLE_CHARS
-    for t in all_tables:
-        if tbudget <= 0:
-            break
-        entry = f"[Table — page {t.page_num}, {t.row_count} rows × {t.col_count} cols]\n{t.markdown}"
-        table_parts.append(entry[:2_000])
-        tbudget -= len(entry)
-
-    tables_markdown = "\n\n".join(table_parts)[:_MAX_TABLE_CHARS]
+    # Build tables_markdown from every detected table without clipping characters.
+    tables_markdown = "\n\n".join(
+        f"[Table — page {t.page_num}, {t.row_count} rows × {t.col_count} cols]\n{t.markdown}"
+        for t in all_tables
+    )
 
     doc_type_hint = _classify_doc_hint(pages, all_tables)
     is_scanned    = force_scanned or _detect_scan(pages)
 
     logger.info(
-        "parse_pdf done: filename=%s pages=%d tables=%d doc_type_hint=%s is_scanned=%s",
-        filename, page_count, len(all_tables), doc_type_hint, is_scanned,
+        "parse_pdf done: filename=%s pages=%d tables=%d doc_type_hint=%s is_scanned=%s selected_pages=%s table_scan_pages=%s",
+        filename,
+        page_count,
+        len(all_tables),
+        doc_type_hint,
+        is_scanned,
+        [p.page_num for p in selected],
+        [i + 1 for i in sorted(table_detect_indices)],
     )
 
     return ParsedDocument(
