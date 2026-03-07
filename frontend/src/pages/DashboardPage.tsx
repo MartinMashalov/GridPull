@@ -286,30 +286,30 @@ export default function DashboardPage() {
 
       {/* How it works — inline guide */}
       {!job && files.length === 0 && (
-        <div className="mb-6 bg-primary/[0.03] border border-border rounded-xl p-4">
+        <div className="mb-6">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How it works</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="flex items-start gap-2.5">
-              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Upload size={12} className="text-primary" />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Upload size={14} className="text-primary" />
               </div>
               <div>
                 <p className="text-xs font-medium text-foreground">1. Upload your documents</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">PDF, PNG, or JPEG — one or many at a time</p>
               </div>
             </div>
-            <div className="flex items-start gap-2.5">
-              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <FileText size={12} className="text-primary" />
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText size={14} className="text-primary" />
               </div>
               <div>
                 <p className="text-xs font-medium text-foreground">2. Pick the fields to extract</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">e.g. Invoice #, Date, Total — or any custom field</p>
               </div>
             </div>
-            <div className="flex items-start gap-2.5">
-              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <ArrowRight size={12} className="text-primary" />
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <ArrowRight size={14} className="text-primary" />
               </div>
               <div>
                 <p className="text-xs font-medium text-foreground">3. Get your spreadsheet</p>
