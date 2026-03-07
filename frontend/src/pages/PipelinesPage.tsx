@@ -428,54 +428,52 @@ export default function PipelinesPage() {
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center sm:justify-center px-4 py-8 sm:py-12">
-            <div className="max-w-md w-full text-center">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
-                <Workflow size={22} className="text-primary" />
+          <div className="p-4 sm:p-6 max-w-md mx-auto sm:pt-16">
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
+                <Workflow size={20} className="text-primary" />
               </div>
               <h2 className="font-semibold text-lg mb-1">Automate your document processing</h2>
-              <p className="text-sm text-muted-foreground mb-8 max-w-sm mx-auto">
-                Pipelines watch a folder in Google Drive or SharePoint. When new files appear, they're automatically extracted into a spreadsheet — no manual uploads needed.
+              <p className="text-sm text-muted-foreground max-w-sm">
+                Pipelines watch a folder in Google Drive or SharePoint. When new files appear, they're automatically extracted into a spreadsheet.
               </p>
+            </div>
 
-              {/* How pipelines work — steps */}
-              <div className="bg-card border border-border rounded-xl p-5 mb-6 text-left">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">How pipelines work</p>
-                <div className="space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <FolderInput size={14} className="text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">1. Connect a source folder</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Link a folder in Google Drive, SharePoint, or Outlook where your documents arrive.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Settings2 size={14} className="text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">2. Define the fields to extract</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Choose what data to pull from each document — e.g. Invoice #, Date, Total, Vendor.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Zap size={14} className="text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">3. It runs automatically</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">When new files land in your source folder, the pipeline extracts data and saves a spreadsheet to your destination folder.</p>
-                    </div>
-                  </div>
+            {/* How pipelines work — steps */}
+            <div className="space-y-3.5 mb-6">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">How it works</p>
+              <div className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <FolderInput size={13} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">1. Connect a source folder</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Google Drive, SharePoint, or Outlook — wherever your documents arrive.</p>
                 </div>
               </div>
-
-              <Button className="gap-1.5" onClick={openCreate}>
-                <Plus size={14} /> Create your first pipeline
-              </Button>
+              <div className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Settings2 size={13} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">2. Define the fields to extract</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">e.g. Invoice #, Date, Total, Vendor — or any custom field.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Zap size={13} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">3. It runs automatically</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">New files get processed and the spreadsheet is saved to your destination folder.</p>
+                </div>
+              </div>
             </div>
+
+            <Button className="gap-1.5 w-full" onClick={openCreate}>
+              <Plus size={14} /> Create your first pipeline
+            </Button>
           </div>
         ) : (
           <div className="p-4 sm:p-6 max-w-5xl mx-auto w-full">
