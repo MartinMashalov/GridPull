@@ -411,6 +411,9 @@ export default function LandingPage() {
             <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               How It Works
             </a>
+            <a href="#pipelines" className="text-xs font-medium text-primary hover:text-primary/80 transition-colors hidden sm:block">
+              Automation
+            </a>
             <a href="#demo" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Demo
             </a>
@@ -543,51 +546,87 @@ export default function LandingPage() {
       </section>
 
       {/* ── Pipeline Automation ────────────────────────────────────────── */}
-      <section id="pipelines" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Automation
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Set it once, extract forever
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            Pipelines connect to your cloud storage and automatically process new documents as they arrive — no manual uploads, no repetitive work.
-          </p>
+      <section id="pipelines" className="py-14 sm:py-24 px-4 sm:px-6 border-t border-primary/20 scroll-mt-16 relative overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-primary/5 rounded-full blur-3xl" />
+        </div>
 
+        <div className="max-w-5xl mx-auto relative">
+          <div className="text-center mb-12">
+            <Badge variant="outline" className="mb-4 gap-1.5 px-3 py-1 text-xs font-medium border-primary/30 text-primary">
+              <Cpu size={10} />
+              Our key differentiator
+            </Badge>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
+              Set it once, extract forever
+            </h2>
+            <p className="text-muted-foreground text-sm sm:text-base mb-3 max-w-2xl mx-auto leading-relaxed">
+              Most tools make you upload files one by one. Our pipelines connect directly to your cloud storage
+              and <span className="text-foreground font-medium">automatically process every new document</span> the moment it arrives — hands-free, 24/7.
+            </p>
+            <p className="text-muted-foreground text-xs max-w-lg mx-auto">
+              Works with Google Drive, SharePoint, and Outlook. New integrations added regularly.
+            </p>
+          </div>
+
+          {/* Pipeline flow: numbered steps with connectors */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
+              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">1</div>
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
                 <GitBranch size={17} className="text-primary" />
               </div>
-              <h3 className="font-semibold text-sm mb-1.5">Connect a folder</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Link a Google Drive, SharePoint, or Outlook folder where your documents arrive.</p>
+              <h3 className="font-semibold text-sm mb-1.5">Connect a source folder</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Link a folder in Google Drive, SharePoint, or Outlook where invoices, reports, or forms land.</p>
             </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
+              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">2</div>
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
                 <ClipboardList size={17} className="text-primary" />
               </div>
-              <h3 className="font-semibold text-sm mb-1.5">Define your fields</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Choose what data to extract — Invoice #, Date, Total, or any custom field you need.</p>
+              <h3 className="font-semibold text-sm mb-1.5">Define your extraction fields</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Tell the system exactly what data to pull — vendor name, invoice number, line items, totals, dates, or any custom field.</p>
             </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Upload size={17} className="text-primary" />
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
+              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">3</div>
+              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
+                <Cpu size={17} className="text-primary" />
               </div>
-              <h3 className="font-semibold text-sm mb-1.5">Drop in new files</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Whenever a new PDF lands in your source folder, the pipeline picks it up automatically.</p>
+              <h3 className="font-semibold text-sm mb-1.5">Auto-processing kicks in</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed">Every new file that lands in your folder is automatically detected, read, and extracted — no manual upload needed.</p>
             </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all">
-              <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4">
+            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
+              <div className="absolute -top-2.5 left-5 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">4</div>
+              <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4 mt-1">
                 <Download size={17} className="text-emerald-600" />
               </div>
               <h3 className="font-semibold text-sm mb-1.5">Spreadsheet delivered</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">The extracted data is saved as an Excel or CSV file in your chosen destination folder.</p>
+              <p className="text-muted-foreground text-xs leading-relaxed">Clean, structured Excel or CSV output is saved to your destination folder — ready for your team or accounting system.</p>
+            </div>
+          </div>
+
+          {/* Benefit highlights */}
+          <div className="bg-card/60 border border-border/60 rounded-xl p-5 sm:p-6 mb-10">
+            <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 text-center">
+              <div>
+                <p className="text-2xl font-bold text-foreground">Zero</p>
+                <p className="text-xs text-muted-foreground mt-0.5">manual uploads after setup</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-foreground">24/7</p>
+                <p className="text-xs text-muted-foreground mt-0.5">monitoring — files processed as they arrive</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-foreground">Any volume</p>
+                <p className="text-xs text-muted-foreground mt-0.5">5 files or 5,000 — same accuracy, same speed</p>
+              </div>
             </div>
           </div>
 
           <div className="text-center">
-            <SignInButton size="lg" label="Try Pipelines" className="shadow-none" />
+            <SignInButton size="lg" label="Set up your first pipeline" className="shadow-none" />
+            <p className="text-xs text-muted-foreground mt-3">No credit card required. Takes under 2 minutes to configure.</p>
           </div>
         </div>
       </section>
