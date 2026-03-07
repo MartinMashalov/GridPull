@@ -404,7 +404,6 @@ export default function PipelinesPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this pipeline? This cannot be undone.')) return
     try {
       await api.delete(`/pipelines/${id}`)
       setPipelines(prev => prev.filter(p => p.id !== id))

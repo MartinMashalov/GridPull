@@ -144,7 +144,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           ) : (
             <button
               onClick={(e) => { e.stopPropagation(); setUserOpen(o => !o) }}
-              className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-all duration-150 hover:bg-accent active:bg-primary/10 focus:outline-none"
+              className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-all duration-150 hover:bg-accent focus:outline-none"
             >
               <div className="w-7 h-7 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
                 {user?.picture ? (
