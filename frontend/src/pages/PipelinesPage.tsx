@@ -412,8 +412,8 @@ export default function PipelinesPage() {
       await api.delete(`/pipelines/${id}`)
       setPipelines(prev => prev.filter(p => p.id !== id))
       toast.success('Pipeline deleted')
-    } catch {
-      toast.error('Failed to delete pipeline')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to delete pipeline')
     }
   }
 
