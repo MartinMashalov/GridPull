@@ -275,20 +275,16 @@ export default function SettingsPage() {
 
             {autoRenewEnabled && (
               <CardContent className="border-t border-border pt-4">
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">When balance drops below</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="pl-7" />
-                    </div>
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <Label className="text-xs whitespace-nowrap">When balance drops below</Label>
+                  <div className="relative w-24">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="pl-7" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Automatically add</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input type="number" min="1" value={refillAmount} onChange={e => setRefillAmount(e.target.value)} className="pl-7" />
-                    </div>
+                  <Label className="text-xs whitespace-nowrap ml-2">automatically add</Label>
+                  <div className="relative w-24">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                    <Input type="number" min="1" value={refillAmount} onChange={e => setRefillAmount(e.target.value)} className="pl-7" />
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
