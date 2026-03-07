@@ -90,6 +90,7 @@ async def init_db():
             "UPDATE users SET balance = credits WHERE credits IS NOT NULL AND balance = 1.0 AND credits > 0",
             # Job cost column (replaces credits_used)
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS cost FLOAT NOT NULL DEFAULT 0.0",
+            "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS instructions TEXT",
             # Per-doc completion counter for polling progress
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS completed_docs INTEGER NOT NULL DEFAULT 0",
             # Stripe payment method storage for saved cards / auto-renewal

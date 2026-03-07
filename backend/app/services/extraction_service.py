@@ -16,50 +16,61 @@ Routing  (extract_from_document)
 
   doc.is_scanned
       └─► SCAN pipeline
-            ├─ multi-record cues in OCR output + >8 pages → chunked (6 pages/call, concurrent)
-            ├─ multi-record cues                          → single gpt-4.1-mini call
-            └─ single-record                              → single gpt-4.1-mini call
+            ├─ planner chooses multi + >8 pages → chunked (6 pages/call, concurrent)
+            ├─ planner chooses multi            → single gpt-4.1-mini call
+            └─ planner chooses single           → single gpt-4.1-mini call
 
   doc NOT scanned
-      ├─ doc_type in _SINGLE_RECORD_TYPES   → single-record  (gpt-4.1-mini)
-      ├─ data table + ≤8 pages              → multi-record   (gpt-4.1-mini, 30k table budget)
-      ├─ data table + >8 pages              → chunked multi  (gpt-4.1-mini, 6 pages/call, concurrent)
-      └─ else                               → single-record  (gpt-4.1-mini)
+      ├─ planner chooses multi-record + >8 pages → chunked multi  (6 pages/call, concurrent)
+      ├─ planner chooses multi-record            → multi-record   (30k table budget)
+      └─ planner chooses single-record           → single-record
 ─────────────────────────────────────────────────────────────────────────────
 """
 
 from __future__ import annotations
 
 import asyncio
+import gzip
+import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+import httpx
+import litellm
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.services.pdf_service import ParsedDocument, ParsedPage
+from app.services.pdf_service import ParsedDocument
 
 logger = logging.getLogger(__name__)
 
 # ── Model names ───────────────────────────────────────────────────────────────
 _TEXT_MODEL   = "gpt-4.1-mini"   # TEXT pipeline
 _VISION_MODEL = "gpt-4.1-mini"   # SCAN pipeline (via litellm)
+_CLEANUP_MODEL = "gpt-4.1-nano"  # row cleanup retry
 _OCR_MODEL    = "mistral-ocr-latest"
 
-# ── Pricing (USD per token / per page) ───────────────────────────────────────
-_TEXT_IN_PRICE    = 0.40  / 1_000_000   # gpt-4.1-mini input
-_TEXT_OUT_PRICE   = 1.60  / 1_000_000   # gpt-4.1-mini output
-_VISION_IN_PRICE  = 0.40  / 1_000_000   # gpt-4.1-mini input
-_VISION_OUT_PRICE = 1.60  / 1_000_000   # gpt-4.1-mini output
-_OCR_PAGE_PRICE   = 0.001               # Mistral OCR per page
-_MARKUP           = 1.20                # 20% markup applied to all costs
+# ── Pricing (LiteLLM-backed) ─────────────────────────────────────────────────
+# LiteLLM keeps provider pricing aligned with model metadata for both text
+# generation and OCR calls, so we avoid hand-maintaining token/page rates here.
+_BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
+_MARKUP = 1.20
 
 # ── Extraction routing constants ──────────────────────────────────────────────
 _CHUNK_THRESHOLD_PAGES = 8   # switch to chunked extraction above this
 _CHUNK_SIZE            = 6   # pages per extraction chunk
+_PLANNER_TEXT_BUDGET_CHARS = 18_000
+_PLANNER_TABLE_BUDGET_CHARS = 9_000
+_SINGLE_TEXT_BUDGET_CHARS = 100_000
+_SINGLE_TABLE_BUDGET_CHARS = 50_000
+_SCAN_TEXT_BUDGET_CHARS = 22_000
+_SCAN_RETRY_TEXT_BUDGET_CHARS = 26_000
+_SINGLE_DOC_MIN_FFR = 0.75
+_SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 
 # ── OpenAI client (TEXT pipeline) ────────────────────────────────────────────
 _openai = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -76,13 +87,18 @@ class LLMUsage:
 
     TEXT pipeline  → input_tokens / output_tokens        (gpt-4.1-mini)
     SCAN pipeline  → vision_input_tokens / vision_output_tokens  (gpt-4.1-mini)
-                   → ocr_pages                            (Mistral OCR)
+                   → ocr_cost_usd                         (Mistral OCR via LiteLLM)
     """
     input_tokens:         int = 0
     output_tokens:        int = 0
     vision_input_tokens:  int = 0
     vision_output_tokens: int = 0
-    ocr_pages:            int = 0
+    cleanup_input_tokens: int = 0
+    cleanup_output_tokens:int = 0
+    ocr_cost_usd:         float = 0.0
+    bear_removed_tokens:  int = 0
+    bear_latency_ms:      float = 0.0
+    bear_cache:           Dict[str, str] = field(default_factory=dict)
 
     def add(self, prompt_tokens: int, completion_tokens: int) -> None:
         """Record gpt-4o-mini token usage."""
@@ -94,79 +110,52 @@ class LLMUsage:
         self.vision_input_tokens  += prompt_tokens
         self.vision_output_tokens += completion_tokens
 
+    def add_cleanup(self, prompt_tokens: int, completion_tokens: int) -> None:
+        """Record gpt-4.1-nano token usage."""
+        self.cleanup_input_tokens += prompt_tokens
+        self.cleanup_output_tokens += completion_tokens
+
+    def add_ocr_cost(self, cost_usd: float) -> None:
+        """Record OCR cost reported by LiteLLM."""
+        self.ocr_cost_usd += max(0.0, cost_usd)
+
+    def add_bear(self, original_input_tokens: int, output_tokens: int, latency_ms: float) -> None:
+        """Record Bear compression savings and elapsed latency."""
+        self.bear_removed_tokens += max(0, original_input_tokens - output_tokens)
+        self.bear_latency_ms += latency_ms
+
     @property
     def cost_usd(self) -> float:
         """Total cost in USD including the 20% markup."""
+        text_in_cost, text_out_cost = litellm.cost_per_token(
+            model=_TEXT_MODEL,
+            prompt_tokens=self.input_tokens,
+            completion_tokens=self.output_tokens,
+            call_type="completion",
+        )
+        vision_in_cost, vision_out_cost = litellm.cost_per_token(
+            model=_VISION_MODEL,
+            prompt_tokens=self.vision_input_tokens,
+            completion_tokens=self.vision_output_tokens,
+            call_type="completion",
+        )
+        cleanup_in_cost, cleanup_out_cost = litellm.cost_per_token(
+            model=_CLEANUP_MODEL,
+            prompt_tokens=self.cleanup_input_tokens,
+            completion_tokens=self.cleanup_output_tokens,
+            call_type="completion",
+        )
         base = (
-            self.input_tokens         * _TEXT_IN_PRICE
-            + self.output_tokens      * _TEXT_OUT_PRICE
-            + self.vision_input_tokens  * _VISION_IN_PRICE
-            + self.vision_output_tokens * _VISION_OUT_PRICE
-            + self.ocr_pages          * _OCR_PAGE_PRICE
+            text_in_cost
+            + text_out_cost
+            + vision_in_cost
+            + vision_out_cost
+            + cleanup_in_cost
+            + cleanup_out_cost
+            + self.ocr_cost_usd
+            + self.bear_removed_tokens * _BEAR_REMOVED_TOKEN_PRICE
         )
         return round(base * _MARKUP, 6)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Document type catalogue & classification
-# ─────────────────────────────────────────────────────────────────────────────
-
-_DOC_TYPE_DESCRIPTIONS: Dict[str, str] = {
-    "invoice":          "invoice, bill, or vendor statement with line items and payment details",
-    "purchase_order":   "purchase order, solicitation, contract award, or government procurement form",
-    "financial_report": "annual report, quarterly report, shareholder letter, or earnings release",
-    "sec_10k":          "SEC 10-K annual filing with MD&A, financial statements, and risk factors",
-    "insurance_eob":    "insurance Explanation of Benefits (EOB), Summary of Benefits, or claims document",
-    "tax_form":         "tax return, W-2, 1099, or government tax document",
-    "contract":         "legal contract, service agreement, or lease",
-    "generic":          "general document not matching the above categories",
-}
-
-_FAST_RULES: List[tuple] = [
-    (r'invoice|bill\s+to|amount\s+due|remit\s+to|invoice\s+#',              "invoice"),
-    (r'purchase\s+order|solicitation|contract\s+award|bid\s+bond|sf\s*-?\s*\d{2,4}', "purchase_order"),
-    (r'\b10-?k\b|form\s+10-?k',                                             "sec_10k"),
-    (r'annual\s+report|quarterly\s+report|shareholder|earnings\s+release',  "financial_report"),
-    (r'explanation\s+of\s+benefits|eob\b|summary\s+of\s+benefits|claim[s]?\s+number|member\s+id', "insurance_eob"),
-    (r'\bw-?2\b|\b1099\b|form\s+\d{4}|tax\s+return',                       "tax_form"),
-]
-
-
-def _fast_classify(filename: str, first_page_text: str) -> str | None:
-    combined = (filename + "\n" + first_page_text[:2_000]).lower()
-    for pattern, doc_type in _FAST_RULES:
-        if re.search(pattern, combined, re.I):
-            return doc_type
-    return None
-
-
-async def _llm_classify(filename: str, first_page_text: str, usage: LLMUsage) -> str:
-    types_block = "\n".join(f"  {k}: {v}" for k, v in _DOC_TYPE_DESCRIPTIONS.items())
-    prompt = (
-        f"Classify this document. Reply with ONLY the type key, nothing else.\n\n"
-        f"Filename: {filename}\nFirst page:\n{first_page_text[:1_500]}\n\nTypes:\n{types_block}"
-    )
-    try:
-        resp = await _openai.chat.completions.create(
-            model=_TEXT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            max_tokens=10,
-        )
-        if resp.usage:
-            usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-        raw = resp.choices[0].message.content.strip().strip('"').lower()
-        return raw if raw in _DOC_TYPE_DESCRIPTIONS else "generic"
-    except Exception:
-        return "generic"
-
-
-async def classify_document(doc: ParsedDocument, usage: LLMUsage) -> str:
-    first_text = doc.pages[0].text if doc.pages else ""
-    fast = _fast_classify(doc.filename, first_text)
-    if fast:
-        return fast
-    return await _llm_classify(doc.filename, first_text, usage)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,19 +167,78 @@ def _fields_block(fields: List[Dict[str, str]]) -> str:
     for f in fields:
         name = f["name"]
         desc = f.get("description", "")
-        lines.append(f"  - {name}: {desc}" if desc and desc != name else f"  - {name}")
+        if desc and desc != name:
+            lines.append(f"  - {name}\n    description: {desc}")
+        else:
+            lines.append(f"  - {name}\n    description: use the best semantic match from document context")
     return "\n".join(lines)
 
 
-def _doc_context_block(doc: ParsedDocument, doc_type: str) -> str:
+def _doc_context_block(doc: ParsedDocument) -> str:
     parts = [
         f"Filename: {doc.filename}",
-        f"Document type: {_DOC_TYPE_DESCRIPTIONS.get(doc_type, 'general document')}",
         f"Total pages: {doc.page_count}",
     ]
     if doc.has_tables:
         parts.append(f"Tables detected: {len(doc.tables)}")
     return "\n".join(parts)
+
+
+async def _maybe_compress_with_bear(
+    text: str,
+    page_count: int,
+    usage: LLMUsage,
+    label: str,
+) -> str:
+    # Only compress large-document payloads. Short prompts are cheaper and faster
+    # to send through directly than to route through an extra network hop.
+    if (
+        not text.strip()
+        or not settings.bear_api_key
+        or page_count <= settings.bear_min_page_count
+        or len(text) < 2_000
+    ):
+        return text
+
+    cache_key = hashlib.sha1(text.encode("utf-8")).hexdigest()
+    if cache_key in usage.bear_cache:
+        return usage.bear_cache[cache_key]
+
+    payload = json.dumps({
+        "model": settings.bear_model,
+        "input": text,
+        "compression_settings": {"aggressiveness": settings.bear_aggressiveness},
+    }).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {settings.bear_api_key}",
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+    }
+
+    started_at = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=settings.bear_timeout_seconds) as client:
+            response = await client.post(
+                "https://api.thetokencompany.com/v1/compress",
+                headers=headers,
+                content=gzip.compress(payload),
+            )
+            response.raise_for_status()
+        data = response.json()
+        compressed = str(data.get("output", "") or "")
+        original_tokens = int(data.get("original_input_tokens", 0) or 0)
+        output_tokens = int(data.get("output_tokens", 0) or 0)
+        latency_ms = (time.perf_counter() - started_at) * 1000
+        usage.add_bear(original_tokens, output_tokens, latency_ms)
+        logger.info(
+            "Bear compressed %s: %d → %d tokens in %.1fms",
+            label, original_tokens, output_tokens, latency_ms,
+        )
+        usage.bear_cache[cache_key] = compressed or text
+        return usage.bear_cache[cache_key]
+    except Exception as exc:
+        logger.warning("Bear compression failed for %s: %s", label, exc)
+        return text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -210,39 +258,38 @@ _SINGLE_SYSTEM = (
     "Example: cell says '37,531' in a table headed 'in millions' → output '$37,531'; "
     "cell says '$37.5 billion' → output '$37.5 billion'.\n"
     "- For dates: use the format as written in the document\n"
+    "- Treat each field description as the primary extraction intent and expected output shape. "
+    "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
+    "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
     "- If a field description explains how to compute the value (e.g. a ratio or margin), "
     "calculate it from the available data in the document and return the computed result\n"
     "- Do not hallucinate values that cannot be found or computed from the document\n"
-    "- Financial terminology synonyms — match these even if the label differs:\n"
-    "  * Revenue = Sales = Net Sales = Total Sales = Sales to customers = Net revenues = "
-    "Total revenues = Net Revenue = Total Net Revenue = "
-    "Net interest income + Noninterest revenue (for banks)\n"
-    "  * Net Income = Net Earnings = Net profit = Profit for the year = Net income attributable to common stockholders\n"
-    "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
-    "  * Total Assets = Total assets\n"
-    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity = "
-    "Total stockholders equity = Shareholders deficit = Stockholders deficit = "
-    "Total [Company Name] stockholders equity (include even if negative/deficit)\n"
-    "  * Debt = Total Debt = Long-term debt = Long-term borrowings = Total borrowings = "
-    "Notes payable = Senior notes = Subordinated notes = Bonds payable = "
-    "Short-term borrowings + Long-term debt (sum both if no single 'Total debt' line exists)\n"
-    "- IMPORTANT: Never return null for Equity/Shareholders equity fields solely because the "
-    "value is negative. Companies with buyback programs may have negative equity — return it.\n"
+    "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
+    "- Field labels may vary across documents; use the field description and nearby context "
+    "to match semantically equivalent labels instead of relying on exact string matches\n"
+    "- Treat each field description as the primary extraction intent when mapping values\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
 _MULTI_SYSTEM = (
     "You are a precise data extraction assistant for enterprise document processing.\n"
-    "This document contains tabular data. Extract ALL data rows and return a JSON "
-    "object with key \"records\" containing an array — one object per data row.\n"
+    "This document contains repeated record structures. Extract ALL matching records "
+    "and return a JSON object with key \"records\" containing an array.\n"
     "Rules:\n"
-    "- Skip header rows; only include data rows\n"
-    "- Use null for fields not present in a given row\n"
+    "- Emit one object per natural repeated record that matches the requested fields\n"
+    "- Repeated records may appear across table rows, table columns, repeated sections, or repeated line-item blocks\n"
+    "- Skip pure headers and decorative content that are not actual records\n"
+    "- Use null for fields not present in a given record\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers — only include units literally in the cell\n"
     "- For dates: use the format as written in the document\n"
-    "- Extract ALL rows (no truncation)\n"
+    "- Treat each field description as the primary extraction intent and expected output shape. "
+    "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
+    "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
+    "- Extract ALL records (no truncation)\n"
     "- Do not infer or hallucinate values\n"
+    "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
+    "- Treat each field description as the primary extraction intent when mapping values\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
 
@@ -259,23 +306,16 @@ _SCAN_SINGLE_SYSTEM = (
     "Do NOT append unit words (million/billion/thousand) from table headers or footnotes — "
     "only include the unit if it is literally written inside the cell itself.\n"
     "- For dates: use the format as written\n"
+    "- Treat each field description as the primary extraction intent and expected output shape. "
+    "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
+    "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
     "- If a field description explains how to compute the value (e.g. a ratio or margin), "
     "calculate it from the available data and return the computed result\n"
     "- Do not hallucinate — only extract what is present\n"
-    "- Financial terminology synonyms — match these even if the label differs:\n"
-    "  * Revenue = Sales = Net Sales = Total Sales = Net revenues = Total revenues = "
-    "Net interest income + Noninterest revenue (for banks)\n"
-    "  * Net Income = Net Earnings = Net profit = Profit for the year\n"
-    "  * Operating Income = Operating Earnings = Operating profit = Income from operations\n"
-    "  * Total Assets = Total assets\n"
-    "  * Equity = Shareholders equity = Stockholders equity = Total equity = Common equity = "
-    "Total stockholders equity = Shareholders deficit = Stockholders deficit = "
-    "Total [Company Name] stockholders equity (include even if negative/deficit)\n"
-    "  * Debt = Total Debt = Long-term debt = Long-term borrowings = Total borrowings = "
-    "Notes payable = Senior notes = Bonds payable = "
-    "Short-term borrowings + Long-term debt (sum both if no single 'Total debt' line exists)\n"
-    "- IMPORTANT: Never return null for Equity/Shareholders equity fields solely because the "
-    "value is negative. Companies with buyback programs may have negative equity — return it.\n"
+    "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
+    "- Field labels may vary across documents; use the field description and nearby context "
+    "to match semantically equivalent labels instead of relying on exact string matches\n"
+    "- Treat each field description as the primary extraction intent when mapping values\n"
     "- Response format: {\"records\": [{\"Field Name\": \"value\", ...}]}"
 )
 
@@ -283,14 +323,96 @@ _SCAN_MULTI_SYSTEM = (
     "You are a precise data extraction assistant working with OCR-processed text.\n"
     "The input text was extracted from a scanned document by Mistral OCR — "
     "it may contain minor OCR artefacts. Apply judgment to recover correct values.\n"
-    "This document contains tabular data. Extract ALL data rows.\n"
+    "This document may contain repeated records. Extract ALL matching records.\n"
     "Rules:\n"
-    "- Skip header rows; only include data rows\n"
-    "- Use null for fields not present in a given row\n"
-    "- Extract ALL rows (no truncation)\n"
+    "- Emit one object per natural repeated record that matches the requested fields\n"
+    "- Repeated records may appear across table rows, table columns, repeated sections, or repeated line-item blocks\n"
+    "- Skip pure headers and decorative content that are not actual records\n"
+    "- Use null for fields not present in a given record\n"
+    "- Treat each field description as the primary extraction intent and expected output shape. "
+    "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
+    "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
+    "- Extract ALL records (no truncation)\n"
     "- Do not hallucinate values\n"
+    "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
+    "- Treat each field description as the primary extraction intent when mapping values\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
+
+# Single-record retry: stronger guidance when initial output has formulas/explanations or missing required fields
+_SINGLE_RETRY_INSTRUCTION = (
+    "IMPORTANT (retry — previous output was invalid): Extract only from the main consolidated "
+    "statement or primary source. Each field must be a single scalar value (e.g. one number like "
+    "$123,456 or a year). Do NOT output formulas (e.g. '$35,879 + $26,684'), equations, or "
+    "explanatory text. If the value appears as a sum of line items in the document, report the "
+    "consolidated total only."
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Single-record validation (reject formula/explanation, require filled scalars)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Formula-like: number + number, $n + $n, or equation-style
+_FORMULA_RE = re.compile(r"[\d,$.]+\s*\+\s*[\d,$.]|\d[\d,.]*\s*=\s*|sum\s+of|total\s+of\s+", re.I)
+# Explanation-like: long value with explanatory phrases
+_EXPLANATION_MARKERS = ("which is", "that is", "calculated as", "derived from", "i.e.", " e.g.", " because ", " equals ")
+_EMPTY_VALUES = {"", "null", "none", "n/a", "na", "-", "unknown", "not found", "not available"}
+
+
+def _is_formula_or_explanation(value: str) -> bool:
+    """True if the value looks like a formula (e.g. $35,879 + $26,684) or explanatory text."""
+    if not value or not isinstance(value, str):
+        return False
+    s = value.strip()
+    if not s:
+        return False
+    if _FORMULA_RE.search(s):
+        return True
+    if len(s) > 80 and any(m in s.lower() for m in _EXPLANATION_MARKERS):
+        return True
+    return False
+
+
+def _single_record_valid(row: Dict[str, Any], field_names: List[str]) -> tuple[bool, str]:
+    """
+    Returns (valid, reason). Valid is False if any scalar field contains formula/explanation
+    or if no requested field is filled.
+    """
+    filled = [fn for fn in field_names if row.get(fn) is not None and str(row.get(fn)).strip()]
+    if not filled:
+        return (False, "no fields filled")
+    for fn in field_names:
+        val = row.get(fn)
+        if val is None:
+            continue
+        if _is_formula_or_explanation(str(val)):
+            return (False, f"field '{fn}' contains formula or explanation")
+    return (True, "")
+
+
+def _is_filled_value(value: Any) -> bool:
+    if value is None:
+        return False
+    return str(value).strip().lower() not in _EMPTY_VALUES
+
+
+def _single_fill_rate(row: Dict[str, Any], field_names: List[str]) -> float:
+    if not field_names:
+        return 0.0
+    filled = sum(1 for fn in field_names if _is_filled_value(row.get(fn)))
+    return filled / len(field_names)
+
+
+def _single_quality_gate(
+    row: Dict[str, Any],
+    field_names: List[str],
+    min_ffr: float,
+) -> tuple[bool, float, List[str]]:
+    fill_rate = _single_fill_rate(row, field_names)
+    missing = [fn for fn in field_names if not _is_filled_value(row.get(fn))]
+    passed = fill_rate >= min_ffr
+    return passed, fill_rate, missing
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -396,141 +518,6 @@ def _normalise_rows(
     return result
 
 
-_FINANCIAL_TIME_SERIES_LABEL_ALIASES: Dict[str, List[str]] = {
-    "revenue": [
-        "total revenues", "net revenues", "total revenue", "net revenue",
-        "sales to customers", "net sales", "total sales", "sales and revenues",
-        "revenues and sales",
-    ],
-    "total revenue": [
-        "total revenues", "net revenues", "total revenue", "net revenue",
-        "sales to customers", "net sales", "total sales", "sales and revenues",
-        "revenues and sales",
-    ],
-    "net income": [
-        "net income", "net earnings", "profit for the year",
-        "net income attributable to common stockholders",
-    ],
-    "net earnings": [
-        "net earnings", "net income", "profit for the year",
-        "net income attributable to common stockholders",
-    ],
-    "operating income": [
-        "operating income", "income from operations",
-        "operating earnings", "operating profit",
-    ],
-    "total assets": ["total assets"],
-    "total equity": [
-        "total equity", "total stockholders equity", "total shareholders equity",
-        "stockholders equity", "shareholders equity",
-    ],
-    "total shareholders equity": [
-        "total shareholders equity", "total stockholders equity",
-        "shareholders equity", "stockholders equity", "total equity",
-    ],
-    "ebitda": ["adjusted ebitda", "ebitda"],
-}
-
-
-def _direct_financial_time_series_rows(
-    doc: ParsedDocument,
-    fields: List[Dict[str, str]],
-) -> List[Dict[str, Any]]:
-    field_names = [f["name"] for f in fields]
-    normalised_field_names = [name.lower().strip() for name in field_names]
-    period_field_idx = next(
-        (
-            idx for idx, name in enumerate(normalised_field_names)
-            if name in {"year", "years", "quarter", "quarters", "period", "periods"}
-        ),
-        None,
-    )
-    if period_field_idx is None:
-        return []
-
-    period_field = field_names[period_field_idx]
-    period_kind = normalised_field_names[period_field_idx]
-    metric_fields = [name for idx, name in enumerate(field_names) if idx != period_field_idx]
-    if not metric_fields:
-        return []
-
-    year_re = re.compile(r"^(?:19|20)\d{2}$")
-    quarter_re = re.compile(r"^(?:q[1-4][-\s]?\d{4}|\d{4}\s*q[1-4])$", re.I)
-    best_rows: List[Dict[str, Any]] = []
-
-    for table in doc.tables:
-        parsed_rows: List[List[str]] = []
-        for line in table.markdown.splitlines():
-            line = line.strip()
-            if not line.startswith("|"):
-                continue
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if cells and all(re.fullmatch(r"-+", cell) for cell in cells):
-                continue
-            parsed_rows.append(cells)
-        if len(parsed_rows) < 2:
-            continue
-
-        header_row: List[str] | None = None
-        period_columns: List[int] = []
-        for candidate in parsed_rows[:4]:
-            matches: List[int] = []
-            for col_idx, cell in enumerate(candidate):
-                cell_norm = re.sub(r"\s+", " ", cell).strip()
-                if period_kind in {"year", "years"}:
-                    is_match = bool(year_re.fullmatch(cell_norm))
-                elif period_kind in {"quarter", "quarters"}:
-                    is_match = bool(quarter_re.fullmatch(cell_norm))
-                else:
-                    is_match = bool(year_re.fullmatch(cell_norm) or quarter_re.fullmatch(cell_norm))
-                if is_match:
-                    matches.append(col_idx)
-            if len(matches) >= 2:
-                header_row = candidate
-                period_columns = matches
-                break
-        if not header_row or not period_columns:
-            continue
-
-        metric_rows: Dict[str, List[str]] = {}
-        for metric_field in metric_fields:
-            aliases = _FINANCIAL_TIME_SERIES_LABEL_ALIASES.get(
-                metric_field.lower().strip(),
-                [metric_field.lower().strip()],
-            )
-            for row in parsed_rows:
-                label = re.sub(r"\s+", " ", row[0]).strip().lower() if row else ""
-                if label and any(alias in label for alias in aliases):
-                    metric_rows[metric_field] = row
-                    break
-        if not metric_rows:
-            continue
-
-        candidate_rows: List[Dict[str, Any]] = []
-        for col_idx in period_columns:
-            period_label = re.sub(r"\s+", " ", header_row[col_idx]).strip()
-            if not period_label or period_label.lower() == "yoy":
-                continue
-
-            row_out: Dict[str, Any] = {name: "" for name in field_names}
-            row_out[period_field] = period_label
-            has_metric_value = False
-
-            for metric_field, metric_row in metric_rows.items():
-                value = metric_row[col_idx].strip() if col_idx < len(metric_row) else ""
-                row_out[metric_field] = _clean_monetary_value(value)
-                has_metric_value = has_metric_value or bool(value)
-
-            if has_metric_value:
-                row_out["_source_file"] = doc.filename
-                candidate_rows.append(row_out)
-
-        if len(candidate_rows) > len(best_rows):
-            best_rows = candidate_rows
-
-    return best_rows
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # TEXT pipeline — LLM call (gpt-4o-mini, OpenAI SDK)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -570,6 +557,45 @@ async def _llm_extract(
     return _empty([filename], field_names)
 
 
+async def _review_multi_rows(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+    filename: str,
+    usage: LLMUsage,
+    doc_context: str,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    if len(rows) <= 1:
+        return rows
+
+    review_prompt = (
+        "Review these extracted records and return a cleaned records array.\n\n"
+        "Goals:\n"
+        "- keep only records that match the same natural row unit\n"
+        "- remove duplicates and near-duplicates\n"
+        "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
+        "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
+        "- do not invent new values\n\n"
+        f"Filename: {filename}\n"
+        f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
+        + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"Document context:\n{doc_context[:10_000]}\n\n"
+        + f"Extracted records to review:\n{json.dumps(rows, ensure_ascii=True)}\n\n"
+        + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
+    )
+    reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage)
+
+    deduped: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in reviewed:
+        key = json.dumps({fn: row.get(fn, "") for fn in field_names}, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped or rows
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SCAN pipeline — LLM call (gpt-4.1-mini, litellm)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -582,8 +608,6 @@ async def _litellm_extract(
     usage: LLMUsage,
 ) -> List[Dict[str, Any]]:
     """SCAN pipeline extraction call (gpt-4.1-mini via litellm)."""
-    import litellm  # lazy import — only used for scanned docs
-
     for attempt in range(3):
         try:
             resp = await litellm.acompletion(
@@ -611,96 +635,58 @@ async def _litellm_extract(
     return _empty([filename], field_names)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Financial page targeting (TEXT pipeline, single-record)
-# ─────────────────────────────────────────────────────────────────────────────
-
-_FINANCIAL_KEYWORDS = [
-    "balance sheet", "statement of earnings", "income statement",
-    "statement of operations", "total assets", "total revenues",
-    "total revenue", "shareholders' equity", "shareholders equity",
-    "stockholders' equity", "stockholders equity", "total equity",
-    "net income", "net earnings", "operating earnings", "operating income",
-    "total liabilities", "net revenues",
-    # Sales-based revenue terminology (J&J, P&G, consumer companies)
-    "sales to customers", "net sales", "total sales", "sales and revenues",
-    "revenues and sales", "product sales", "service revenues",
-    # Additional financial statement headers
-    "consolidated statements", "statement of income", "statement of profit",
-    "profit and loss", "earnings per share", "diluted earnings",
-    # Bank-specific terminology
-    "net interest income", "noninterest income", "noninterest revenue",
-    "interest expense", "provision for credit losses", "net charge-offs",
-    "long-term debt", "short-term borrowings", "federal funds",
-    "loans and leases", "total deposits", "tier 1 capital",
-    # Insurance-specific terminology
-    "premiums earned", "net premiums", "claims and benefits",
-    "policyholder benefits", "loss ratio", "combined ratio",
-    "underwriting income", "net investment income",
-    # REIT-specific
-    "funds from operations", "net operating income", "same-store",
-]
-
-_MAX_FINANCIAL_PAGES   = 14   # 2 cover + up to 12 financial statement pages
-_TOP_KEYWORD_PAGES     = 10   # top-N keyword-scored pages (up from 5)
-_FINANCIAL_PAGE_CHARS  = 1_800
-_FINANCIAL_CONTENT_BUDGET = 28_000
-_FINANCIAL_TABLE_BUDGET   = 12_000
-
-
-def _build_financial_content(doc: ParsedDocument) -> tuple[str, str]:
-    """
-    For financial documents: select pages by keyword density + first 2 pages.
-
-    Pages ranked by total _FINANCIAL_KEYWORDS density, capped at _TOP_KEYWORD_PAGES.
-    Always include the first 2 pages (cover / shareholder letter summary).
-
-    Total budget: max 14 pages × 1800 chars = 25k text + 12k tables ≈ 9k tokens.
-    """
-    keyword_scored: list[tuple[int, "ParsedPage"]] = []
-
-    for p in doc.pages:
-        text_lower = p.text.lower()
-        kw_count   = sum(1 for kw in _FINANCIAL_KEYWORDS if kw in text_lower)
-        if kw_count > 0:
-            keyword_scored.append((kw_count, p))
-
-    keyword_scored.sort(key=lambda x: x[0], reverse=True)
-
-    first_two   = {p.page_num: p for p in doc.pages[:2]}
-    top_keyword = {p.page_num: p for _, p in keyword_scored[:_TOP_KEYWORD_PAGES]}
-    combined    = {**first_two, **top_keyword}
-    selected    = sorted(combined.values(), key=lambda p: p.page_num)[:_MAX_FINANCIAL_PAGES]
-
-    content_parts: list[str] = []
-    budget = _FINANCIAL_CONTENT_BUDGET
-    for p in selected:
-        if budget <= 0:
-            break
-        chunk = f"=== Page {p.page_num} ===\n{p.text}"[:_FINANCIAL_PAGE_CHARS]
-        content_parts.append(chunk)
-        budget -= len(chunk)
-
-    content_text = "\n\n".join(content_parts)[:_FINANCIAL_CONTENT_BUDGET]
-
-    # Include ALL detected tables (not just from selected pages) so balance-sheet
-    # tables on pages just outside the text window are still visible to the LLM.
-    page_nums  = {p.page_num for p in selected}
-    # Sort: selected-page tables first (most relevant), then extras
-    fin_tables = (
-        [t for t in doc.tables if t.page_num in page_nums]
-        + [t for t in doc.tables if t.page_num not in page_nums]
+async def _cleanup_single_row_with_nano(
+    row: Dict[str, Any],
+    fields: List[Dict[str, str]],
+    filename: str,
+    usage: LLMUsage,
+) -> Dict[str, Any]:
+    field_names = [f["name"] for f in fields]
+    payload = {fn: row.get(fn, "") for fn in field_names}
+    cleanup_prompt = (
+        "Review this extracted single-row record and clean only obvious data-quality issues.\n\n"
+        "You must work only from the extracted dictionary plus the field names and descriptions.\n"
+        "Do not use any external document context.\n"
+        "Return a JSON object only.\n\n"
+        "Rules:\n"
+        "- Keep the same keys\n"
+        "- Preserve values that already match the field intent\n"
+        "- Treat each field description as the primary extraction intent and expected output shape\n"
+        "- If a field clearly wants a spreadsheet scalar number, return only the numeric value that should appear in the cell\n"
+        "- Remove currency codes or short labels like USD, RM, EUR only when they are not part of the requested field itself\n"
+        "- If a field clearly wants a date, year, or revision date and the value looks obviously clipped, repair it only when the intended completion is clear from the field description or example; otherwise leave it unchanged\n"
+        "- Do not add explanations or new facts\n\n"
+        f"Filename: {filename}\n"
+        f"Fields:\n{_fields_block(fields)}\n\n"
+        f"Extracted row:\n{json.dumps(payload, ensure_ascii=True)}\n\n"
+        'Return exactly: {"records": [{"Field Name": "value", ...}]}'
     )
-    table_parts: list[str] = []
-    tbudget = _FINANCIAL_TABLE_BUDGET
-    for t in fin_tables:
-        if tbudget <= 0:
-            break
-        entry = f"[Table — page {t.page_num}]\n{t.markdown}"
-        table_parts.append(entry[:2_500])
-        tbudget -= len(entry)
-
-    return content_text, "\n\n".join(table_parts)[:_FINANCIAL_TABLE_BUDGET]
+    try:
+        resp = await _openai.chat.completions.create(
+            model=_CLEANUP_MODEL,
+            messages=[
+                {"role": "user", "content": cleanup_prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=1_200,
+        )
+        if resp.usage:
+            usage.add_cleanup(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+        raw = json.loads(resp.choices[0].message.content)
+        cleaned_rows = _normalise_rows(raw, field_names, filename)
+        if not cleaned_rows:
+            return row
+        cleaned = dict(row)
+        candidate = cleaned_rows[0]
+        for fn in field_names:
+            new_val = candidate.get(fn)
+            if new_val is not None and str(new_val).strip():
+                cleaned[fn] = new_val
+        return cleaned
+    except Exception as exc:
+        logger.warning("Single-row cleanup failed for %s: %s", filename, exc)
+        return row
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -710,26 +696,50 @@ def _build_financial_content(doc: ParsedDocument) -> tuple[str, str]:
 async def extract_single_record(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
-    doc_type: str,
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """Extract one record per document (invoice header, contract, annual report…)."""
     field_names = [f["name"] for f in fields]
-    ctx   = _doc_context_block(doc, doc_type)
+    ctx   = _doc_context_block(doc)
     fblock = _fields_block(fields)
+    single_text_budget = min(_SINGLE_TEXT_BUDGET_CHARS, max(24_000, doc.page_count * 4_000))
+    text_parts: List[str] = []
+    for p in doc.pages:
+        if single_text_budget <= 0:
+            break
+        part = f"=== Page {p.page_num} ===\n{p.text}"
+        text_parts.append(part[:3_500])
+        single_text_budget -= len(part)
+    raw_single_text = "\n\n".join(text_parts)[:_SINGLE_TEXT_BUDGET_CHARS] or doc.content_text
+    content_text = await _maybe_compress_with_bear(
+        raw_single_text, doc.page_count, usage, f"{doc.filename} single text"
+    )
 
-    is_financial = doc_type in ("financial_report", "sec_10k")
-    if is_financial and doc.page_count > 20:
-        content_text, tables_markdown = _build_financial_content(doc)
-    else:
-        content_text, tables_markdown = doc.content_text, doc.tables_markdown
-
-    reporting_unit = _detect_reporting_unit(doc) if is_financial else None
+    single_table_budget = min(_SINGLE_TABLE_BUDGET_CHARS, max(12_000, doc.page_count * 2_000))
+    table_parts: List[str] = []
+    for t in doc.tables:
+        if single_table_budget <= 0:
+            break
+        part = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
+        table_parts.append(part[:5_000])
+        single_table_budget -= len(part)
+    raw_single_tables = "\n\n".join(table_parts)[:_SINGLE_TABLE_BUDGET_CHARS] or doc.tables_markdown
+    tables_markdown = await _maybe_compress_with_bear(
+        raw_single_tables, doc.page_count, usage, f"{doc.filename} single tables"
+    )
+    # Reporting-unit hints are generic and help any table-heavy document where
+    # values are displayed in a shared unit in the header instead of each cell.
+    reporting_unit = _detect_reporting_unit(doc) if doc.has_tables else None
 
     parts = [
         f"--- Document Info ---\n{ctx}",
         f"\n--- Fields to Extract ---\n{fblock}",
     ]
+    if instructions.strip():
+        # User guidance is treated as an extra constraint layer on top of the
+        # field schema, not as a replacement for the document evidence itself.
+        parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
     if reporting_unit:
         parts.append(
             f"\n--- Reporting Unit ---\n"
@@ -745,64 +755,120 @@ async def extract_single_record(
         "\n".join(parts)
         + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
     )
-    return await _llm_extract(_SINGLE_SYSTEM, user_prompt, field_names, doc.filename, usage)
+    rows = await _llm_extract(_SINGLE_SYSTEM, user_prompt, field_names, doc.filename, usage)
+    if len(rows) == 1:
+        valid, reason = _single_record_valid(rows[0], field_names)
+        if not valid:
+            logger.info(
+                "Single-record validation failed for %s: %s; retrying with stronger guidance",
+                doc.filename, reason,
+            )
+            retry_prompt = (
+                "\n".join(parts) + "\n\n" + _SINGLE_RETRY_INSTRUCTION
+                + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
+            )
+            rows = await _llm_extract(_SINGLE_SYSTEM, retry_prompt, field_names, doc.filename, usage)
+            if len(rows) == 1:
+                valid2, _ = _single_record_valid(rows[0], field_names)
+                if not valid2:
+                    logger.warning("Single-record retry still invalid for %s", doc.filename)
+    if len(rows) == 1:
+        gate_ok, fill_rate, missing_fields = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
+        if (
+            not gate_ok
+            and len(missing_fields) >= _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS
+        ):
+            logger.info(
+                "Per-doc gate failed for %s (FFR=%.1f%%, missing=%d); running missing-fields retry",
+                doc.filename,
+                fill_rate * 100,
+                len(missing_fields),
+            )
+            retry_fields = [f for f in fields if f["name"] in missing_fields]
+            retry_fblock = _fields_block(retry_fields)
+            retry_prompt = (
+                f"--- Document Info ---\n{ctx}\n\n"
+                f"--- Missing Fields Only ---\n{retry_fblock}\n\n"
+                + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+                + "--- Retry Objective ---\n"
+                + "Fill only the listed missing fields from the provided document context. "
+                + "Do not rewrite fields that already have values.\n\n"
+                + f"--- Document Text ---\n{content_text}\n\n"
+                + (f"--- Detected Tables ---\n{tables_markdown}\n\n" if tables_markdown else "")
+                + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
+            )
+            retry_rows = await _llm_extract(
+                _SINGLE_SYSTEM,
+                retry_prompt,
+                [f["name"] for f in retry_fields],
+                doc.filename,
+                usage,
+            )
+            if retry_rows:
+                merged = dict(rows[0])
+                retry_row = retry_rows[0]
+                for fn in missing_fields:
+                    old = merged.get(fn)
+                    new_val = retry_row.get(fn)
+                    if not _is_filled_value(old) and _is_filled_value(new_val):
+                        merged[fn] = new_val
+                rows = [merged]
+                gate_ok2, fill_rate2, missing2 = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
+                logger.info(
+                    "Per-doc gate result for %s after retry: pass=%s FFR=%.1f%% missing=%d",
+                    doc.filename,
+                    gate_ok2,
+                    fill_rate2 * 100,
+                    len(missing2),
+                )
+    if len(rows) == 1:
+        rows = [await _cleanup_single_row_with_nano(rows[0], fields, doc.filename, usage)]
+    return rows
 
 
 async def extract_multi_record(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
-    doc_type: str,
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Extract multiple records from a short multi-record document (≤ _CHUNK_THRESHOLD_PAGES).
     Uses full 30k table budget instead of the 8k-capped doc.tables_markdown.
     """
     field_names = [f["name"] for f in fields]
-    ctx    = _doc_context_block(doc, doc_type)
+    ctx    = _doc_context_block(doc)
     fblock = _fields_block(fields)
-    normalised_field_names = [name.lower().strip() for name in field_names]
-    financial_time_series = (
-        doc_type in ("financial_report", "sec_10k")
-        and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
+    content_text = await _maybe_compress_with_bear(
+        doc.content_text, doc.page_count, usage, f"{doc.filename} multi text"
     )
-
-    if financial_time_series:
-        direct_rows = _direct_financial_time_series_rows(doc, fields)
-        if direct_rows:
-            logger.info(
-                "TEXT direct financial time-series extraction: %s (%d rows)",
-                doc.filename, len(direct_rows),
-            )
-            return direct_rows
-        content_text, full_tables_md = _build_financial_content(doc)
-    else:
-        content_text = doc.content_text
-        # Rebuild table markdown at full budget — tables are the primary data source
-        table_parts, tbudget = [], 30_000
-        for t in doc.tables:
-            entry = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
-            table_parts.append(entry[:3_000])
-            tbudget -= len(entry)
-            if tbudget <= 0:
-                break
-        full_tables_md = "\n\n".join(table_parts)
+    # For multi-record extraction we give more table context than the default
+    # parser summary, but keep the budget bounded for cost control.
+    table_parts, tbudget = [], 35_000
+    for t in doc.tables:
+        entry = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
+        table_parts.append(entry[:3_000])
+        tbudget -= len(entry)
+        if tbudget <= 0:
+            break
+    full_tables_md = await _maybe_compress_with_bear(
+        "\n\n".join(table_parts), doc.page_count, usage, f"{doc.filename} multi tables"
+    )
 
     parts = [
         f"--- Document Info ---\n{ctx}",
-        f"\n--- Fields to Extract (one object per data row) ---\n{fblock}",
+        f"\n--- Fields to Extract (one object per repeated record) ---\n{fblock}",
     ]
-    if financial_time_series:
-        parts.append(
-            "\n--- Extraction Mode ---\n"
-            "This is a financial time-series extraction. If the tables are organised with "
-            "reporting periods as columns (for example 2020, 2021, 2022, 2023, 2024 or "
-            "Q1-2024 through Q4-2024) and financial metrics as rows, create one record per "
-            "reporting period column rather than one record per metric row. Use the exact "
-            "period labels from the table, map requested metric fields to the closest row "
-            "labels, and ignore YoY or percentage-change columns unless a requested field "
-            "explicitly asks for them."
-        )
+    if instructions.strip():
+        parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    parts.append(
+        "\n--- Extraction Mode ---\n"
+        "The output should contain one object per natural repeated record that matches the "
+        "requested fields. If the schema repeats across table rows, emit one object per row. "
+        "If the schema repeats across table columns, emit one object per column. If the "
+        "document does not actually contain repeated records that match the requested fields, "
+        "return a single best record instead of inventing multiples."
+    )
     if full_tables_md:
         parts.append(f"\n--- Detected Tables ---\n{full_tables_md}")
     parts.append(f"\n--- Document Text ---\n{content_text}")
@@ -811,19 +877,27 @@ async def extract_multi_record(
         "\n".join(parts)
         + '\n\nReturn: {"records": [{"Field": "value"}, ...]}'
     )
-    return await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage)
+    rows = await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage)
+    return await _review_multi_rows(
+        rows,
+        field_names,
+        doc.filename,
+        usage,
+        "\n".join(parts),
+        instructions,
+    )
 
 
 async def extract_multi_record_chunked(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
-    doc_type: str,
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Page-by-page extraction for long multi-record documents (> _CHUNK_THRESHOLD_PAGES).
     Splits pages into chunks of _CHUNK_SIZE and runs all chunks concurrently.
-    Prevents row truncation on bank statements, payroll reports, etc.
+    Prevents repeated-record truncation in long schedules, logs, and tables.
     """
     field_names = [f["name"] for f in fields]
     fblock      = _fields_block(fields)
@@ -835,26 +909,34 @@ async def extract_multi_record_chunked(
         first_pg, last_pg = chunk_pages[0].page_num, chunk_pages[-1].page_num
         chunk_text = "\n\n".join(
             f"=== Page {p.page_num} ===\n{p.text}" for p in chunk_pages
-        )[:20_000]
+        )[:22_000]
         tables_md = "\n\n".join(
             f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
             for t in doc.tables if t.page_num in page_nums
-        )[:10_000]
+        )[:14_000]
+        chunk_text = await _maybe_compress_with_bear(
+            chunk_text, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} text"
+        )
+        tables_md = await _maybe_compress_with_bear(
+            tables_md, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} tables"
+        )
 
         parts = [
             f"--- Document Info ---\n"
             f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
             f"Extracting: pages {first_pg}–{last_pg}",
-            f"\n--- Fields (one object per data row) ---\n{fblock}",
+            f"\n--- Fields (one object per repeated record) ---\n{fblock}",
         ]
+        if instructions.strip():
+            parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
         if tables_md:
             parts.append(f"\n--- Tables (pages {first_pg}–{last_pg}) ---\n{tables_md}")
         parts.append(f"\n--- Text (pages {first_pg}–{last_pg}) ---\n{chunk_text}")
 
         prompt = (
             "\n".join(parts)
-            + "\n\nExtract ALL data rows on these pages only. "
-            + 'Return: {"records": [...]}. No rows here → {"records": []}.'
+            + "\n\nExtract ALL repeated records on these pages only. "
+            + 'Return: {"records": [...]}. No records here → {"records": []}.'
         )
         return await _llm_extract(_MULTI_SYSTEM, prompt, field_names, doc.filename, usage)
 
@@ -864,25 +946,21 @@ async def extract_multi_record_chunked(
     for rows in chunk_results:
         all_rows.extend(r for r in rows if any(r.get(fn) for fn in field_names))
 
-    return all_rows if all_rows else _empty([doc.filename], field_names)
+    if not all_rows:
+        return _empty([doc.filename], field_names)
+    return await _review_multi_rows(
+        all_rows,
+        field_names,
+        doc.filename,
+        usage,
+        doc.content_text,
+        instructions,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SCAN pipeline — OCR + gpt-4.1-mini extractors
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Markdown table line regex — Mistral OCR renders tables as markdown
-_MD_TABLE_ROW_RE = re.compile(r"^\|.+\|", re.M)
-
-
-def _ocr_is_multi_record(ocr_text: str) -> bool:
-    """
-    Return True if the OCR output contains enough markdown table rows to
-    suggest the document has multiple data records to extract.
-    Threshold: ≥6 pipe-delimited lines (1 header + 1 separator + 4 data rows).
-    """
-    return len(_MD_TABLE_ROW_RE.findall(ocr_text)) >= 6
-
 
 async def _extract_scanned_chunked(
     ocr_text: str,
@@ -891,6 +969,7 @@ async def _extract_scanned_chunked(
     field_names: List[str],
     fblock: str,
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Chunked SCAN extraction for long multi-record scanned documents.
@@ -909,15 +988,21 @@ async def _extract_scanned_chunked(
     chunks = [pages[i: i + _CHUNK_SIZE] for i in range(0, len(pages), _CHUNK_SIZE)]
 
     async def _chunk_task(chunk_pages: list) -> List[Dict]:
-        chunk_text = "\n\n".join(chunk_pages)[:20_000]
+        chunk_text = await _maybe_compress_with_bear(
+            "\n\n".join(chunk_pages)[:20_000],
+            doc.page_count,
+            usage,
+            f"{doc.filename} OCR chunk",
+        )
         prompt = (
             f"--- Document Info ---\n"
             f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
             f"Source: Scanned document (OCR by Mistral)\n\n"
-            f"--- Fields (one object per data row) ---\n{fblock}\n\n"
-            f"--- OCR Text (this chunk) ---\n{chunk_text}\n\n"
-            'Extract ALL data rows in this chunk. '
-            'Return: {"records": [...]}. No rows here → {"records": []}.'
+            f"--- Fields (one object per repeated record) ---\n{fblock}\n\n"
+            + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"--- OCR Text (this chunk) ---\n{chunk_text}\n\n"
+            'Extract ALL repeated records in this chunk. '
+            'Return: {"records": [...]}. No records here → {"records": []}.'
         )
         return await _litellm_extract(_SCAN_MULTI_SYSTEM, prompt, field_names, doc.filename, usage)
 
@@ -927,21 +1012,31 @@ async def _extract_scanned_chunked(
     for rows in chunk_results:
         all_rows.extend(r for r in rows if any(r.get(fn) for fn in field_names))
 
-    return all_rows if all_rows else _empty([doc.filename], field_names)
+    if not all_rows:
+        return _empty([doc.filename], field_names)
+    return await _review_multi_rows(
+        all_rows,
+        field_names,
+        doc.filename,
+        usage,
+        ocr_text,
+        instructions,
+    )
 
 
 async def extract_from_scanned_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """
     SCAN pipeline entry point.
 
     Step 1 — Mistral OCR: converts the scanned PDF to full markdown text,
               preserving tables, columns, and layout.
-    Step 2 — Route: detect multi-record (markdown tables in OCR output) vs
-              single-record.
+    Step 2 — Plan cardinality: decide whether the requested schema should
+              produce a single record or repeated records.
     Step 3 — gpt-4.1-mini via litellm: extract fields from OCR text.
               Long multi-record docs are chunked and run concurrently.
     """
@@ -953,7 +1048,7 @@ async def extract_from_scanned_document(
             "falling back to TEXT pipeline",
             doc.filename,
         )
-        return await extract_single_record(doc, fields, "generic", usage)
+        return await extract_single_record(doc, fields, usage, instructions)
 
     logger.info(
         "SCAN pipeline — Mistral OCR starting: %s (%d pages)",
@@ -961,27 +1056,61 @@ async def extract_from_scanned_document(
     )
 
     try:
-        ocr_text, ocr_page_count = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
-        usage.ocr_pages += ocr_page_count
+        ocr_text, ocr_page_count, ocr_cost_usd = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+        usage.add_ocr_cost(ocr_cost_usd)
         logger.info(
-            "SCAN pipeline — OCR complete: %s — %d pages, %d chars",
-            doc.filename, ocr_page_count, len(ocr_text),
+            "SCAN pipeline — OCR complete: %s — %d pages, %d chars, $%.4f",
+            doc.filename, ocr_page_count, len(ocr_text), ocr_cost_usd,
         )
     except Exception as exc:
         logger.error(
             "SCAN pipeline — OCR failed for %s: %s — falling back to TEXT pipeline",
             doc.filename, exc,
         )
-        return await extract_single_record(doc, fields, "generic", usage)
+        return await extract_single_record(doc, fields, usage, instructions)
 
     field_names = [f["name"] for f in fields]
     fblock      = _fields_block(fields)
-    is_multi    = _ocr_is_multi_record(ocr_text)
+    extraction_mode = "single"
+    planner_prompt = (
+        "Decide whether this OCR document should produce ONE output object or MANY output objects "
+        "for the requested schema.\n\n"
+        "Reply with exactly one word:\n"
+        "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
+        "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
+        "Rules:\n"
+        "- Base the decision on the requested fields plus the OCR structure\n"
+        "- Repeated records may appear across rows, columns, repeated sections, or repeated line items\n"
+        "- If unsure, reply single\n\n"
+        f"Filename: {doc.filename}\n"
+        f"Total pages: {doc.page_count}\n"
+        f"Requested fields:\n{fblock}\n\n"
+        + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text[:20_000], doc.page_count, usage, f'{doc.filename} OCR planner')}"
+    )
+    try:
+        planner_resp = await _litellm_extract(
+            _SCAN_SINGLE_SYSTEM,
+            planner_prompt + '\n\nReturn: {"records": [{"mode": "single"}]}',
+            ["mode"],
+            doc.filename,
+            usage,
+        )
+        planner_mode = (planner_resp[0].get("mode", "") if planner_resp else "").strip().lower()
+        extraction_mode = "multi" if planner_mode == "multi" else "single"
+        logger.info("SCAN pipeline — planned %s extraction: %s", extraction_mode, doc.filename)
+    except Exception as exc:
+        markdown_table_lines = len(re.findall(r"^\|.+\|", ocr_text, re.M))
+        extraction_mode = "multi" if markdown_table_lines >= 6 else "single"
+        logger.warning(
+            "SCAN planner failed for %s: %s — falling back to %s",
+            doc.filename, exc, extraction_mode,
+        )
 
-    if is_multi and doc.page_count > _CHUNK_THRESHOLD_PAGES:
+    if extraction_mode == "multi" and doc.page_count > _CHUNK_THRESHOLD_PAGES:
         logger.info("SCAN pipeline — chunked multi-record: %s", doc.filename)
         return await _extract_scanned_chunked(
-            ocr_text, doc, fields, field_names, fblock, usage
+            ocr_text, doc, fields, field_names, fblock, usage, instructions
         )
 
     ctx = (
@@ -990,7 +1119,7 @@ async def extract_from_scanned_document(
         f"Source: Scanned document (OCR by Mistral)"
     )
 
-    if is_multi:
+    if extraction_mode == "multi":
         logger.info("SCAN pipeline — single-call multi-record: %s", doc.filename)
         system      = _SCAN_MULTI_SYSTEM
         instruction = 'Return: {"records": [{"Field": "value"}, ...]}'
@@ -1002,40 +1131,102 @@ async def extract_from_scanned_document(
     user_prompt = (
         f"--- Document Info ---\n{ctx}\n\n"
         f"--- Fields to Extract ---\n{fblock}\n\n"
-        f"--- OCR Text (Mistral OCR) ---\n{ocr_text[:30_000]}\n\n"
+        + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text[:_SCAN_TEXT_BUDGET_CHARS], doc.page_count, usage, f'{doc.filename} OCR extract')}\n\n"
         + instruction
     )
 
-    return await _litellm_extract(system, user_prompt, field_names, doc.filename, usage)
+    rows = await _litellm_extract(system, user_prompt, field_names, doc.filename, usage)
+    if extraction_mode != "multi":
+        if len(rows) == 1:
+            valid, reason = _single_record_valid(rows[0], field_names)
+            if not valid:
+                logger.info(
+                    "SCAN single-record validation failed for %s: %s; retrying with stronger guidance",
+                    doc.filename, reason,
+                )
+                retry_prompt = user_prompt + "\n\n" + _SINGLE_RETRY_INSTRUCTION + "\n\n" + instruction
+                rows = await _litellm_extract(system, retry_prompt, field_names, doc.filename, usage)
+                if len(rows) == 1:
+                    valid2, _ = _single_record_valid(rows[0], field_names)
+                    if not valid2:
+                        logger.warning("SCAN single-record retry still invalid for %s", doc.filename)
+        if len(rows) == 1:
+            gate_ok, fill_rate, missing_fields = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
+            if (
+                not gate_ok
+                and len(missing_fields) >= _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS
+            ):
+                logger.info(
+                    "SCAN per-doc gate failed for %s (FFR=%.1f%%, missing=%d); running missing-fields retry",
+                    doc.filename,
+                    fill_rate * 100,
+                    len(missing_fields),
+                )
+                retry_fields = [f for f in fields if f["name"] in missing_fields]
+                retry_fblock = _fields_block(retry_fields)
+                retry_prompt = (
+                    f"--- Document Info ---\n{ctx}\n\n"
+                    f"--- Missing Fields Only ---\n{retry_fblock}\n\n"
+                    + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+                    + "--- Retry Objective ---\n"
+                    + "Fill only the listed missing fields using the OCR text. "
+                    + "Do not rewrite fields that already have values.\n\n"
+                    + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text[:_SCAN_RETRY_TEXT_BUDGET_CHARS], doc.page_count, usage, f'{doc.filename} OCR missing-fields')}\n\n"
+                    + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
+                )
+                retry_rows = await _litellm_extract(
+                    _SCAN_SINGLE_SYSTEM,
+                    retry_prompt,
+                    [f["name"] for f in retry_fields],
+                    doc.filename,
+                    usage,
+                )
+                if retry_rows:
+                    merged = dict(rows[0])
+                    retry_row = retry_rows[0]
+                    for fn in missing_fields:
+                        old = merged.get(fn)
+                        new_val = retry_row.get(fn)
+                        if not _is_filled_value(old) and _is_filled_value(new_val):
+                            merged[fn] = new_val
+                    rows = [merged]
+                    gate_ok2, fill_rate2, missing2 = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
+                    logger.info(
+                        "SCAN per-doc gate result for %s after retry: pass=%s FFR=%.1f%% missing=%d",
+                        doc.filename,
+                        gate_ok2,
+                        fill_rate2 * 100,
+                        len(missing2),
+                    )
+        if len(rows) == 1:
+            rows = [await _cleanup_single_row_with_nano(rows[0], fields, doc.filename, usage)]
+        return rows
+    return await _review_multi_rows(
+        rows,
+        field_names,
+        doc.filename,
+        usage,
+        ocr_text,
+        instructions,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEXT pipeline routing
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Doc types where the user wants document-level fields, not per-row extraction,
-# even when the document contains tables.
-_SINGLE_RECORD_TYPES = {"financial_report", "sec_10k", "tax_form", "contract"}
-
-
-def _should_extract_multi(doc: ParsedDocument, doc_type: str, fields: List[Dict[str, str]]) -> bool:
+def _should_extract_multi(doc: ParsedDocument, fields: List[Dict[str, str]]) -> bool:
     """
-    Return True if this native (non-scanned) document should produce multiple rows.
+    Conservative structural fallback for deciding whether a native PDF should
+    be treated as multi-record.
 
-    Triggers when:
-    - a financial report explicitly asks for period-based rows (e.g. Year/Quarter)
-    - doc_type is NOT in _SINGLE_RECORD_TYPES (those always want one row)
-    - At least one table has ≥4 rows AND ≥2 cols
-      (≥4 rows rules out single-row summary cells; ≥2 cols rules out bare lists)
+    The primary decision is made by a generic planner prompt in
+    `extract_from_document`. This fallback is only used when that planning call
+    fails, so it stays intentionally simple and conservative.
     """
-    normalised_field_names = [f["name"].lower().strip() for f in fields]
-    if (
-        doc_type in {"financial_report", "sec_10k"}
-        and doc.has_tables
-        and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
-    ):
-        return True
-    if doc_type in _SINGLE_RECORD_TYPES:
+    del fields
+    if not doc.has_tables:
         return False
     data_tables = [t for t in doc.tables if t.row_count >= 4 and t.col_count >= 2]
     return len(data_tables) >= 1
@@ -1049,6 +1240,7 @@ async def extract_from_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
     usage: LLMUsage,
+    instructions: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Full extraction pipeline for one document.
@@ -1066,10 +1258,9 @@ async def extract_from_document(
     │         └─ single-record           → single call
     │
     └─ native PDF (TEXT pipeline, gpt-4o-mini)
-          ├─ _SINGLE_RECORD_TYPES        → single-record
-          ├─ data table + ≤8 pages       → multi-record   (30k table budget)
-          ├─ data table + >8 pages       → chunked multi  (6 pages/call, concurrent)
-          └─ else                        → single-record
+          ├─ planner says multi + >8 pages → chunked multi
+          ├─ planner says multi            → multi-record
+          └─ planner says single           → single-record
     """
     if doc.is_scanned:
         logger.info(
@@ -1077,47 +1268,82 @@ async def extract_from_document(
             doc.filename,
             sum(len(p.text) for p in doc.pages) / max(len(doc.pages), 1),
         )
-        rows = await extract_from_scanned_document(doc, fields, usage)
+        rows = await extract_from_scanned_document(doc, fields, usage, instructions)
 
     else:
-        normalised_field_names = [f["name"].lower().strip() for f in fields]
-        if (
-            doc.has_tables
-            and any(name in {"year", "years", "quarter", "quarters", "period", "periods"} for name in normalised_field_names)
-        ):
-            direct_rows = _direct_financial_time_series_rows(doc, fields)
-            if direct_rows:
-                logger.info(
-                    "Routing %s → direct table extraction (%d rows)",
-                    doc.filename, len(direct_rows),
-                )
-                return direct_rows
+        extraction_mode = "single"
+        planner_text_budget = min(_PLANNER_TEXT_BUDGET_CHARS, max(10_000, doc.page_count * 1_200))
+        planner_text_parts: List[str] = []
+        for p in doc.pages:
+            if planner_text_budget <= 0:
+                break
+            part = f"=== Page {p.page_num} ===\n{p.text}"
+            planner_text_parts.append(part[:1_600])
+            planner_text_budget -= len(part)
+        planner_text = "\n\n".join(planner_text_parts)[:_PLANNER_TEXT_BUDGET_CHARS] or doc.content_text[:_PLANNER_TEXT_BUDGET_CHARS]
 
-        doc_type = await classify_document(doc, usage)
-        logger.info(
-            "Routing %s → TEXT pipeline (type=%s hint=%s)",
-            doc.filename, doc_type, doc.doc_type_hint,
+        planner_table_budget = min(_PLANNER_TABLE_BUDGET_CHARS, max(5_000, doc.page_count * 600))
+        planner_table_parts: List[str] = []
+        for t in doc.tables:
+            if planner_table_budget <= 0:
+                break
+            part = f"[Table — page {t.page_num}, {t.row_count}×{t.col_count}]\n{t.markdown}"
+            planner_table_parts.append(part[:2_000])
+            planner_table_budget -= len(part)
+        planner_tables = "\n\n".join(planner_table_parts)[:_PLANNER_TABLE_BUDGET_CHARS] or doc.tables_markdown[:_PLANNER_TABLE_BUDGET_CHARS]
+        planner_prompt = (
+            "Decide whether this document should produce ONE output object or MANY output objects "
+            "for the requested schema.\n\n"
+            "Reply with exactly one word:\n"
+            "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
+            "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
+            "Rules:\n"
+            "- Base the decision on the requested fields plus the document structure\n"
+            "- A file can contain tables and still be single if the requested fields are document-level\n"
+            "- A file can be multi even when repeated records are arranged across columns instead of rows\n"
+            "- If unsure, reply single\n\n"
+            f"Filename: {doc.filename}\n"
+            f"Total pages: {doc.page_count}\n"
+            f"Document structure hint: {doc.doc_type_hint}\n"
+            f"Requested fields:\n{_fields_block(fields)}\n\n"
+            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"Document text:\n{await _maybe_compress_with_bear(planner_text, doc.page_count, usage, f'{doc.filename} planner text')}\n\n"
+            f"Detected tables:\n{await _maybe_compress_with_bear(planner_tables, doc.page_count, usage, f'{doc.filename} planner tables')}"
         )
-
-        if _should_extract_multi(doc, doc_type, fields):
-            normalised_field_names = [f["name"].lower().strip() for f in fields]
-            financial_time_series = (
-                doc_type in {"financial_report", "sec_10k"}
-                and any(name in {"year", "years", "quarter", "quarters", "period", "periods", "month", "months"} for name in normalised_field_names)
+        try:
+            planner_resp = await _openai.chat.completions.create(
+                model=_TEXT_MODEL,
+                messages=[{"role": "user", "content": planner_prompt}],
+                temperature=0,
+                max_tokens=8,
             )
-            if financial_time_series:
-                rows = await extract_multi_record(doc, fields, doc_type, usage)
-            elif doc.page_count > _CHUNK_THRESHOLD_PAGES:
+            if planner_resp.usage:
+                usage.add(planner_resp.usage.prompt_tokens, planner_resp.usage.completion_tokens)
+            planner_raw = (planner_resp.choices[0].message.content or "").strip().lower()
+            extraction_mode = "multi" if planner_raw == "multi" else "single"
+            logger.info(
+                "Routing %s → TEXT pipeline (%s, hint=%s)",
+                doc.filename, extraction_mode, doc.doc_type_hint,
+            )
+        except Exception as exc:
+            extraction_mode = "multi" if _should_extract_multi(doc, fields) else "single"
+            logger.warning(
+                "Routing planner failed for %s: %s — falling back to %s",
+                doc.filename, exc, extraction_mode,
+            )
+
+        if extraction_mode == "multi":
+            if doc.page_count > _CHUNK_THRESHOLD_PAGES:
                 n_chunks = -(-doc.page_count // _CHUNK_SIZE)  # ceiling division
                 logger.info(
                     "TEXT chunked multi-record: %s (%d pages, %d chunks)",
                     doc.filename, doc.page_count, n_chunks,
                 )
-                rows = await extract_multi_record_chunked(doc, fields, doc_type, usage)
+                rows = await extract_multi_record_chunked(doc, fields, usage, instructions)
             else:
-                rows = await extract_multi_record(doc, fields, doc_type, usage)
+                rows = await extract_multi_record(doc, fields, usage, instructions)
         else:
-            rows = await extract_single_record(doc, fields, doc_type, usage)
+            rows = await extract_single_record(doc, fields, usage, instructions)
 
     if not rows:
         field_names = [f["name"] for f in fields]

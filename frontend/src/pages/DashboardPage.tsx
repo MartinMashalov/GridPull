@@ -197,8 +197,8 @@ export default function DashboardPage() {
     setShowModal(true)
   }
 
-  const handleExtract = async (fields: ExtractionField[], format: ExportFormat) => {
-    trackEvent('extraction_start', { field_count: fields.length, format, file_count: files.length })
+  const handleExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
+    trackEvent('extraction_start', { field_count: fields.length, format, file_count: files.length, has_instructions: !!instructions.trim() })
     setShowModal(false)
     setExportFormat(format)
     setActiveJobId(null)
@@ -208,6 +208,7 @@ export default function DashboardPage() {
       const fd = new FormData()
       files.forEach((f) => fd.append('files', f))
       fd.append('fields', JSON.stringify(fields))
+      fd.append('instructions', instructions.trim())
       fd.append('format', format)
 
       const res = await api.post('/documents/extract', fd)

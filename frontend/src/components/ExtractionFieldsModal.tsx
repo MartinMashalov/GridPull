@@ -16,7 +16,7 @@ const PRESET_FIELDS = [
 interface Props {
   open: boolean
   onClose: () => void
-  onConfirm: (fields: ExtractionField[], format: ExportFormat) => void
+  onConfirm: (fields: ExtractionField[], format: ExportFormat, instructions: string) => void
   defaultFormat: ExportFormat
 }
 
@@ -27,6 +27,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     { name: 'Total Amount', description: '' },
   ])
   const [newFieldName, setNewFieldName] = useState('')
+  const [instructions, setInstructions] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   const fieldsEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -68,7 +69,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
 
   const handleSubmit = () => {
     if (fields.length === 0) return
-    onConfirm(fields, defaultFormat)
+    onConfirm(fields, defaultFormat, instructions.trim())
   }
 
   // Enter outside the input → submit
@@ -107,6 +108,19 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
             <p className="text-xs text-muted-foreground mb-3">
               Select the data points you want to extract from each document. Each field becomes a column in your spreadsheet.
             </p>
+
+            <div className="mb-4 rounded-xl border border-border bg-secondary/35 px-3 py-3">
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                Extraction Instructions
+              </label>
+              <textarea
+                rows={3}
+                value={instructions}
+                onChange={e => setInstructions(e.target.value)}
+                placeholder="Optional guidance for complex documents. Example: 'Extract one row per year from the main financial table and prefer full-year values over quarterly breakdowns.'"
+                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 resize-none outline-none leading-relaxed"
+              />
+            </div>
 
             {/* Quick Add presets */}
             <div className="flex flex-wrap gap-1.5 mb-4">
@@ -176,7 +190,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
             )}
 
             {/* Custom field input */}
-            <div className="flex gap-2 mb-5">
+            <div className="flex items-stretch gap-2 mb-5">
               <Input
                 ref={inputRef}
                 placeholder="Add custom field…"
@@ -189,9 +203,9 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                     addCustom()
                   }
                 }}
-                className="text-sm"
+                className="text-sm h-10"
               />
-              <Button onClick={addCustom} disabled={!newFieldName.trim()} size="icon" variant="outline">
+              <Button onClick={addCustom} disabled={!newFieldName.trim()} size="icon" variant="outline" className="h-10 w-10 shrink-0">
                 <Plus size={14} />
               </Button>
             </div>

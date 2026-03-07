@@ -9,19 +9,19 @@ When a PDF exceeds either limit this service automatically splits it into
 chunks using PyMuPDF, OCRs each chunk concurrently, and stitches the results
 back together with correctly-offset page numbers.
 
-Returns: (ocr_text: str, page_count: int)
+Returns: (ocr_text: str, page_count: int, ocr_cost_usd: float)
   ocr_text    — full document text with "=== Page N ===" markers and markdown tables
   page_count  — number of pages actually processed (used for billing)
+  ocr_cost_usd — OCR cost reported by LiteLLM
 """
 
 import asyncio
-import base64
 import logging
 import os
-import re
 import tempfile
 
 import fitz  # PyMuPDF — already a project dependency
+import litellm
 
 logger = logging.getLogger(__name__)
 
@@ -68,68 +68,39 @@ def _extract_chunk_to_tempfile(file_path: str, start_page: int, end_page: int) -
     return tmp_path
 
 
-_IMAGE_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".tiff": "image/tiff",
-    ".bmp": "image/bmp",
-    ".webp": "image/webp",
-}
-
-
-def _sync_ocr_file(file_path: str, api_key: str) -> list[str]:
+async def _ocr_file(file_path: str, api_key: str) -> tuple[list[str], float]:
     """
-    Synchronous Mistral OCR call on a single (possibly chunked) PDF or image.
-    Returns a list of per-page markdown strings (index = 0-based page in file).
+    LiteLLM OCR call on a single PDF or image path.
+    Returns per-page markdown plus the OCR cost for this call.
     """
-    from mistralai import Mistral
-
-    ext = os.path.splitext(file_path.lower())[1]
-    mime = _IMAGE_MIME.get(ext)
-
-    with open(file_path, "rb") as fh:
-        b64 = base64.b64encode(fh.read()).decode("utf-8")
-
-    client = Mistral(api_key=api_key)
-
-    if mime:
-        # Image file — use image_url type
-        response = client.ocr.process(
-            model="mistral-ocr-latest",
-            document={
-                "type": "image_url",
-                "image_url": f"data:{mime};base64,{b64}",
-            },
-        )
-    else:
-        # PDF file — use document_url type
-        response = client.ocr.process(
-            model="mistral-ocr-latest",
-            document={
-                "type": "document_url",
-                "document_url": f"data:application/pdf;base64,{b64}",
-            },
-        )
-
+    response = await litellm.aocr(
+        model="mistral/mistral-ocr-latest",
+        document={"type": "file", "file": file_path},
+        api_key=api_key,
+    )
     pages = []
     for page in response.pages:
         md = getattr(page, "markdown", getattr(page, "text", ""))
         pages.append(md)
-    return pages
+    ocr_cost_usd = litellm.completion_cost(
+        model="mistral/mistral-ocr-latest",
+        completion_response=response,
+        call_type="ocr",
+    )
+    return pages, ocr_cost_usd
 
 
 # ── Public async API ──────────────────────────────────────────────────────────
 
-async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int]:
+async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int, float]:
     """
     Run Mistral OCR on a PDF, automatically splitting if the file exceeds the
     1,000-page or 50 MB limits.
 
-    Returns (ocr_text, page_count):
+    Returns (ocr_text, page_count, ocr_cost_usd):
       ocr_text   — full text with "=== Page N ===" markers (1-indexed, absolute)
       page_count — total number of pages processed (for billing)
+      ocr_cost_usd — OCR cost reported by LiteLLM
     """
     src        = fitz.open(file_path)
     page_count = len(src)
@@ -140,9 +111,9 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int]:
     if page_count <= chunk_size:
         # Happy path — single call, no splitting needed
         logger.debug("Mistral OCR: single call, %d pages", page_count)
-        pages_md = await asyncio.to_thread(_sync_ocr_file, file_path, api_key)
+        pages_md, ocr_cost_usd = await _ocr_file(file_path, api_key)
         ocr_text = _assemble(pages_md, page_offset=0)
-        return ocr_text, len(pages_md)
+        return ocr_text, len(pages_md), ocr_cost_usd
 
     # Need to split — build chunk ranges
     chunks = [
@@ -154,13 +125,13 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int]:
         page_count, len(chunks), chunk_size,
     )
 
-    async def _ocr_chunk(start: int, end: int) -> tuple[list[str], int]:
+    async def _ocr_chunk(start: int, end: int) -> tuple[list[str], int, float]:
         tmp_path = await asyncio.to_thread(
             _extract_chunk_to_tempfile, file_path, start, end
         )
         try:
-            pages_md = await asyncio.to_thread(_sync_ocr_file, tmp_path, api_key)
-            return pages_md, start   # return pages + page offset for reassembly
+            pages_md, ocr_cost_usd = await _ocr_file(tmp_path, api_key)
+            return pages_md, start, ocr_cost_usd   # return pages + page offset for reassembly
         finally:
             try:
                 os.unlink(tmp_path)
@@ -172,11 +143,13 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int]:
     # Reassemble in order with correct absolute page numbers
     all_parts: list[str] = []
     total_pages = 0
-    for pages_md, offset in results:
+    total_cost_usd = 0.0
+    for pages_md, offset, ocr_cost_usd in results:
         all_parts.append(_assemble(pages_md, page_offset=offset))
         total_pages += len(pages_md)
+        total_cost_usd += ocr_cost_usd
 
-    return "\n\n".join(all_parts), total_pages
+    return "\n\n".join(all_parts), total_pages, total_cost_usd
 
 
 def _assemble(pages_md: list[str], page_offset: int) -> str:

@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # Mistral (OCR for scanned PDFs)
     mistral_api_key: str = ""
 
+    # Bear prompt compression
+    bear_api_key: str = ""
+    bear_model: str = "bear-1.2"
+    bear_aggressiveness: float = 0.1
+    bear_min_page_count: int = 10
+    bear_timeout_seconds: float = 20.0
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

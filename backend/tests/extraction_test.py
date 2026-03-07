@@ -4,15 +4,30 @@ Enterprise extraction test suite.
 Runs the full extraction pipeline against all test document sets and
 reports quality metrics (FFR / NPR / DPR / ERR) per folder and overall.
 
+Test Coverage:
+  • 01_invoices: Vendor invoices
+  • 02_sec_annual_report: Large financial documents
+  • 03_insurance_eob: Insurance claims (original + 30 new synthetic EOBs)
+  • 04_sec_10k_filing: SEC 10-K filings
+  • 05_purchase_orders: Government procurement forms
+  • 06_annual_reports: Diverse annual reports
+  • 07_scanned_docs: OCR/scanned documents
+  • 08_cash_flow_statements: Corporate cash flow statements (NEW)
+  • 09_contracts_agreements: Legal contracts & agreements (NEW)
+
 Usage:
     cd backend
     OPENAI_API_KEY=sk-... python tests/extraction_test.py [--folder <name>] [--verbose]
 
 Target metrics (all figures 0-1):
-    FFR  ≥ 0.90
-    NPR  ≥ 0.95
-    DPR  ≥ 0.95
-    ERR  = 0.00
+    FFR  ≥ 0.90 (field fill rate)
+    NPR  ≥ 0.95 (numeric parse rate)
+    DPR  ≥ 0.95 (date parse rate)
+    ERR  = 0.00 (error row rate)
+
+Benchmarking:
+    Measures extraction speed, throughput, and quality across all document types.
+    Reports per-document and per-folder performance metrics.
 """
 
 from __future__ import annotations
@@ -157,6 +172,62 @@ TEST_CASES: List[Dict] = [
             {"name": "Tax Amount", "description": "Tax amount charged (GST, VAT, sales tax, etc.)"},
         ],
     },
+    {
+        "folder": "03_insurance_eob",
+        "description": "Insurance EOBs (expanded) — synthetic claims with patient responsibility calculations",
+        "pdf_filter": ["eob_claim_001.pdf", "eob_claim_002.pdf", "eob_claim_003.pdf", "eob_claim_004.pdf", "eob_claim_005.pdf"],
+        "ffr_target": 0.90,
+        "fields": [
+            {"name": "Member ID", "description": "Insurance member ID (format: EHPxxxxxx)"},
+            {"name": "Claim ID", "description": "Unique claim reference number (format: CLMxxxxxxxx)"},
+            {"name": "Service Date", "description": "Date service was provided (MM/DD/YYYY format)"},
+            {"name": "Provider Name", "description": "Hospital, clinic, or provider name"},
+            {"name": "Service Description", "description": "Medical procedure or service description"},
+            {"name": "Provider Charge", "description": "Amount provider billed"},
+            {"name": "Allowed Amount", "description": "Insurance-allowed amount for the service"},
+            {"name": "Your Copay", "description": "Patient copay amount"},
+            {"name": "Plan Paid", "description": "Amount insurance plan paid"},
+            {"name": "Patient Responsibility", "description": "Total amount patient owes"},
+        ],
+    },
+    {
+        "folder": "08_cash_flow_statements",
+        "description": "Cash flow statements (new) — corporate financial data extraction",
+        "pdf_filter": ["cashflow_statement_001.pdf", "cashflow_statement_002.pdf", "cashflow_statement_003.pdf", "cashflow_statement_004.pdf", "cashflow_statement_005.pdf"],
+        "ffr_target": 0.85,
+        "fields": [
+            {"name": "Company Name", "description": "Name of the company"},
+            {"name": "Fiscal Year", "description": "Year ending for the cash flow statement (YYYY format)"},
+            {"name": "Net Income", "description": "Net income or earnings from operations"},
+            {"name": "Depreciation and Amortization", "description": "Total depreciation and amortization"},
+            {"name": "Operating Cash Flow", "description": "Total net cash from operating activities"},
+            {"name": "Capital Expenditures", "description": "Capital expenditures or CapEx (typically negative)"},
+            {"name": "Investing Cash Flow", "description": "Total net cash from investing activities"},
+            {"name": "Debt Repayment", "description": "Amount of debt repaid (typically negative)"},
+            {"name": "Dividends Paid", "description": "Dividends paid to shareholders (typically negative)"},
+            {"name": "Financing Cash Flow", "description": "Total net cash from financing activities"},
+            {"name": "Net Change in Cash", "description": "Overall net change in cash for the period"},
+            {"name": "Ending Cash", "description": "Cash balance at end of period"},
+        ],
+    },
+    {
+        "folder": "09_contracts_agreements",
+        "description": "Contracts & agreements (new) — legal document extraction",
+        "pdf_filter": ["contract_001.pdf", "contract_002.pdf", "contract_003.pdf", "contract_004.pdf", "contract_005.pdf"],
+        "ffr_target": 0.85,
+        "fields": [
+            {"name": "Contract Type", "description": "Type of contract (e.g., Service Agreement, NDA, Employment, etc.)"},
+            {"name": "Effective Date", "description": "Date when contract becomes effective"},
+            {"name": "Provider Name", "description": "Name of service provider or first party"},
+            {"name": "Client Name", "description": "Name of client or second party"},
+            {"name": "Term Length", "description": "Duration of the contract in years"},
+            {"name": "Compensation Amount", "description": "Payment amount (annual, monthly, or hourly)"},
+            {"name": "Compensation Type", "description": "Type of compensation (annual fee, monthly retainer, hourly rate)"},
+            {"name": "Governing Law", "description": "State or jurisdiction governing the contract"},
+            {"name": "Confidentiality Clause", "description": "Whether document contains confidentiality provisions"},
+            {"name": "Liability Clause", "description": "Whether document contains liability/indemnification provisions"},
+        ],
+    },
 ]
 
 
@@ -192,11 +263,11 @@ def _bar(v: float, width: int = 20) -> str:
 async def run_folder(
     case: Dict,
     verbose: bool = False,
-) -> "tuple[ValidationReport, float, int]":
+) -> "tuple[ValidationReport, float, int, List[Dict]]":
     """
     Run extraction on all PDFs in one test folder.
 
-    Returns (ValidationReport, elapsed_seconds, total_rows).
+    Returns (ValidationReport, elapsed_seconds, total_rows, per_document_reports).
     """
     folder_path = _TEST_DOCS / case["folder"]
     pdf_filter = case.get("pdf_filter")
@@ -211,12 +282,14 @@ async def run_folder(
             ValidationReport(0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0),
             0.0,
             0,
+            [],
         )
 
     fields = case["fields"]
     field_names = [f["name"] for f in fields]
     all_rows: List[Dict] = []
     t0 = time.perf_counter()
+    per_document_reports: List[Dict] = []
 
     for pdf_path in pdf_files:
         if verbose:
@@ -227,7 +300,10 @@ async def run_folder(
             tables = len(parsed.tables)
             print(f" {parsed.page_count}p  hint={hint}  tables={tables}", end="", flush=True)
 
-        rows = await extract_from_document(parsed, fields, LLMUsage())
+        usage = LLMUsage()
+        pdf_t0 = time.perf_counter()
+        rows = await extract_from_document(parsed, fields, usage)
+        pdf_elapsed = time.perf_counter() - pdf_t0
 
         if verbose:
             print(f"  → {len(rows)} row(s)")
@@ -243,10 +319,22 @@ async def run_folder(
                 print()
 
         all_rows.extend(rows)
+        pdf_report = score_extraction(rows, field_names)
+        per_document_reports.append({
+            "folder": case["folder"],
+            "pdf_name": pdf_path.name,
+            "rows": len(rows),
+            "elapsed": pdf_elapsed,
+            "cost_usd": usage.cost_usd,
+            "field_fill_rate": pdf_report.field_fill_rate,
+            "numeric_parse_rate": pdf_report.numeric_parse_rate,
+            "date_parse_rate": pdf_report.date_parse_rate,
+            "error_row_rate": pdf_report.error_row_rate,
+        })
 
     elapsed = time.perf_counter() - t0
     report = score_extraction(all_rows, field_names)
-    return report, elapsed, len(all_rows)
+    return report, elapsed, len(all_rows), per_document_reports
 
 
 # ── Main test runner ──────────────────────────────────────────────────────────
@@ -268,6 +356,8 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
     overall_elapsed = 0.0
     overall_rows = 0
     failures: List[str] = []
+    all_document_reports: List[Dict] = []
+    benchmark_data: List[Dict] = []
 
     for case in cases:
         folder = case["folder"]
@@ -275,10 +365,11 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
         fields_str = ", ".join(f["name"] for f in case["fields"])
         print(f"  Fields ({len(case['fields'])}): {fields_str}")
 
-        report, elapsed, n_rows = await run_folder(case, verbose=verbose)
+        report, elapsed, n_rows, document_reports = await run_folder(case, verbose=verbose)
         all_reports.append(report)
         overall_elapsed += elapsed
         overall_rows += n_rows
+        all_document_reports.extend(document_reports)
 
         folder_ffr_target = case.get("ffr_target", FFR_TARGET)
         ffr_ok = report.field_fill_rate >= folder_ffr_target
@@ -309,6 +400,63 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
                       f"  ({report.date_hits}/{report.date_total} date fields){RESET}")
         print()
 
+        avg_time_per_doc = elapsed / len(document_reports) if document_reports else 0
+        throughput = len(document_reports) / elapsed if elapsed > 0 else 0
+        benchmark_data.append({
+            "folder": folder,
+            "documents": len(document_reports),
+            "total_time": elapsed,
+            "avg_time_per_doc": avg_time_per_doc,
+            "throughput_docs_per_sec": throughput,
+            "total_rows": n_rows,
+            "avg_rows_per_doc": n_rows / len(document_reports) if document_reports else 0,
+            "ffr": report.field_fill_rate,
+            "npr": report.numeric_parse_rate,
+            "dpr": report.date_parse_rate,
+            "err": report.error_row_rate,
+        })
+
+    # ── Per-document report (all folders) ─────────────────────────────────────
+    if all_document_reports:
+        print(f"{BOLD}{'─' * 70}{RESET}")
+        print(f"{BOLD}  ALL DOCUMENTS{RESET}  ({len(all_document_reports)} files)")
+        total_doc_cost = sum(d["cost_usd"] for d in all_document_reports)
+        for d in all_document_reports:
+            print(
+                f"  {d['folder']}/{d['pdf_name']}  "
+                f"rows={d['rows']}  "
+                f"FFR={_pct(d['field_fill_rate'])}  "
+                f"NPR={_pct(d['numeric_parse_rate'])}  "
+                f"DPR={_pct(d['date_parse_rate'])}  "
+                f"ERR={_pct(d['error_row_rate'])}  "
+                f"⏱ {d['elapsed']:.1f}s  "
+                f"${d['cost_usd']:.4f}"
+            )
+        print(f"  Total LLM cost: ${total_doc_cost:.4f}\n")
+
+    # ── Benchmark report ──────────────────────────────────────────────────────
+    if benchmark_data:
+        print(f"{BOLD}{'─' * 70}{RESET}")
+        print(f"{BOLD}  PERFORMANCE BENCHMARKS{RESET}")
+        print(f"  {BOLD}Folder{RESET:<30} {BOLD}Docs{RESET:<6} {BOLD}⏱ Total{RESET:<10} {BOLD}⏱ Avg/Doc{RESET:<10} {BOLD}Throughput{RESET:<12}")
+        print(f"  {BOLD}{'-' * 68}{RESET}")
+        for b in benchmark_data:
+            print(
+                f"  {b['folder']:<30} {b['documents']:<6} "
+                f"{b['total_time']:.1f}s  {b['avg_time_per_doc']:.2f}s  "
+                f"{b['throughput_docs_per_sec']:.2f}/s"
+            )
+        print()
+        print(f"  {BOLD}Quality Metrics{RESET}")
+        print(f"  {BOLD}Folder{RESET:<30} {BOLD}FFR{RESET:<8} {BOLD}NPR{RESET:<8} {BOLD}DPR{RESET:<8} {BOLD}ERR{RESET:<8}")
+        print(f"  {BOLD}{'-' * 62}{RESET}")
+        for b in benchmark_data:
+            print(
+                f"  {b['folder']:<30} {_pct(b['ffr']):<8} {_pct(b['npr']):<8} "
+                f"{_pct(b['dpr']):<8} {_pct(b['err']):<8}"
+            )
+        print()
+
     # ── Aggregate totals ───────────────────────────────────────────────────────
     if all_reports:
         total_filled  = sum(r.filled_fields  for r in all_reports)
@@ -324,16 +472,26 @@ async def main(folder_filter: str | None = None, verbose: bool = False) -> None:
         agg_dpr = date_hits / date_total       if date_total  else 1
         agg_err = err_rows  / overall_rows     if overall_rows else 0
 
-        agg_ok = (agg_ffr >= FFR_TARGET and agg_npr >= NPR_TARGET and agg_dpr >= DPR_TARGET)
+        agg_ok = (
+            agg_ffr >= FFR_TARGET
+            and agg_npr >= NPR_TARGET
+            and agg_dpr >= DPR_TARGET
+            and not failures
+        )
 
         print(f"{BOLD}{'─' * 70}{RESET}")
         print(f"{BOLD}  OVERALL{RESET}  ({len(cases)} folders, {overall_rows} rows, {overall_elapsed:.1f}s)")
+        
+        avg_overall_throughput = sum(b['throughput_docs_per_sec'] for b in benchmark_data) / len(benchmark_data) if benchmark_data else 0
+        total_docs_in_benchmark = sum(b['documents'] for b in benchmark_data)
+        
         print(
             f"  FFR={_colored(agg_ffr, FFR_TARGET)} {_bar(agg_ffr)}  "
             f"NPR={_colored(agg_npr, NPR_TARGET)}  "
             f"DPR={_colored(agg_dpr, DPR_TARGET)}  "
             f"ERR={_pct(agg_err)}"
         )
+        print(f"  Performance: {total_docs_in_benchmark} documents, {overall_elapsed:.1f}s total, {overall_elapsed/total_docs_in_benchmark:.2f}s/doc avg")
 
         overall_status = f"{GREEN}ALL PASS ✓{RESET}" if agg_ok else f"{RED}SOME FAIL ✗{RESET}"
         print(f"\n  {overall_status}")

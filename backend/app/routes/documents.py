@@ -59,6 +59,7 @@ async def start_extraction(
     request: Request,
     files: List[UploadFile] = File(...),
     fields: str = Form(...),
+    instructions: str = Form(""),
     format: str = Form("xlsx"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -90,11 +91,12 @@ async def start_extraction(
 
     filenames = [f.filename for f in files]
     logger.info(
-        "Extract request — user_id=%s files=%s fields=%s format=%s ip=%s",
+        "Extract request — user_id=%s files=%s fields=%s format=%s instructions=%d chars ip=%s",
         current_user.id,
         filenames,
         [f["name"] for f in fields_data],
         format,
+        len(instructions.strip()),
         client_ip,
     )
 
@@ -103,6 +105,7 @@ async def start_extraction(
         user_id=current_user.id,
         status="queued",
         fields=fields_data,
+        instructions=instructions.strip() or None,
         format=format,
         file_count=len(files),
     )

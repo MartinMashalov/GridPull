@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Integer, Float, JSON, DateTime, ForeignKe
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
+from typing import Any
 from app.database import Base
 
 
@@ -22,6 +23,7 @@ class ExtractionJob(Base):
     status = Column(String, default="queued")  # queued, processing, extracting, generating, complete, error
     progress = Column(Integer, default=0)
     fields = Column(JSON, nullable=False)  # List of extraction fields
+    instructions = Column(Text, nullable=True)  # Optional user guidance for this extraction job
     format = Column(String, default="xlsx")  # xlsx or csv
     file_count = Column(Integer, default=0)
     completed_docs = Column(Integer, default=0)  # Docs finished (for polling progress)
@@ -54,3 +56,23 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     job = relationship("ExtractionJob", back_populates="documents")
+
+    @staticmethod
+    def _is_filled_value(value: Any) -> bool:
+        if value is None:
+            return False
+        text = str(value).strip().lower()
+        return text not in {"", "null", "none", "n/a", "na", "-", "unknown", "not found", "not available"}
+
+    def single_record_fill_rate(self, field_names: list[str]) -> float:
+        if not field_names or not isinstance(self.extracted_data, list) or not self.extracted_data:
+            return 0.0
+        row = self.extracted_data[0] if isinstance(self.extracted_data[0], dict) else {}
+        filled = sum(1 for name in field_names if self._is_filled_value(row.get(name)))
+        return round(filled / len(field_names), 4)
+
+    def missing_fields(self, field_names: list[str]) -> list[str]:
+        if not field_names or not isinstance(self.extracted_data, list) or not self.extracted_data:
+            return list(field_names)
+        row = self.extracted_data[0] if isinstance(self.extracted_data[0], dict) else {}
+        return [name for name in field_names if not self._is_filled_value(row.get(name))]

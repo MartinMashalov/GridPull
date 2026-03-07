@@ -96,12 +96,13 @@ async def process_job(
             documents = result.scalars().all()
 
             fields = job.fields
+            instructions = (job.instructions or "").strip()
             field_names = [f["name"] for f in fields]
             total_docs = len(documents)
 
             logger.info(
-                "Job %s — user_id=%s docs=%d fields=%s format=%s",
-                job_id, job.user_id, total_docs, field_names, job.format,
+                "Job %s — user_id=%s docs=%d fields=%s format=%s instructions=%d chars",
+                job_id, job.user_id, total_docs, field_names, job.format, len(instructions),
             )
 
             # ── Phase 1: processing ────────────────────────────────────
@@ -140,7 +141,7 @@ async def process_job(
                                 getattr(parsed_doc, "doc_type_hint", "unknown"),
                             )
 
-                            rows = await extract_from_document(parsed_doc, fields, job_usage)
+                            rows = await extract_from_document(parsed_doc, fields, job_usage, instructions)
                             doc_obj.extracted_data = rows
                             doc_obj.status = "complete"
                             results_ordered[idx] = rows

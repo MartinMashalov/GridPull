@@ -209,17 +209,17 @@ export default function SettingsPage() {
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
+                <div className="flex items-stretch gap-2">
+                  <div className="relative flex-1 min-w-0">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">$</span>
                     <Input
                       type="number" min="1" step="1" placeholder="Custom amount"
                       value={addAmount}
                       onChange={e => setAddAmount(e.target.value)}
-                      className="pl-7"
+                      className="h-11 pl-7"
                     />
                   </div>
-                  <Button type="submit">
+                  <Button type="submit" className="h-11 shrink-0 px-5">
                     <Plus size={14} />Add Funds
                   </Button>
                 </div>
