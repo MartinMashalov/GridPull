@@ -1,7 +1,7 @@
 """
 Pipeline Poller — background asyncio task.
 
-Wakes every 2 minutes and checks every active pipeline for new PDFs.
+Wakes every 2 minutes and checks every active pipeline for new supported files.
 Each pipeline writes all extracted rows to ONE fixed output file
 (named after the pipeline). Subsequent runs append to that file rather
 than creating new ones.
@@ -193,26 +193,26 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         await _ensure_fresh_token(conn, db, oauth_prov)
         source_config = p.source_config or {}
         logger.info("Pipeline %s (%s): scanning folder_id=%s", p.id, p.name, p.source_folder_id)
-        pdfs = await _list_pdfs(conn.access_token, p.source_folder_id, p.source_type, source_config)
+        source_files = await _list_source_files(conn.access_token, p.source_folder_id, p.source_type, source_config)
         processed_ids: list = list(p.processed_file_ids or [])
-        new_pdfs = [f for f in pdfs if f["id"] not in processed_ids]
+        new_files = [f for f in source_files if f["id"] not in processed_ids]
 
         logger.info(
-            "Pipeline %s (%s): found %d PDF(s) in folder, %d already processed, %d new",
-            p.id, p.name, len(pdfs), len(processed_ids), len(new_pdfs),
+            "Pipeline %s (%s): found %d supported file(s) in folder, %d already processed, %d new",
+            p.id, p.name, len(source_files), len(processed_ids), len(new_files),
         )
-        if pdfs:
-            for f in pdfs:
-                logger.info("  PDF: %s (id=%s) %s", f["name"], f["id"][:20], "NEW" if f["id"] not in processed_ids else "already processed")
+        if source_files:
+            for f in source_files:
+                logger.info("  File: %s (id=%s) %s", f["name"], f["id"][:20], "NEW" if f["id"] not in processed_ids else "already processed")
 
-        if not new_pdfs:
+        if not new_files:
             p.last_checked_at = datetime.utcnow()
             await db.commit()
             return
 
-        logger.info("Pipeline %s (%s): %d new PDF(s) to process", p.id, p.name, len(new_pdfs))
+        logger.info("Pipeline %s (%s): %d new supported file(s) to process", p.id, p.name, len(new_files))
 
-    for file_info in new_pdfs:
+    for file_info in new_files:
         await _process_file(pipeline.id, file_info)
 
     async with _PollerSession() as db:
@@ -270,7 +270,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
     tmp_path: str | None = None
     try:
-        # ── Download source PDF ────────────────────────────────────────────
+        # ── Download source file ───────────────────────────────────────────
         await _append_log(run_id, f"Downloading {file_info['name']}...")
         pdf_bytes = await _download_file(access_token, file_info["id"], source_type, file_info)
         size_kb = len(pdf_bytes) / 1024
@@ -281,12 +281,12 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
             tmp.write(pdf_bytes)
             tmp_path = tmp.name
 
-        # ── Parse PDF ──────────────────────────────────────────────────────
-        await _append_log(run_id, "Parsing PDF (extracting text and tables)...")
+        # ── Parse source file ──────────────────────────────────────────────
+        await _append_log(run_id, "Parsing source file (extracting text and tables)...")
         parsed = await asyncio.to_thread(parse_pdf, tmp_path, file_info["name"])
         page_count = getattr(parsed, "page_count", len(parsed.get("pages", [])) if isinstance(parsed, dict) else "?")
         logger.info("Pipeline run_id=%s parse_pdf done: %s pages=%s", run_id, file_info["name"], page_count)
-        await _append_log(run_id, f"PDF parsed: {page_count} pages. Running AI extraction...")
+        await _append_log(run_id, f"Source file parsed: {page_count} pages. Running AI extraction...")
 
         # ── Extract ────────────────────────────────────────────────────────
         usage = LLMUsage()
@@ -425,12 +425,16 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 async def _ensure_fresh_token(conn: OAuthConnection, db: AsyncSession, provider: str) -> None:
     if provider == "google_drive":
         from app.services.gdrive_service import ensure_fresh_token
+    elif provider == "dropbox":
+        from app.services.dropbox_service import ensure_fresh_token
+    elif provider == "box":
+        from app.services.box_service import ensure_fresh_token
     else:
         from app.services.sharepoint_service import ensure_fresh_token
     await ensure_fresh_token(conn, db)
 
 
-async def _list_pdfs(
+async def _list_source_files(
     access_token: str,
     folder_id: str,
     provider: str,
@@ -438,6 +442,12 @@ async def _list_pdfs(
 ) -> list:
     if provider == "google_drive":
         from app.services.gdrive_service import list_pdfs
+        return await list_pdfs(access_token, folder_id)
+    elif provider == "dropbox":
+        from app.services.dropbox_service import list_pdfs
+        return await list_pdfs(access_token, folder_id)
+    elif provider == "box":
+        from app.services.box_service import list_pdfs
         return await list_pdfs(access_token, folder_id)
     elif provider == "outlook":
         from app.services.outlook_service import get_pdf_attachments, list_unread_pdf_emails
@@ -473,6 +483,13 @@ async def _download_file(
     if provider == "google_drive":
         from app.services.gdrive_service import download_file
         return await download_file(access_token, file_id)
+    elif provider == "dropbox":
+        from app.services.dropbox_service import download_file
+        file_ref = file_info.get("path") if file_info else file_id
+        return await download_file(access_token, file_ref)
+    elif provider == "box":
+        from app.services.box_service import download_file
+        return await download_file(access_token, file_id)
     elif provider == "outlook":
         from app.services.outlook_service import download_attachment, get_attachment_bytes_inline
         if file_info and "message_id" in file_info and "attachment_id" in file_info:
@@ -504,6 +521,18 @@ async def _get_existing_output(
             b = await download_file(access_token, fid)
             return fid, b
         return None, None
+    elif provider == "dropbox":
+        from app.services.dropbox_service import find_file_by_name, download_file
+        file_ref = await find_file_by_name(access_token, folder_id, filename)
+        if file_ref:
+            return None, await download_file(access_token, file_ref)
+        return None, None
+    elif provider == "box":
+        from app.services.box_service import find_file_by_name, download_file
+        fid = await find_file_by_name(access_token, folder_id, filename)
+        if fid:
+            return fid, await download_file(access_token, fid)
+        return None, None
     else:
         from app.services.sharepoint_service import find_and_download_file
         b = await find_and_download_file(access_token, folder_id, filename)
@@ -527,6 +556,12 @@ async def _upload_output(
         else:
             from app.services.gdrive_service import upload_file
             return await upload_file(access_token, folder_id, filename, content, mime)
+    elif provider == "dropbox":
+        from app.services.dropbox_service import upload_file
+        return await upload_file(access_token, folder_id, filename, content)
+    elif provider == "box":
+        from app.services.box_service import upload_file
+        return await upload_file(access_token, folder_id, filename, content, existing_file_id)
     else:
         from app.services.sharepoint_service import upload_file
         return await upload_file(access_token, folder_id, filename, content)  # PUT auto-overwrites

@@ -56,8 +56,17 @@ function runDuration(run: PipelineRun): string {
 
 function providerLabel(type: string): string {
   if (type === 'google_drive') return 'Google Drive'
+  if (type === 'dropbox') return 'Dropbox'
+  if (type === 'box') return 'Box'
   if (type === 'outlook') return 'Outlook'
   return 'SharePoint'
+}
+
+function providerBadge(type: string): string {
+  if (type === 'google_drive') return 'G'
+  if (type === 'dropbox') return 'DB'
+  if (type === 'box') return 'BX'
+  return 'MS'
 }
 
 // ── Run Log Viewer ─────────────────────────────────────────────────────────
@@ -198,7 +207,7 @@ function PipelineCard({ pipeline, onEdit, onToggle, onRunNow, onDelete }: Pipeli
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
             <span className="text-primary text-[10px] font-bold">
-              {pipeline.source_type === 'google_drive' ? 'G' : 'MS'}
+              {providerBadge(pipeline.source_type)}
             </span>
           </div>
           <span className="font-semibold text-sm truncate">{pipeline.name}</span>
@@ -346,7 +355,14 @@ export default function PipelinesPage() {
     const connected = searchParams.get('connected')
     const error = searchParams.get('error')
     if (connected) {
-      toast.success(`${connected === 'google' ? 'Google Drive' : 'SharePoint'} connected!`)
+      const providerName = connected === 'google'
+        ? 'Google Drive'
+        : connected === 'microsoft'
+          ? 'SharePoint'
+          : connected === 'dropbox'
+            ? 'Dropbox'
+            : 'Box'
+      toast.success(`${providerName} connected!`)
       setSearchParams({})
       setEditingPipeline(undefined)
       setWizardOpen(true)
@@ -435,7 +451,7 @@ export default function PipelinesPage() {
               </div>
               <h2 className="font-semibold text-lg mb-1">Automate your document processing</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                Pipelines watch a folder in Google Drive or SharePoint. When new files appear, they're automatically extracted into a spreadsheet.
+                Pipelines watch a folder in Google Drive, SharePoint, Dropbox, or Box. When new PDFs or images appear, they're automatically extracted into a spreadsheet.
               </p>
             </div>
 
@@ -448,7 +464,7 @@ export default function PipelinesPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">1. Connect a source folder</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Google Drive, SharePoint, or Outlook — wherever your documents arrive.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Google Drive, SharePoint, Dropbox, Box, or Outlook — wherever your PDFs or images arrive.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

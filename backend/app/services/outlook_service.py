@@ -46,7 +46,7 @@ async def list_unread_pdf_emails(
     subject_filter: str = "",
 ) -> List[Dict[str, Any]]:
     """
-    List unread emails with PDF attachments in the specified folder.
+    List unread emails with supported document/image attachments in the specified folder.
 
     Returns a list of message dicts with: id, subject, from, receivedDateTime.
     """
@@ -82,7 +82,7 @@ async def get_pdf_attachments(
     message_id: str,
 ) -> List[Dict[str, Any]]:
     """
-    Return metadata for all PDF attachments on a message.
+    Return metadata for all supported document/image attachments on a message.
     Each item has: id, name, contentType, size.
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -98,8 +98,11 @@ async def get_pdf_attachments(
         a for a in attachments
         if a.get("contentType", "").lower() in (
             "application/pdf",
+            "image/jpeg",
+            "image/png",
             "application/octet-stream",  # some mail clients send PDFs with this MIME
         ) or (a.get("name", "").lower().endswith(".pdf"))
+        or (a.get("name", "").lower().endswith((".jpg", ".jpeg", ".png")))
     ]
 
 

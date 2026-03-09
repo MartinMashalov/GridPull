@@ -5,11 +5,17 @@ GET    /pipelines/oauth/google              → OAuth redirect to Google
 GET    /pipelines/oauth/google/callback     → Exchange code, store connection
 GET    /pipelines/oauth/microsoft           → OAuth redirect to Microsoft
 GET    /pipelines/oauth/microsoft/callback  → Exchange code, store connection
+GET    /pipelines/oauth/dropbox             → OAuth redirect to Dropbox
+GET    /pipelines/oauth/dropbox/callback    → Exchange code, store connection
+GET    /pipelines/oauth/box                 → OAuth redirect to Box
+GET    /pipelines/oauth/box/callback        → Exchange code, store connection
 DELETE /pipelines/oauth/{provider}          → Disconnect provider
 
-GET    /pipelines/connections               → {google_drive: bool, sharepoint: bool}
+GET    /pipelines/connections               → connected provider emails
 GET    /pipelines/folders/google            → List Google Drive folders
 GET    /pipelines/folders/microsoft         → List SharePoint folders
+GET    /pipelines/folders/dropbox           → List Dropbox folders
+GET    /pipelines/folders/box               → List Box folders
 
 GET    /pipelines/                          → List user's pipelines + last 3 runs each
 POST   /pipelines/                          → Create pipeline
@@ -54,6 +60,14 @@ def _google_redirect_uri() -> str:
 
 def _microsoft_redirect_uri() -> str:
     return f"{_backend_url()}/api/pipelines/oauth/microsoft/callback"
+
+
+def _dropbox_redirect_uri() -> str:
+    return f"{_backend_url()}/api/pipelines/oauth/dropbox/callback"
+
+
+def _box_redirect_uri() -> str:
+    return f"{_backend_url()}/api/pipelines/oauth/box/callback"
 
 
 async def _get_connection(db: AsyncSession, user_id: str, provider: str) -> Optional[OAuthConnection]:
@@ -230,6 +244,130 @@ async def microsoft_oauth_callback(
     return RedirectResponse(url=f"{settings.frontend_url}/pipelines?connected=microsoft")
 
 
+# ── OAuth: Dropbox ────────────────────────────────────────────────────────────
+
+@router.get("/oauth/dropbox")
+async def dropbox_oauth_start(
+    token: str = Query(..., description="User JWT"),
+):
+    from app.services import dropbox_service
+    user_id = verify_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    url = dropbox_service.get_auth_url(_dropbox_redirect_uri(), state=token)
+    return RedirectResponse(url=url)
+
+
+@router.get("/oauth/dropbox/callback")
+async def dropbox_oauth_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services import dropbox_service
+    user_id = verify_token(state)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid state token")
+
+    try:
+        token_data = await dropbox_service.exchange_code(code, _dropbox_redirect_uri())
+        user_info = await dropbox_service.get_user_info(token_data["access_token"])
+    except Exception as exc:
+        logger.error("Dropbox OAuth callback failed: %s", exc)
+        return RedirectResponse(url=f"{settings.frontend_url}/pipelines?error=dropbox_oauth")
+
+    expires_at = datetime.utcnow() + timedelta(seconds=token_data.get("expires_in", 14400) - 60)
+    email = user_info.get("email")
+    name = user_info.get("name", {}).get("display_name", "")
+
+    conn = await _get_connection(db, user_id, "dropbox")
+    if conn:
+        conn.access_token = token_data["access_token"]
+        if "refresh_token" in token_data:
+            conn.refresh_token = token_data["refresh_token"]
+        conn.token_expires_at = expires_at
+        conn.account_email = email
+        conn.account_name = name
+        conn.updated_at = datetime.utcnow()
+    else:
+        conn = OAuthConnection(
+            user_id=user_id,
+            provider="dropbox",
+            access_token=token_data["access_token"],
+            refresh_token=token_data.get("refresh_token"),
+            token_expires_at=expires_at,
+            account_email=email,
+            account_name=name,
+        )
+        db.add(conn)
+
+    await db.commit()
+    logger.info("Dropbox connected for user_id=%s email=%s", user_id, email)
+    return RedirectResponse(url=f"{settings.frontend_url}/pipelines?connected=dropbox")
+
+
+# ── OAuth: Box ────────────────────────────────────────────────────────────────
+
+@router.get("/oauth/box")
+async def box_oauth_start(
+    token: str = Query(..., description="User JWT"),
+):
+    from app.services import box_service
+    user_id = verify_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    url = box_service.get_auth_url(_box_redirect_uri(), state=token)
+    return RedirectResponse(url=url)
+
+
+@router.get("/oauth/box/callback")
+async def box_oauth_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services import box_service
+    user_id = verify_token(state)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid state token")
+
+    try:
+        token_data = await box_service.exchange_code(code, _box_redirect_uri())
+        user_info = await box_service.get_user_info(token_data["access_token"])
+    except Exception as exc:
+        logger.error("Box OAuth callback failed: %s", exc)
+        return RedirectResponse(url=f"{settings.frontend_url}/pipelines?error=box_oauth")
+
+    expires_at = datetime.utcnow() + timedelta(seconds=token_data.get("expires_in", 3600) - 60)
+    email = user_info.get("login", "")
+    name = user_info.get("name", "")
+
+    conn = await _get_connection(db, user_id, "box")
+    if conn:
+        conn.access_token = token_data["access_token"]
+        if "refresh_token" in token_data:
+            conn.refresh_token = token_data["refresh_token"]
+        conn.token_expires_at = expires_at
+        conn.account_email = email
+        conn.account_name = name
+        conn.updated_at = datetime.utcnow()
+    else:
+        conn = OAuthConnection(
+            user_id=user_id,
+            provider="box",
+            access_token=token_data["access_token"],
+            refresh_token=token_data.get("refresh_token"),
+            token_expires_at=expires_at,
+            account_email=email,
+            account_name=name,
+        )
+        db.add(conn)
+
+    await db.commit()
+    logger.info("Box connected for user_id=%s email=%s", user_id, email)
+    return RedirectResponse(url=f"{settings.frontend_url}/pipelines?connected=box")
+
+
 # ── OAuth: Disconnect ─────────────────────────────────────────────────────────
 
 @router.delete("/oauth/{provider}")
@@ -239,7 +377,7 @@ async def disconnect_provider(
     db: AsyncSession = Depends(get_db),
 ):
     """Disconnect a provider (delete stored tokens)."""
-    if provider not in ("google_drive", "sharepoint", "outlook"):
+    if provider not in ("google_drive", "sharepoint", "dropbox", "box", "outlook"):
         raise HTTPException(status_code=400, detail="Unknown provider")
     # "outlook" uses the same "sharepoint" connection
     if provider == "outlook":
@@ -268,6 +406,8 @@ async def list_connections(
     return {
         "google_drive": providers["google_drive"].account_email if "google_drive" in providers else None,
         "sharepoint": ms_email,
+        "dropbox": providers["dropbox"].account_email if "dropbox" in providers else None,
+        "box": providers["box"].account_email if "box" in providers else None,
         # Outlook uses the same Microsoft connection as SharePoint
         "outlook": ms_email,
     }
@@ -319,6 +459,36 @@ async def list_outlook_folders(
     token = await sharepoint_service.ensure_fresh_token(conn, db)
     folders = await outlook_service.list_mail_folders(token)
     return {"folders": folders}
+
+
+@router.get("/folders/dropbox")
+async def list_dropbox_folders(
+    folder_id: str = Query("root"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services import dropbox_service
+    conn = await _get_connection(db, current_user.id, "dropbox")
+    if not conn:
+        raise HTTPException(status_code=400, detail="Dropbox not connected")
+    token = await dropbox_service.ensure_fresh_token(conn, db)
+    folders = await dropbox_service.list_folders(token, folder_id)
+    return {"folders": folders, "folder_id": folder_id}
+
+
+@router.get("/folders/box")
+async def list_box_folders(
+    folder_id: str = Query("0"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services import box_service
+    conn = await _get_connection(db, current_user.id, "box")
+    if not conn:
+        raise HTTPException(status_code=400, detail="Box not connected")
+    token = await box_service.ensure_fresh_token(conn, db)
+    folders = await box_service.list_folders(token, folder_id)
+    return {"folders": folders, "folder_id": folder_id}
 
 
 # ── Pipeline CRUD ─────────────────────────────────────────────────────────────
@@ -381,7 +551,7 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new pipeline."""
-    if body.source_type not in ("google_drive", "sharepoint", "outlook"):
+    if body.source_type not in ("google_drive", "sharepoint", "dropbox", "box", "outlook"):
         raise HTTPException(status_code=400, detail="Invalid source_type")
     if body.dest_format not in ("xlsx", "csv"):
         raise HTTPException(status_code=400, detail="Invalid dest_format")
@@ -392,9 +562,16 @@ async def create_pipeline(
     oauth_provider = "sharepoint" if body.source_type == "outlook" else body.source_type
     conn = await _get_connection(db, current_user.id, oauth_provider)
     if not conn:
+        provider_name = {
+            "google_drive": "Google Drive",
+            "sharepoint": "SharePoint",
+            "dropbox": "Dropbox",
+            "box": "Box",
+            "outlook": "Microsoft account",
+        }[body.source_type]
         raise HTTPException(
             status_code=400,
-            detail=f"{body.source_type} not connected — connect Microsoft account first",
+            detail=f"{provider_name} not connected",
         )
 
     pipeline = Pipeline(

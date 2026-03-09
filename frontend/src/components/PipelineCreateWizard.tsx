@@ -13,8 +13,8 @@ import toast from 'react-hot-toast'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type Provider = 'google_drive' | 'sharepoint' | 'outlook'
-type DriveProvider = 'google_drive' | 'sharepoint'
+type Provider = 'google_drive' | 'sharepoint' | 'dropbox' | 'box' | 'outlook'
+type FolderProvider = 'google_drive' | 'sharepoint' | 'dropbox' | 'box'
 type Format = 'xlsx' | 'csv'
 
 interface DriveFolder {
@@ -71,19 +71,37 @@ const PRESET_FIELDS = [
 // ── Shared: Folder Browser ─────────────────────────────────────────────────
 
 interface FolderBrowserProps {
-  provider: DriveProvider
+  provider: FolderProvider
   onSelect: (folder: DriveFolder) => void
   selected: DriveFolder | null
 }
 
 function FolderBrowser({ provider, onSelect, selected }: FolderBrowserProps) {
   const [path, setPath] = useState<DriveFolder[]>([
-    { id: 'root', name: provider === 'google_drive' ? 'My Drive' : 'OneDrive' },
+    {
+      id: provider === 'box' ? '0' : 'root',
+      name:
+        provider === 'google_drive' ? 'My Drive'
+          : provider === 'sharepoint' ? 'OneDrive'
+          : provider === 'dropbox' ? 'Dropbox'
+          : 'All Files',
+    },
   ])
   const [folders, setFolders] = useState<DriveFolder[]>([])
   const [loading, setLoading] = useState(false)
 
   const currentFolder = path[path.length - 1]
+
+  useEffect(() => {
+    setPath([{
+      id: provider === 'box' ? '0' : 'root',
+      name:
+        provider === 'google_drive' ? 'My Drive'
+          : provider === 'sharepoint' ? 'OneDrive'
+          : provider === 'dropbox' ? 'Dropbox'
+          : 'All Files',
+    }])
+  }, [provider])
 
   const loadFolders = useCallback(async (folderId: string) => {
     setLoading(true)
@@ -91,8 +109,14 @@ function FolderBrowser({ provider, onSelect, selected }: FolderBrowserProps) {
       if (provider === 'google_drive') {
         const r = await api.get('/pipelines/folders/google', { params: { parent_id: folderId } })
         setFolders(r.data.folders)
-      } else {
+      } else if (provider === 'sharepoint') {
         const r = await api.get('/pipelines/folders/microsoft', { params: { folder_id: folderId } })
+        setFolders(r.data.folders)
+      } else if (provider === 'dropbox') {
+        const r = await api.get('/pipelines/folders/dropbox', { params: { folder_id: folderId } })
+        setFolders(r.data.folders)
+      } else {
+        const r = await api.get('/pipelines/folders/box', { params: { folder_id: folderId } })
         setFolders(r.data.folders)
       }
     } catch {
@@ -321,10 +345,12 @@ function Step1({ connections, selected, onSelect }: Step1Props) {
   const providers: { id: Provider; label: string; iconText: string; desc: string }[] = [
     { id: 'google_drive', label: 'Google Drive', iconText: 'G', desc: 'Watch a folder for new PDFs' },
     { id: 'sharepoint', label: 'SharePoint / OneDrive', iconText: 'MS', desc: 'Watch a SharePoint folder for new PDFs' },
+    { id: 'dropbox', label: 'Dropbox', iconText: 'DB', desc: 'Watch a Dropbox folder for new PDFs' },
+    { id: 'box', label: 'Box', iconText: 'BX', desc: 'Watch a Box folder for new PDFs' },
   ]
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Choose the cloud storage to watch for new PDFs.</p>
+      <p className="text-sm text-muted-foreground">Choose the cloud storage to watch for new PDFs or images.</p>
       <div className="grid grid-cols-2 gap-3">
         {providers.map(p => {
           const connected = connections[p.id]
@@ -365,7 +391,7 @@ function Step1({ connections, selected, onSelect }: Step1Props) {
 // ── Step 2 (Drive): Connect + source folder ────────────────────────────────
 
 interface Step2DriveProps {
-  provider: DriveProvider
+  provider: FolderProvider
   connected: boolean
   onConnect: () => void
   sourceFolder: DriveFolder | null
@@ -373,15 +399,23 @@ interface Step2DriveProps {
 }
 
 function Step2Drive({ provider, connected, onConnect, sourceFolder, onSelectSource }: Step2DriveProps) {
+  const providerLabel = provider === 'google_drive'
+    ? 'Google Drive'
+    : provider === 'sharepoint'
+      ? 'SharePoint'
+      : provider === 'dropbox'
+        ? 'Dropbox'
+        : 'Box'
+
   return (
     <div className="space-y-4">
       {!connected ? (
         <div className="flex flex-col items-center justify-center py-8 gap-3 border border-dashed border-border rounded-xl bg-secondary/30">
           <p className="text-sm text-muted-foreground">
-            Connect {provider === 'google_drive' ? 'Google Drive' : 'SharePoint'} to continue
+            Connect {providerLabel} to continue
           </p>
           <Button size="sm" onClick={onConnect} className="gap-1.5">
-            Connect {provider === 'google_drive' ? 'Google Drive' : 'SharePoint'}
+            Connect {providerLabel}
           </Button>
         </div>
       ) : (
@@ -389,7 +423,7 @@ function Step2Drive({ provider, connected, onConnect, sourceFolder, onSelectSour
           <div>
             <p className="text-sm font-medium mb-1">Source folder</p>
             <p className="text-xs text-muted-foreground mb-2">
-              New PDFs placed in this folder will be automatically extracted.
+              New PDFs or images placed in this folder will be automatically extracted.
             </p>
             <FolderBrowser provider={provider} onSelect={onSelectSource} selected={sourceFolder} />
           </div>
@@ -452,7 +486,7 @@ function Step2Outlook({ connected, onConnect, config, onChange }: Step2OutlookPr
       <div>
         <p className="text-sm font-medium mb-1">Watch folder</p>
         <p className="text-xs text-muted-foreground mb-2">
-          New emails with PDF attachments in this folder will be processed.
+          New emails with PDF or image attachments in this folder will be processed.
         </p>
         {loading ? (
           <div className="flex items-center gap-2 py-3">
@@ -557,7 +591,7 @@ interface Step4Props {
 }
 
 function Step4({ provider, destFolder, onSelectDest, format, onFormatChange, name, onNameChange, sourceName, fields }: Step4Props) {
-  const driveProvider: DriveProvider = provider === 'outlook' ? 'sharepoint' : provider as DriveProvider
+  const folderProvider: FolderProvider = provider === 'outlook' ? 'sharepoint' : provider as FolderProvider
   return (
     <div className="space-y-4">
       <div>
@@ -565,7 +599,7 @@ function Step4({ provider, destFolder, onSelectDest, format, onFormatChange, nam
         <p className="text-xs text-muted-foreground mb-2">
           Extracted data will be saved here as <strong>{name || 'Pipeline'}.{format}</strong> — new runs append to the same file.
         </p>
-        <FolderBrowser provider={driveProvider} onSelect={onSelectDest} selected={destFolder} />
+        <FolderBrowser provider={folderProvider} onSelect={onSelectDest} selected={destFolder} />
       </div>
 
       <div>
@@ -641,7 +675,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
   const [step, setStep] = useState(isEdit ? 1 : 0)
   const [provider, setProvider] = useState<Provider | null>(pipeline?.source_type ?? null)
   const [connections, setConnections] = useState<Record<string, string | null>>({
-    google_drive: null, sharepoint: null, outlook: null,
+    google_drive: null, sharepoint: null, dropbox: null, box: null, outlook: null,
   })
   const [sourceFolder, setSourceFolder] = useState<DriveFolder | null>(
     pipeline && pipeline.source_type !== 'outlook'
@@ -733,7 +767,11 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
 
   const handleConnect = () => {
     if (!provider) return
-    const endpoint = provider === 'google_drive' ? 'google' : 'microsoft'
+    const endpoint = provider === 'google_drive'
+      ? 'google'
+      : provider === 'sharepoint' || provider === 'outlook'
+        ? 'microsoft'
+        : provider
     window.location.href = `/api/pipelines/oauth/${endpoint}?token=${token}`
   }
 
@@ -849,7 +887,16 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
           {/* Step content */}
           <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4">
             {step === 0 && (
-              <Step1 connections={connections} selected={provider} onSelect={setProvider} />
+              <Step1
+                connections={connections}
+                selected={provider}
+                onSelect={(nextProvider) => {
+                  setProvider(nextProvider)
+                  setSourceFolder(null)
+                  setDestFolder(null)
+                  if (nextProvider !== 'outlook') setOutlookConfig(DEFAULT_OUTLOOK_CONFIG)
+                }}
+              />
             )}
             {step === 1 && provider && (
               provider === 'outlook' ? (
@@ -861,7 +908,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
                 />
               ) : (
                 <Step2Drive
-                  provider={provider as DriveProvider}
+                  provider={provider as FolderProvider}
                   connected={isConnected}
                   onConnect={handleConnect}
                   sourceFolder={sourceFolder}

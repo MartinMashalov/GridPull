@@ -118,10 +118,14 @@ async def list_folders(access_token: str, parent_id: str = "root") -> List[Dict[
 
 
 async def list_pdfs(access_token: str, folder_id: str) -> List[Dict[str, Any]]:
-    """List PDF files in a Google Drive folder."""
+    """List supported source files in a Google Drive folder."""
     query = (
         f"'{folder_id}' in parents "
-        "and mimeType = 'application/pdf' "
+        "and ("
+        "mimeType = 'application/pdf' "
+        "or mimeType = 'image/jpeg' "
+        "or mimeType = 'image/png'"
+        ") "
         "and trashed = false"
     )
     async with httpx.AsyncClient(timeout=30.0) as client:

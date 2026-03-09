@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     microsoft_client_secret: str = ""
     microsoft_tenant_id: str = "common"  # Use "common" to allow any tenant
 
+    # Dropbox (pipeline integration)
+    dropbox_client_id: str = ""
+    dropbox_client_secret: str = ""
+
+    # Box (pipeline integration)
+    box_client_id: str = ""
+    box_client_secret: str = ""
+
     # Backend public URL (for OAuth redirect URIs)
     backend_url: str = "http://localhost:8000"
 

@@ -13,7 +13,7 @@ class OAuthConnection(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    provider = Column(String, nullable=False)  # "google_drive" | "sharepoint"
+    provider = Column(String, nullable=False)  # "google_drive" | "sharepoint" | "dropbox" | "box"
     access_token = Column(Text, nullable=False)
     refresh_token = Column(Text, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
@@ -35,7 +35,7 @@ class Pipeline(Base):
     name = Column(String, nullable=False)
     status = Column(String, default="active")  # active | paused | error
 
-    source_type = Column(String, nullable=False)  # "google_drive" | "sharepoint" | "outlook"
+    source_type = Column(String, nullable=False)  # "google_drive" | "sharepoint" | "dropbox" | "box" | "outlook"
     source_folder_id = Column(String, nullable=False)   # folder ID, or "inbox" for Outlook
     source_folder_name = Column(String, nullable=False)  # display name
     # Extra source configuration (e.g. Outlook email filters)

@@ -129,7 +129,7 @@ async def list_pdfs(
     folder_id: str,
     drive_id: str | None = None,
 ) -> List[Dict[str, Any]]:
-    """List PDF files in a OneDrive folder."""
+    """List supported source files in a OneDrive folder."""
     if drive_id:
         url = f"{_GRAPH_API}/drives/{drive_id}/items/{folder_id}/children"
     else:
@@ -149,7 +149,9 @@ async def list_pdfs(
         for item in items
         if (
             item.get("file", {}).get("mimeType") == "application/pdf"
-            or item.get("name", "").lower().endswith(".pdf")
+            or item.get("file", {}).get("mimeType") == "image/jpeg"
+            or item.get("file", {}).get("mimeType") == "image/png"
+            or item.get("name", "").lower().endswith((".pdf", ".jpg", ".jpeg", ".png"))
         )
         and "file" in item  # exclude folders
     ]
