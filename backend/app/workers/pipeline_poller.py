@@ -269,6 +269,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
     await _append_log(run_id, f"Starting: {file_info['name']} → {output_filename}")
 
     tmp_path: str | None = None
+    upload_succeeded = False
     try:
         # ── Download source file ───────────────────────────────────────────
         await _append_log(run_id, f"Downloading {file_info['name']}...")
@@ -352,6 +353,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         dest_url = await _upload_output(
             access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
         )
+        upload_succeeded = True
         logger.info("Pipeline run_id=%s upload done: %s %s KB", run_id, output_filename, len(out_bytes) // 1024)
         await _append_log(run_id, f"Uploaded successfully.")
 
@@ -381,9 +383,11 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
             p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
             p = p_res.scalar_one_or_none()
-            if p:
+            # Never mark source file as processed unless upload completed successfully.
+            if p and upload_succeeded:
                 ids = list(p.processed_file_ids or [])
-                ids.append(file_info["id"])
+                if file_info["id"] not in ids:
+                    ids.append(file_info["id"])
                 p.processed_file_ids = ids
                 p.files_processed = (p.files_processed or 0) + 1
                 p.last_run_at = datetime.utcnow()

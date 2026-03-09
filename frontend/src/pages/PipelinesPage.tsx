@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import {
   Workflow, Plus, Play, Pause, Trash2, ExternalLink,
   CheckCircle2, XCircle, Loader2, RefreshCw, MoreVertical,
-  FolderOpen, Pencil, ChevronDown, Terminal,
+  FolderOpen, Pencil,
   ArrowRight, FolderInput, Settings2, Zap,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
@@ -69,112 +69,39 @@ function providerBadge(type: string): string {
   return 'MS'
 }
 
-// ── Run Log Viewer ─────────────────────────────────────────────────────────
-
-function RunLogViewer({ run }: { run: PipelineRun }) {
-  const [lines, setLines] = useState<LogLine[]>(run.log_lines || [])
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const running = run.status === 'running'
-
-  useEffect(() => {
-    setLines(run.log_lines || [])
-  }, [run.log_lines])
-
-  // Poll for new log lines while running
-  useEffect(() => {
-    if (!running) return
-    const interval = setInterval(async () => {
-      try {
-        const r = await api.get(`/pipelines/runs/${run.id}/logs`)
-        setLines(r.data.log_lines || [])
-        if (r.data.status !== 'running') clearInterval(interval)
-      } catch {
-        // silently ignore
-      }
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [run.id, running])
-
-  // Auto-scroll to bottom when new lines arrive
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [lines.length])
-
-  return (
-    <div className="mt-1.5 rounded-md bg-gray-950 border border-gray-800 overflow-hidden">
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-800 bg-gray-900">
-        <Terminal size={10} className="text-gray-400" />
-        <span className="text-[10px] text-gray-400 font-mono">
-          {run.source_file_name || 'processing...'}
-        </span>
-        {running && <Loader2 size={9} className="text-blue-400 animate-spin ml-auto" />}
-      </div>
-      <div className="max-h-48 overflow-y-auto p-2 font-mono text-[10px] leading-relaxed space-y-0.5">
-        {lines.length === 0 ? (
-          <span className="text-gray-500">Waiting for logs...</span>
-        ) : (
-          lines.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="text-gray-600 flex-shrink-0">{l.ts}</span>
-              <span className={cn(
-                'break-all',
-                l.msg.startsWith('ERROR') ? 'text-red-400' :
-                l.msg.startsWith('Done') ? 'text-green-400' :
-                'text-gray-300'
-              )}>{l.msg}</span>
-            </div>
-          ))
-        )}
-        <div ref={bottomRef} />
-      </div>
-    </div>
-  )
-}
-
 // ── Run Row ────────────────────────────────────────────────────────────────
 
 function RunRow({ run }: { run: PipelineRun }) {
-  const [expanded, setExpanded] = useState(run.status === 'running')
   const dur = runDuration(run)
 
   return (
-    <div>
-      <button
-        className="w-full flex items-center gap-2 py-1 text-xs hover:bg-accent/50 -mx-1 px-1 rounded transition-colors"
-        onClick={() => setExpanded(e => !e)}
-      >
-        {run.status === 'completed' ? (
-          <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />
-        ) : run.status === 'failed' ? (
-          <XCircle size={12} className="text-red-400 flex-shrink-0" />
-        ) : (
-          <Loader2 size={12} className="text-blue-400 animate-spin flex-shrink-0" />
-        )}
-        <span className="truncate flex-1 text-muted-foreground text-left" style={{ maxWidth: 130 }}>
-          {run.source_file_name || '—'}
-        </span>
-        {dur && <span className="text-muted-foreground">{dur}</span>}
-        {run.status === 'completed' && run.cost_usd > 0 && (
-          <span className="text-muted-foreground">${run.cost_usd.toFixed(3)}</span>
-        )}
-        {run.status === 'completed' && run.dest_file_url && (
-          <a
-            href={run.dest_file_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline flex items-center gap-0.5"
-            onClick={e => e.stopPropagation()}
-          >
-            open <ExternalLink size={10} />
-          </a>
-        )}
-        {run.status === 'failed' && <span className="text-red-400">failed</span>}
-        <ChevronDown
-          size={10}
-          className={cn('text-muted-foreground transition-transform flex-shrink-0', expanded && 'rotate-180')}
-        />
-      </button>
-      {expanded && <RunLogViewer run={run} />}
+    <div className="w-full flex items-center gap-2 py-1 text-xs -mx-1 px-1 rounded">
+      {run.status === 'completed' ? (
+        <CheckCircle2 size={12} className="text-green-500 flex-shrink-0" />
+      ) : run.status === 'failed' ? (
+        <XCircle size={12} className="text-red-400 flex-shrink-0" />
+      ) : (
+        <Loader2 size={12} className="text-blue-400 animate-spin flex-shrink-0" />
+      )}
+      <span className="truncate flex-1 text-muted-foreground text-left" style={{ maxWidth: 130 }}>
+        {run.source_file_name || '—'}
+      </span>
+      {dur && <span className="text-muted-foreground">{dur}</span>}
+      {run.status === 'completed' && run.cost_usd > 0 && (
+        <span className="text-muted-foreground">${run.cost_usd.toFixed(3)}</span>
+      )}
+      {run.status === 'completed' && run.dest_file_url && (
+        <a
+          href={run.dest_file_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary hover:underline flex items-center gap-0.5"
+          onClick={e => e.stopPropagation()}
+        >
+          open <ExternalLink size={10} />
+        </a>
+      )}
+      {run.status === 'failed' && <span className="text-red-400">failed</span>}
     </div>
   )
 }
