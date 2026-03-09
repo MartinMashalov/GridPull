@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime
 from typing import List
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -303,6 +304,24 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
         field_names = [f["name"] for f in fields]
         expected_headers = ["Source File"] + field_names
+        empty_markers = {"", "n/a", "na", "none", "null", "-", "—"}
+        filled_value_count = sum(
+            1
+            for row in rows
+            for field in field_names
+            if (
+                row.get(field) is not None
+                and (not isinstance(row.get(field), str) or row.get(field).strip().lower() not in empty_markers)
+            )
+        )
+        if filled_value_count == 0:
+            await _append_log(
+                run_id,
+                "NO_DATA_EXTRACTED: All extracted fields are empty. Skipping upload to avoid blank rows.",
+            )
+            raise RuntimeError(
+                "NO_DATA_EXTRACTED: All extracted fields are empty. Upload skipped; source file will be retried automatically on the next poll cycle."
+            )
 
         # ── Fetch existing output file (for append) ────────────────────────
         await _append_log(run_id, f"Checking for existing output file: {output_filename}...")
@@ -350,9 +369,29 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
         # ── Upload (create or overwrite) ───────────────────────────────────
         await _append_log(run_id, f"Uploading {output_filename} ({len(out_bytes) // 1024} KB)...")
-        dest_url = await _upload_output(
-            access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
-        )
+        try:
+            dest_url = await _upload_output(
+                access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
+            )
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code == 423:
+                await _append_log(
+                    run_id,
+                    "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it, then wait for automatic retry.",
+                )
+                raise RuntimeError(
+                    "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it and retry; this source file will be retried automatically on the next poll cycle."
+                ) from exc
+            if code in (429, 503):
+                await _append_log(
+                    run_id,
+                    f"DESTINATION_TEMP_UNAVAILABLE: Destination returned HTTP {code}. Will retry on next poll cycle.",
+                )
+                raise RuntimeError(
+                    f"DESTINATION_TEMP_UNAVAILABLE: Destination returned HTTP {code}. Source file will be retried automatically on the next poll cycle."
+                ) from exc
+            raise
         upload_succeeded = True
         logger.info("Pipeline run_id=%s upload done: %s %s KB", run_id, output_filename, len(out_bytes) // 1024)
         await _append_log(run_id, f"Uploaded successfully.")

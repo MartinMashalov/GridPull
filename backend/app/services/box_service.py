@@ -20,11 +20,13 @@ _BOX_AUTH_URL = "https://account.box.com/api/oauth2/authorize"
 _BOX_TOKEN_URL = "https://api.box.com/oauth2/token"
 _BOX_API = "https://api.box.com/2.0"
 _BOX_UPLOAD_API = "https://upload.box.com/api/2.0"
+_BOX_CLIENT_ID = settings.box_client_id or settings.box_app_key
+_BOX_CLIENT_SECRET = settings.box_client_secret or settings.box_app_secret
 
 
 def get_auth_url(redirect_uri: str, state: str) -> str:
     params = {
-        "client_id": settings.box_client_id,
+        "client_id": _BOX_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
@@ -36,8 +38,8 @@ async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_BOX_TOKEN_URL, data={
             "code": code,
-            "client_id": settings.box_client_id,
-            "client_secret": settings.box_client_secret,
+            "client_id": _BOX_CLIENT_ID,
+            "client_secret": _BOX_CLIENT_SECRET,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         })
@@ -49,8 +51,8 @@ async def _refresh_token(conn: Any) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_BOX_TOKEN_URL, data={
             "refresh_token": conn.refresh_token,
-            "client_id": settings.box_client_id,
-            "client_secret": settings.box_client_secret,
+            "client_id": _BOX_CLIENT_ID,
+            "client_secret": _BOX_CLIENT_SECRET,
             "grant_type": "refresh_token",
         })
         resp.raise_for_status()

@@ -6,6 +6,7 @@ Uses httpx directly against Microsoft's OAuth and Graph REST APIs.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import urllib.parse
 from datetime import datetime, timedelta
@@ -208,13 +209,31 @@ async def upload_file(
         url = f"{_GRAPH_API}/me/drive/items/{folder_id}:/{filename}:/content"
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.put(
-            url,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/octet-stream",
-            },
-            content=content,
-        )
-        resp.raise_for_status()
-        return resp.json().get("webUrl", "")
+        for attempt in range(5):
+            resp = await client.put(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/octet-stream",
+                },
+                content=content,
+            )
+            if resp.status_code < 400:
+                return resp.json().get("webUrl", "")
+            if resp.status_code not in (423, 429, 503):
+                resp.raise_for_status()
+            if attempt == 4:
+                resp.raise_for_status()
+            retry_after = resp.headers.get("Retry-After")
+            try:
+                wait_seconds = float(retry_after) if retry_after else (1.5 * (attempt + 1))
+            except ValueError:
+                wait_seconds = 1.5 * (attempt + 1)
+            logger.warning(
+                "SharePoint upload retry %d/5 for %s after HTTP %d (waiting %.1fs)",
+                attempt + 1,
+                filename,
+                resp.status_code,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)

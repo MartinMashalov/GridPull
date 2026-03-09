@@ -21,6 +21,8 @@ _DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 _DROPBOX_API = "https://api.dropboxapi.com/2"
 _DROPBOX_CONTENT_API = "https://content.dropboxapi.com/2"
 _SCOPES = "files.metadata.read files.content.read files.content.write sharing.write account_info.read"
+_DROPBOX_CLIENT_ID = settings.dropbox_client_id or settings.dropbox_app_key
+_DROPBOX_CLIENT_SECRET = settings.dropbox_client_secret or settings.dropbox_app_secret
 
 
 def _folder_path(folder_id: str) -> str:
@@ -34,7 +36,7 @@ def _join_path(folder_id: str, filename: str) -> str:
 
 def get_auth_url(redirect_uri: str, state: str) -> str:
     params = {
-        "client_id": settings.dropbox_client_id,
+        "client_id": _DROPBOX_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
@@ -48,8 +50,8 @@ async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_DROPBOX_TOKEN_URL, data={
             "code": code,
-            "client_id": settings.dropbox_client_id,
-            "client_secret": settings.dropbox_client_secret,
+            "client_id": _DROPBOX_CLIENT_ID,
+            "client_secret": _DROPBOX_CLIENT_SECRET,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         })
@@ -61,8 +63,8 @@ async def _refresh_token(conn: Any) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_DROPBOX_TOKEN_URL, data={
             "refresh_token": conn.refresh_token,
-            "client_id": settings.dropbox_client_id,
-            "client_secret": settings.dropbox_client_secret,
+            "client_id": _DROPBOX_CLIENT_ID,
+            "client_secret": _DROPBOX_CLIENT_SECRET,
             "grant_type": "refresh_token",
         })
         resp.raise_for_status()
