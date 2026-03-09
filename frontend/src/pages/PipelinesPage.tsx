@@ -444,7 +444,8 @@ export default function PipelinesPage() {
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="p-4 sm:p-6 max-w-md mx-auto sm:pt-16">
+          <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6">
+            <div className="max-w-md w-full">
             <div className="flex flex-col items-center text-center mb-5">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
                 <Workflow size={20} className="text-primary" />
@@ -490,6 +491,7 @@ export default function PipelinesPage() {
             <Button className="gap-1.5 w-full" onClick={openCreate}>
               <Plus size={14} /> Create your first pipeline
             </Button>
+          </div>
           </div>
         ) : (
           <div className="p-4 sm:p-6 max-w-5xl mx-auto w-full">
