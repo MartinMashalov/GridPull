@@ -110,11 +110,12 @@ def _detect_scan(pages: List[ParsedPage], file_path: str = "") -> bool:
     """
     Return True if the PDF is image-based (scanned), not native text.
 
-    Scanned PDFs produce near-zero extractable text via PyMuPDF but have
-    embedded image objects on most pages.  Some scans include a thin OCR
-    text layer that can push avg_chars above the basic threshold — for those
-    we also check file-size-per-page (scanned pages are typically >150 KB
-    while text-only pages are <50 KB).
+    Heuristics (any match → scanned):
+    1. Classic: near-zero text + images on most pages.
+    2. OCR-layer: images on most pages + moderate text + large file size.
+    3. Invisible-image: no detected image objects but very large file size
+       per page with little text — some renderers embed the scan directly
+       in the content stream without a separate image XObject.
     """
     if not pages:
         return False
@@ -123,13 +124,16 @@ def _detect_scan(pages: List[ParsedPage], file_path: str = "") -> bool:
     image_fraction = image_pages / len(pages)
     if avg_chars < 150 and image_fraction >= 0.5:
         return True
-    if file_path and image_fraction >= 0.5 and avg_chars < 800:
-        try:
-            kb_per_page = os.path.getsize(file_path) / 1024 / len(pages)
-            if kb_per_page > 150:
-                return True
-        except OSError:
-            pass
+    if not file_path:
+        return False
+    try:
+        kb_per_page = os.path.getsize(file_path) / 1024 / len(pages)
+    except OSError:
+        return False
+    if image_fraction >= 0.5 and avg_chars < 800 and kb_per_page > 150:
+        return True
+    if kb_per_page > 200 and avg_chars < 500:
+        return True
     return False
 
 

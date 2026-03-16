@@ -129,10 +129,9 @@ async def extract_from_document(
             if row.get(fn) is not None
             and str(row[fn]).strip().lower() not in _EMPTY_VALUES
         )
-        has_images = any(p.image_count > 0 for p in doc.pages)
-        if filled == 0 and has_images and settings.mistral_api_key:
+        if filled == 0 and settings.mistral_api_key and doc.file_path:
             logger.info(
-                "TEXT pipeline returned 0%% FFR for %s with images present — falling back to SCAN pipeline",
+                "TEXT pipeline returned 0%% FFR for %s — falling back to SCAN pipeline (OCR)",
                 doc.filename,
             )
             rows = await extract_from_scanned_document(doc, fields, usage, instructions)
