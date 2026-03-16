@@ -343,7 +343,6 @@ interface Step1Props {
 
 function Step1({ connections, selected, onSelect }: Step1Props) {
   const providers: { id: Provider; label: string; iconText: string; desc: string }[] = [
-    { id: 'google_drive', label: 'Google Drive', iconText: 'G', desc: 'Watch a folder for new PDFs' },
     { id: 'sharepoint', label: 'SharePoint / OneDrive', iconText: 'MS', desc: 'Watch a SharePoint folder for new PDFs' },
     { id: 'dropbox', label: 'Dropbox', iconText: 'DB', desc: 'Watch a Dropbox folder for new PDFs' },
     { id: 'box', label: 'Box', iconText: 'BX', desc: 'Watch a Box folder for new PDFs' },
