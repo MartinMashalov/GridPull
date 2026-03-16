@@ -444,7 +444,7 @@ export default function LandingPage() {
                   Signing in…
                 </span>
               ) : (
-                <>Sign in <ArrowRight size={13} /></>
+                <>Try for free <ArrowRight size={13} /></>
               )}
             </Button>
           </div>
@@ -482,7 +482,7 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col items-center gap-3">
-            <SignInButton label="Start extracting" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             {loginError && (
               <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
                 {loginError}
@@ -540,7 +540,7 @@ export default function LandingPage() {
           </div>
 
           <div className="text-center mt-10">
-            <SignInButton size="xl" label="Try it now — upload your first PDF" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Try it free — upload your first PDF" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
@@ -751,7 +751,7 @@ export default function LandingPage() {
                     <CheckCircle2 size={12} className="text-emerald-500 inline mr-1" />
                     Extracted in &lt;10 seconds · Fields chosen by you · Download as .xlsx or .csv
                   </p>
-                  <SignInButton size="sm" label="Try with your own PDFs" className="shadow-none" />
+                  <SignInButton size="sm" label="Try free with your own PDFs" className="shadow-none" />
                 </div>
               </div>
             )
@@ -909,7 +909,7 @@ export default function LandingPage() {
               <DollarSign size={12} className="inline mr-1 text-primary" />
               Example: 200 annual reports (avg 80 pages each) = 16,000 pages = <strong>$1.60 total</strong>. Manually, that's 400+ analyst-hours at $50/hr = <strong>$20,000</strong>. You save <strong>99.99%</strong>.
             </p>
-            <SignInButton size="xl" label="Start extracting" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
@@ -1080,7 +1080,7 @@ export default function LandingPage() {
             <Lock size={10} />
             Your files are encrypted and deleted after processing
           </p>
-          <SignInButton label="Get started" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
+          <SignInButton label="Get started for free" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
         </div>
       </section>
 
