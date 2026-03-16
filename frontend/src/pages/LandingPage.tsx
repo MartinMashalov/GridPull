@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoogleLogin } from '@react-oauth/google'
 import { PublicClientApplication } from '@azure/msal-browser'
@@ -350,6 +350,39 @@ export default function LandingPage() {
   const [activePdfFile, setActivePdfFile] = useState(0)
   const [showProviderDialog, setShowProviderDialog] = useState(false)
 
+  useEffect(() => {
+    let cancelled = false
+    msalReady
+      .then(() => msalInstance.handleRedirectPromise())
+      .then(async (result) => {
+        if (cancelled || !result) return
+        setLoading(true)
+        trackEvent('login_start', { method: 'microsoft' })
+        try {
+          const res = await api.post('/auth/microsoft', {
+            access_token: result.accessToken,
+          })
+          setUser(res.data.user, res.data.access_token)
+          trackEvent('login_success', { method: 'microsoft' })
+          navigate('/dashboard')
+        } catch (err: any) {
+          const detail = err.response?.data?.detail
+          setLoginError(typeof detail === 'string' ? detail : 'Microsoft login failed. Please try again.')
+          trackEvent('login_error', { method: 'microsoft', error: 'backend' })
+        } finally {
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return
+        if (err.errorCode === 'no_auth_response') return
+        console.error('MSAL redirect error:', err)
+        setLoginError(err.errorMessage || 'Microsoft login failed. Please try again.')
+        trackEvent('login_error', { method: 'microsoft', error: err.errorCode || 'unknown' })
+      })
+    return () => { cancelled = true }
+  }, [setUser, navigate])
+
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       setShowProviderDialog(false)
@@ -379,41 +412,23 @@ export default function LandingPage() {
 
   const microsoftLogin = useCallback(async () => {
     setShowProviderDialog(false)
-    setLoading(true)
     setLoginError(null)
     trackEvent('login_start', { method: 'microsoft' })
     try {
       await msalReady
-      const result = await msalInstance.loginPopup({
+      await msalInstance.loginRedirect({
         scopes: ['User.Read', 'openid', 'profile', 'email'],
       })
-      const res = await api.post('/auth/microsoft', {
-        access_token: result.accessToken,
-      })
-      setUser(res.data.user, res.data.access_token)
-      trackEvent('login_success', { method: 'microsoft' })
-      navigate('/dashboard')
     } catch (err: any) {
-      console.error('Microsoft login error:', err.errorCode, err.errorMessage || err.message, err)
-      if (err.errorCode === 'user_cancelled') {
-        setLoginError('Microsoft sign-in was cancelled. Please try again.')
-        trackEvent('login_cancelled', { method: 'microsoft' })
-      } else if (err.errorCode === 'popup_window_error' || err.errorCode === 'empty_window_error') {
-        setLoginError('Popup was blocked by your browser. Please allow popups for this site and try again.')
-        trackEvent('login_error', { method: 'microsoft', error: err.errorCode })
-      } else if (err.errorCode === 'interaction_in_progress') {
+      console.error('Microsoft login error:', err)
+      if (err.errorCode === 'interaction_in_progress') {
         setLoginError('A sign-in is already in progress. Please wait or refresh the page.')
-        trackEvent('login_error', { method: 'microsoft', error: err.errorCode })
       } else {
-        const detail = err.response?.data?.detail
-        const msalMessage = err.errorMessage || err.message
-        setLoginError(typeof detail === 'string' ? detail : (typeof msalMessage === 'string' ? msalMessage : 'Microsoft login failed. Please try again.'))
-        trackEvent('login_error', { method: 'microsoft', error: err.errorCode || 'unknown' })
+        setLoginError('Microsoft login failed. Please try again.')
       }
-    } finally {
-      setLoading(false)
+      trackEvent('login_error', { method: 'microsoft', error: err.errorCode || 'unknown' })
     }
-  }, [setUser, navigate])
+  }, [])
 
   const openSignIn = useCallback(() => {
     setShowProviderDialog(true)
