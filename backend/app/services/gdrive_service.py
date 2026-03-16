@@ -109,11 +109,16 @@ async def get_user_info(access_token: str) -> Dict[str, Any]:
     """Fetch Google account email + name."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
+            f"{_DRIVE_API}/about",
             headers={"Authorization": f"Bearer {access_token}"},
+            params={"fields": "user(displayName,emailAddress)"},
         )
         resp.raise_for_status()
-        return resp.json()
+        user = (resp.json() or {}).get("user", {})
+        return {
+            "email": user.get("emailAddress"),
+            "name": user.get("displayName"),
+        }
 
 
 async def list_folders(access_token: str, parent_id: str = "root") -> List[Dict[str, Any]]:
