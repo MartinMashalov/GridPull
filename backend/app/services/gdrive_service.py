@@ -27,8 +27,13 @@ _SCOPE = "https://www.googleapis.com/auth/drive"
 
 def get_auth_url(redirect_uri: str, state: str) -> str:
     """Build Google OAuth authorization URL."""
+    client_id = (settings.google_drive_client_id or "").strip().strip("'").strip('"')
+    if client_id.lower() in {"none", "null"}:
+        client_id = ""
+    if not client_id:
+        raise ValueError("Google Drive client ID is not configured")
     params = {
-        "client_id": settings.google_drive_client_id,
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": _SCOPE,
@@ -41,11 +46,19 @@ def get_auth_url(redirect_uri: str, state: str) -> str:
 
 async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
     """Exchange authorization code for access + refresh tokens."""
+    client_id = (settings.google_drive_client_id or "").strip().strip("'").strip('"')
+    client_secret = (settings.google_drive_client_secret or "").strip().strip("'").strip('"')
+    if client_id.lower() in {"none", "null"}:
+        client_id = ""
+    if client_secret.lower() in {"none", "null"}:
+        client_secret = ""
+    if not client_id or not client_secret:
+        raise ValueError("Google Drive OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_GOOGLE_TOKEN_URL, data={
             "code": code,
-            "client_id": settings.google_drive_client_id,
-            "client_secret": settings.google_drive_client_secret,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         })
@@ -55,11 +68,19 @@ async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
 
 async def _refresh_token(conn: Any) -> str:
     """Refresh Google access token in-place on conn object."""
+    client_id = (settings.google_drive_client_id or "").strip().strip("'").strip('"')
+    client_secret = (settings.google_drive_client_secret or "").strip().strip("'").strip('"')
+    if client_id.lower() in {"none", "null"}:
+        client_id = ""
+    if client_secret.lower() in {"none", "null"}:
+        client_secret = ""
+    if not client_id or not client_secret:
+        raise ValueError("Google Drive OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_GOOGLE_TOKEN_URL, data={
             "refresh_token": conn.refresh_token,
-            "client_id": settings.google_drive_client_id,
-            "client_secret": settings.google_drive_client_secret,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "grant_type": "refresh_token",
         })
         resp.raise_for_status()

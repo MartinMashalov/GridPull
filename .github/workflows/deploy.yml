@@ -39,6 +39,10 @@ jobs:
             MICROSOFT_CLIENT_ID=${{ secrets.MICROSOFT_CLIENT_ID }}
             MICROSOFT_CLIENT_SECRET=${{ secrets.MICROSOFT_CLIENT_SECRET }}
             MICROSOFT_TENANT_ID=1a892709-1de3-4b21-ad34-c4343a121ea5
+            DROPBOX_APP_KEY=${{ secrets.DROPBOX_APP_KEY }}
+            DROPBOX_APP_SECRET=${{ secrets.DROPBOX_APP_SECRET }}
+            BOX_APP_KEY=${{ secrets.BOX_APP_KEY }}
+            BOX_APP_SECRET=${{ secrets.BOX_APP_SECRET }}
             BACKEND_URL=https://${{ secrets.DOMAIN }}
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             JWT_ALGORITHM=HS256

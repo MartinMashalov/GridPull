@@ -20,13 +20,26 @@ _BOX_AUTH_URL = "https://account.box.com/api/oauth2/authorize"
 _BOX_TOKEN_URL = "https://api.box.com/oauth2/token"
 _BOX_API = "https://api.box.com/2.0"
 _BOX_UPLOAD_API = "https://upload.box.com/api/2.0"
-_BOX_CLIENT_ID = settings.box_client_id or settings.box_app_key
-_BOX_CLIENT_SECRET = settings.box_client_secret or settings.box_app_secret
 
 
 def get_auth_url(redirect_uri: str, state: str) -> str:
+    client_id = next(
+        (
+            value
+            for value in (
+                settings.box_client_id,
+                settings.box_app_key,
+            )
+            if value
+            and value.strip().strip("'").strip('"')
+            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
+        ),
+        "",
+    ).strip().strip("'").strip('"')
+    if not client_id:
+        raise ValueError("Box client ID is not configured")
     params = {
-        "client_id": _BOX_CLIENT_ID,
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
@@ -35,11 +48,39 @@ def get_auth_url(redirect_uri: str, state: str) -> str:
 
 
 async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
+    client_id = next(
+        (
+            value
+            for value in (
+                settings.box_client_id,
+                settings.box_app_key,
+            )
+            if value
+            and value.strip().strip("'").strip('"')
+            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
+        ),
+        "",
+    ).strip().strip("'").strip('"')
+    client_secret = next(
+        (
+            value
+            for value in (
+                settings.box_client_secret,
+                settings.box_app_secret,
+            )
+            if value
+            and value.strip().strip("'").strip('"')
+            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
+        ),
+        "",
+    ).strip().strip("'").strip('"')
+    if not client_id or not client_secret:
+        raise ValueError("Box OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_BOX_TOKEN_URL, data={
             "code": code,
-            "client_id": _BOX_CLIENT_ID,
-            "client_secret": _BOX_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         })
@@ -48,11 +89,39 @@ async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
 
 
 async def _refresh_token(conn: Any) -> str:
+    client_id = next(
+        (
+            value
+            for value in (
+                settings.box_client_id,
+                settings.box_app_key,
+            )
+            if value
+            and value.strip().strip("'").strip('"')
+            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
+        ),
+        "",
+    ).strip().strip("'").strip('"')
+    client_secret = next(
+        (
+            value
+            for value in (
+                settings.box_client_secret,
+                settings.box_app_secret,
+            )
+            if value
+            and value.strip().strip("'").strip('"')
+            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
+        ),
+        "",
+    ).strip().strip("'").strip('"')
+    if not client_id or not client_secret:
+        raise ValueError("Box OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_BOX_TOKEN_URL, data={
             "refresh_token": conn.refresh_token,
-            "client_id": _BOX_CLIENT_ID,
-            "client_secret": _BOX_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "grant_type": "refresh_token",
         })
         resp.raise_for_status()
