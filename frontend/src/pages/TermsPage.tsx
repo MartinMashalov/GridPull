@@ -178,7 +178,7 @@ export default function TermsPage() {
               </h2>
               <div className="text-muted-foreground space-y-3">
                 <p>
-                  The Service uses AI to extract data from documents. While we strive for high accuracy (94%+
+                  The Service uses AI to extract data from documents. While we strive for high accuracy (99%+
                   on real-world documents), <strong>we do not guarantee that extraction results will be 100%
                   accurate or error-free</strong>.
                 </p>
