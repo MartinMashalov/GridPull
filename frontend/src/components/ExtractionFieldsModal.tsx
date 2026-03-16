@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Plus, Trash2, StickyNote } from 'lucide-react'
+import { X, Plus, Trash2, Pencil } from 'lucide-react'
 import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -154,9 +154,9 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                         <button
                           onClick={() => toggleDesc(i)}
-                          title="Add description to improve accuracy"
+                          title="Add details to guide the AI for this field"
                           className={cn(
-                            'p-1 rounded transition-colors',
+                            'flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors',
                             expandedDesc === i
                               ? 'text-primary bg-primary/10'
                               : field.description
@@ -164,7 +164,8 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                                 : 'text-muted-foreground hover:text-primary'
                           )}
                         >
-                          <StickyNote size={13} />
+                          <Pencil size={11} />
+                          <span>{field.description ? 'Edit' : 'Details'}</span>
                         </button>
                         <button onClick={() => removeField(i)} className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors">
                           <Trash2 size={13} />

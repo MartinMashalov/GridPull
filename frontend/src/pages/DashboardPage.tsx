@@ -285,8 +285,8 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload your files, choose the fields to extract, and download a clean spreadsheet</p>
+          <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs & Images</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, or JPEGs — choose the fields to extract and download a clean spreadsheet</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Balance:</span>
