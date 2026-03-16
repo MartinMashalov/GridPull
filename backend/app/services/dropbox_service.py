@@ -137,6 +137,7 @@ async def list_pdfs(access_token: str, folder_id: str) -> List[Dict[str, Any]]:
             "id": item["id"],
             "name": item["name"],
             "path": item.get("path_lower") or item.get("path_display") or item["id"],
+            "content_hash": item.get("content_hash") or item.get("server_modified", ""),
         }
         for item in entries
         if item.get(".tag") == "file" and item.get("name", "").lower().endswith((".pdf", ".jpg", ".jpeg", ".png"))

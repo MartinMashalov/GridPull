@@ -160,7 +160,7 @@ async def list_pdfs(access_token: str, folder_id: str) -> List[Dict[str, Any]]:
             headers={"Authorization": f"Bearer {access_token}"},
             params={
                 "q": query,
-                "fields": "files(id,name,createdTime)",
+                "fields": "files(id,name,createdTime,modifiedTime,md5Checksum)",
                 "pageSize": 100,
                 "orderBy": "createdTime desc",
             },

@@ -140,13 +140,20 @@ async def list_pdfs(
         resp = await client.get(
             url,
             headers={"Authorization": f"Bearer {access_token}"},
-            params={"$select": "id,name,createdDateTime,file", "$top": 100},
+            params={"$select": "id,name,createdDateTime,lastModifiedDateTime,file", "$top": 100},
         )
         resp.raise_for_status()
         items = resp.json().get("value", [])
 
     return [
-        {"id": item["id"], "name": item["name"]}
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "content_hash": (
+                item.get("file", {}).get("hashes", {}).get("sha1Hash")
+                or item.get("lastModifiedDateTime", "")
+            ),
+        }
         for item in items
         if (
             item.get("file", {}).get("mimeType") == "application/pdf"

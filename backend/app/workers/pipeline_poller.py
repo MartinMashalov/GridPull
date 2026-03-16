@@ -99,6 +99,16 @@ def _versioned_output_filename(pipeline: Pipeline) -> str:
     return f"{_safe_pipeline_name(pipeline)}_{fhash}.{pipeline.dest_format}"
 
 
+def _file_content_hash(file_info: dict) -> str:
+    """Extract a content fingerprint from file metadata (hash or modified timestamp)."""
+    return (
+        file_info.get("content_hash")
+        or file_info.get("md5Checksum")
+        or file_info.get("modifiedTime")
+        or ""
+    )
+
+
 def _oauth_provider(source_type: str) -> str:
     """Outlook uses the same Microsoft OAuth connection as SharePoint."""
     return "sharepoint" if source_type == "outlook" else source_type
@@ -213,24 +223,43 @@ async def _check_pipeline_inner(pipeline: Pipeline) -> None:
         source_config = p.source_config or {}
         logger.info("Pipeline %s (%s): scanning folder_id=%s", p.id, p.name, p.source_folder_id)
         source_files = await _list_source_files(conn.access_token, p.source_folder_id, p.source_type, source_config)
-        processed_ids: list = list(p.processed_file_ids or [])
+
+        # Backward compat: processed_file_ids can be a list (old) or dict {id: hash} (new)
+        raw_processed = p.processed_file_ids or []
+        if isinstance(raw_processed, list):
+            processed_map: dict[str, str] = {fid: "" for fid in raw_processed}
+        else:
+            processed_map = dict(raw_processed)
+
         failed_counts: dict = dict(p.failed_file_ids or {})
         permanently_failed = {fid for fid, cnt in failed_counts.items() if cnt >= 3}
-        new_files = [f for f in source_files if f["id"] not in processed_ids and f["id"] not in permanently_failed]
+
+        new_files = []
+        for f in source_files:
+            fid = f["id"]
+            if fid in permanently_failed:
+                continue
+            file_hash = _file_content_hash(f)
+            if fid not in processed_map or (file_hash and processed_map.get(fid) != file_hash):
+                new_files.append(f)
 
         logger.info(
             "Pipeline %s (%s): found %d supported file(s) in folder, %d already processed, %d new",
-            p.id, p.name, len(source_files), len(processed_ids), len(new_files),
+            p.id, p.name, len(source_files), len(processed_map), len(new_files),
         )
         if source_files:
             for f in source_files:
-                if f["id"] in permanently_failed:
+                fid = f["id"]
+                file_hash = _file_content_hash(f)
+                if fid in permanently_failed:
                     tag = "SKIPPED (permanently failed)"
-                elif f["id"] in processed_ids:
-                    tag = "already processed"
-                else:
+                elif fid not in processed_map:
                     tag = "NEW"
-                logger.info("  File: %s (id=%s) %s", f["name"], f["id"][:20], tag)
+                elif file_hash and processed_map.get(fid) != file_hash:
+                    tag = "UPDATED (content changed)"
+                else:
+                    tag = "already processed"
+                logger.info("  File: %s (id=%s) %s", f["name"], fid[:20], tag)
 
         if not new_files:
             p.last_checked_at = datetime.utcnow()
@@ -490,14 +519,24 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
             p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
             p = p_res.scalar_one_or_none()
-            # Never mark source file as processed unless upload completed successfully.
             if p and upload_succeeded:
-                ids = list(p.processed_file_ids or [])
-                if file_info["id"] not in ids:
-                    ids.append(file_info["id"])
-                p.processed_file_ids = ids
-                p.files_processed = (p.files_processed or 0) + 1
+                raw = p.processed_file_ids or []
+                if isinstance(raw, list):
+                    processed_map = {fid: "" for fid in raw}
+                else:
+                    processed_map = dict(raw)
+                file_hash = _file_content_hash(file_info)
+                was_new = file_info["id"] not in processed_map
+                processed_map[file_info["id"]] = file_hash
+                p.processed_file_ids = processed_map
+                if was_new:
+                    p.files_processed = (p.files_processed or 0) + 1
                 p.last_run_at = datetime.utcnow()
+                # Clear failure counter on success
+                if file_info["id"] in (p.failed_file_ids or {}):
+                    failed = dict(p.failed_file_ids)
+                    del failed[file_info["id"]]
+                    p.failed_file_ids = failed
 
             user_res = await db.execute(select(User).where(User.id == pipeline.user_id))
             user = user_res.scalar_one_or_none()

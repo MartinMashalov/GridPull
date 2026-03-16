@@ -117,7 +117,7 @@ async def _list_folder_items(access_token: str, folder_id: str) -> List[Dict[str
             f"{_BOX_API}/folders/{folder_id}/items",
             headers={"Authorization": f"Bearer {access_token}"},
             params={
-                "fields": "id,name,type",
+                "fields": "id,name,type,modified_at,sha1",
                 "limit": 1000,
                 "offset": 0,
             },
@@ -138,7 +138,11 @@ async def list_folders(access_token: str, folder_id: str = "0") -> List[Dict[str
 async def list_pdfs(access_token: str, folder_id: str) -> List[Dict[str, Any]]:
     items = await _list_folder_items(access_token, folder_id)
     return [
-        {"id": item["id"], "name": item["name"]}
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "content_hash": item.get("sha1") or item.get("modified_at", ""),
+        }
         for item in items
         if item.get("type") == "file" and item.get("name", "").lower().endswith((".pdf", ".jpg", ".jpeg", ".png"))
     ]
