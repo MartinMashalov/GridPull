@@ -970,7 +970,7 @@ export default function LandingPage() {
                 <p className="text-xs text-muted-foreground mb-4">{ex.pages.toLocaleString()} pages × $0.0001</p>
                 <div className="border-t border-border/50 pt-3 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">With PDFExcel.ai</span>
+                    <span className="text-muted-foreground">With PDFexcel.ai</span>
                     <span className="font-semibold text-emerald-600">{ex.time}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
