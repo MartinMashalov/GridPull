@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from app.config import settings
 from app.services.pdf_service import ParsedDocument
 
 from .core import (
     _CHUNK_SIZE,
     _CHUNK_THRESHOLD_PAGES,
+    _EMPTY_VALUES,
     _PLANNER_TABLE_BUDGET_CHARS,
     _PLANNER_TEXT_BUDGET_CHARS,
     _TEXT_MODEL,
@@ -120,6 +122,20 @@ async def extract_from_document(
                 rows = await extract_multi_record(doc, fields, usage, instructions)
         else:
             rows = await extract_single_record(doc, fields, usage, instructions)
+
+        field_names = [f["name"] for f in fields]
+        filled = sum(
+            1 for row in rows for fn in field_names
+            if row.get(fn) is not None
+            and str(row[fn]).strip().lower() not in _EMPTY_VALUES
+        )
+        has_images = any(p.image_count > 0 for p in doc.pages)
+        if filled == 0 and has_images and settings.mistral_api_key:
+            logger.info(
+                "TEXT pipeline returned 0%% FFR for %s with images present — falling back to SCAN pipeline",
+                doc.filename,
+            )
+            rows = await extract_from_scanned_document(doc, fields, usage, instructions)
 
     if not rows:
         field_names = [f["name"] for f in fields]

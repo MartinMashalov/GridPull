@@ -106,19 +106,31 @@ def _score_page(page: ParsedPage) -> float:
 
 # ── Document structure classification ────────────────────────────────────────
 
-def _detect_scan(pages: List[ParsedPage]) -> bool:
+def _detect_scan(pages: List[ParsedPage], file_path: str = "") -> bool:
     """
     Return True if the PDF is image-based (scanned), not native text.
 
     Scanned PDFs produce near-zero extractable text via PyMuPDF but have
-    embedded image objects on most pages.
+    embedded image objects on most pages.  Some scans include a thin OCR
+    text layer that can push avg_chars above the basic threshold — for those
+    we also check file-size-per-page (scanned pages are typically >150 KB
+    while text-only pages are <50 KB).
     """
     if not pages:
         return False
     avg_chars = sum(len(p.text) for p in pages) / len(pages)
     image_pages = sum(1 for p in pages if p.image_count > 0)
     image_fraction = image_pages / len(pages)
-    return avg_chars < 150 and image_fraction >= 0.5
+    if avg_chars < 150 and image_fraction >= 0.5:
+        return True
+    if file_path and image_fraction >= 0.5 and avg_chars < 800:
+        try:
+            kb_per_page = os.path.getsize(file_path) / 1024 / len(pages)
+            if kb_per_page > 150:
+                return True
+        except OSError:
+            pass
+    return False
 
 
 def _classify_doc_hint(pages: List[ParsedPage], tables: List[ParsedTable]) -> str:
@@ -436,7 +448,7 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     )
 
     doc_type_hint = _classify_doc_hint(pages, all_tables)
-    is_scanned    = force_scanned or _detect_scan(pages)
+    is_scanned    = force_scanned or _detect_scan(pages, file_path)
 
     logger.info(
         "parse_pdf done: filename=%s pages=%d tables=%d doc_type_hint=%s is_scanned=%s selected_pages=%s table_scan_pages=%s",
