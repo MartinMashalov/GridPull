@@ -110,6 +110,8 @@ async def init_db():
             "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS log_lines JSON",
             # Track files that permanently failed extraction (skip after max retries)
             "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS failed_file_ids JSON",
+            # Microsoft auth support
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

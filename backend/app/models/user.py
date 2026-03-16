@@ -13,6 +13,7 @@ class User(Base):
     name = Column(String, nullable=False)
     picture = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
+    microsoft_id = Column(String, unique=True, nullable=True, index=True)
     balance = Column(Float, default=1.0)   # Dollar balance; new users start with $1.00
     is_active = Column(Boolean, default=True)
     auto_renewal_enabled = Column(Boolean, default=False)
