@@ -65,6 +65,11 @@ _PollerSession = async_sessionmaker(
 
 _POLL_INTERVAL = 120   # 2 minutes
 _STARTUP_DELAY = 10    # 10 second grace at startup
+_MAX_TRANSIENT_RETRIES = 3
+_TRANSIENT_HTTP_CODES = {408, 429, 500, 502, 503, 504}
+
+# Per-pipeline concurrency guard: prevents poller + manual trigger from overlapping
+_pipeline_locks: dict[str, asyncio.Lock] = {}
 
 
 # ── Filename helper ────────────────────────────────────────────────────────────
@@ -173,6 +178,19 @@ async def _poll_all() -> None:
 
 
 async def _check_pipeline(pipeline: Pipeline) -> None:
+    if pipeline.id not in _pipeline_locks:
+        _pipeline_locks[pipeline.id] = asyncio.Lock()
+    lock = _pipeline_locks[pipeline.id]
+
+    if lock.locked():
+        logger.info("Pipeline %s already being processed — skipping", pipeline.id)
+        return
+
+    async with lock:
+        await _check_pipeline_inner(pipeline)
+
+
+async def _check_pipeline_inner(pipeline: Pipeline) -> None:
     async with _PollerSession() as db:
         result = await db.execute(select(Pipeline).where(Pipeline.id == pipeline.id))
         p: Pipeline | None = result.scalar_one_or_none()
@@ -197,8 +215,7 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         source_files = await _list_source_files(conn.access_token, p.source_folder_id, p.source_type, source_config)
         processed_ids: list = list(p.processed_file_ids or [])
         failed_counts: dict = dict(p.failed_file_ids or {})
-        MAX_EXTRACTION_RETRIES = 3
-        permanently_failed = {fid for fid, cnt in failed_counts.items() if cnt >= MAX_EXTRACTION_RETRIES}
+        permanently_failed = {fid for fid, cnt in failed_counts.items() if cnt >= 3}
         new_files = [f for f in source_files if f["id"] not in processed_ids and f["id"] not in permanently_failed]
 
         logger.info(
@@ -233,6 +250,15 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
             await db.commit()
 
 
+def _is_transient_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _TRANSIENT_HTTP_CODES if exc.response is not None else False
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
+        return True
+    msg = str(exc).lower()
+    return any(k in msg for k in ("timeout", "connection reset", "temporarily unavailable", "too many requests"))
+
+
 async def _process_file(pipeline_id: str, file_info: dict) -> None:
     """Download → extract → append to pipeline output file → upload."""
     # ── Load pipeline + connection ─────────────────────────────────────────
@@ -252,6 +278,8 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
         conn = conn_result.scalar_one_or_none()
         if not conn:
             return
+
+        await _ensure_fresh_token(conn, db, oauth_prov)
 
         run = PipelineRun(
             pipeline_id=pipeline.id,
@@ -281,9 +309,31 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
     tmp_path: str | None = None
     upload_succeeded = False
     try:
-        # ── Download source file ───────────────────────────────────────────
+        # ── Download source file (with retry) ─────────────────────────────
         await _append_log(run_id, f"Downloading {file_info['name']}...")
-        pdf_bytes = await _download_file(access_token, file_info["id"], source_type, file_info)
+        pdf_bytes: bytes | None = None
+        for attempt in range(_MAX_TRANSIENT_RETRIES):
+            try:
+                pdf_bytes = await _download_file(access_token, file_info["id"], source_type, file_info)
+                break
+            except Exception as dl_exc:
+                if not _is_transient_error(dl_exc) or attempt == _MAX_TRANSIENT_RETRIES - 1:
+                    raise
+                wait = 2 ** attempt
+                logger.warning("Pipeline run_id=%s download attempt %d failed (%s), retrying in %ds", run_id, attempt + 1, dl_exc, wait)
+                await _append_log(run_id, f"Download attempt {attempt + 1} failed ({dl_exc}), retrying in {wait}s...")
+                await asyncio.sleep(wait)
+                async with _PollerSession() as db:
+                    conn_r = await db.execute(
+                        select(OAuthConnection).where(
+                            OAuthConnection.user_id == pipeline.user_id,
+                            OAuthConnection.provider == _oauth_provider(source_type),
+                        )
+                    )
+                    c = conn_r.scalar_one_or_none()
+                    if c:
+                        await _ensure_fresh_token(c, db, _oauth_provider(source_type))
+                        access_token = c.access_token
         size_kb = len(pdf_bytes) / 1024
         logger.info("Pipeline run_id=%s downloaded %s %.0f KB", run_id, file_info["name"], size_kb)
         await _append_log(run_id, f"Downloaded {size_kb:.0f} KB. Writing to temp file...")
@@ -376,31 +426,40 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 else generate_excel_bytes(rows, field_names)
             )
 
-        # ── Upload (create or overwrite) ───────────────────────────────────
+        # ── Upload (create or overwrite, with retry) ─────────────────────
         await _append_log(run_id, f"Uploading {output_filename} ({len(out_bytes) // 1024} KB)...")
-        try:
-            dest_url = await _upload_output(
-                access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
-            )
-        except httpx.HTTPStatusError as exc:
-            code = exc.response.status_code if exc.response is not None else None
-            if code == 423:
-                await _append_log(
-                    run_id,
-                    "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it, then wait for automatic retry.",
+        dest_url: str | None = None
+        for attempt in range(_MAX_TRANSIENT_RETRIES):
+            try:
+                dest_url = await _upload_output(
+                    access_token, dest_folder_id, output_filename, out_bytes, storage, mime, existing_file_id
                 )
-                raise RuntimeError(
-                    "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it and retry; this source file will be retried automatically on the next poll cycle."
-                ) from exc
-            if code in (429, 503):
-                await _append_log(
-                    run_id,
-                    f"DESTINATION_TEMP_UNAVAILABLE: Destination returned HTTP {code}. Will retry on next poll cycle.",
-                )
-                raise RuntimeError(
-                    f"DESTINATION_TEMP_UNAVAILABLE: Destination returned HTTP {code}. Source file will be retried automatically on the next poll cycle."
-                ) from exc
-            raise
+                break
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code if exc.response is not None else None
+                if code == 423:
+                    await _append_log(
+                        run_id,
+                        "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it, then wait for automatic retry.",
+                    )
+                    raise RuntimeError(
+                        "DESTINATION_LOCKED: Destination spreadsheet is open/locked. Close it and retry; this source file will be retried automatically on the next poll cycle."
+                    ) from exc
+                if code in _TRANSIENT_HTTP_CODES and attempt < _MAX_TRANSIENT_RETRIES - 1:
+                    wait = 2 ** attempt
+                    logger.warning("Pipeline run_id=%s upload attempt %d got HTTP %s, retrying in %ds", run_id, attempt + 1, code, wait)
+                    await _append_log(run_id, f"Upload attempt {attempt + 1} got HTTP {code}, retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+            except Exception as up_exc:
+                if _is_transient_error(up_exc) and attempt < _MAX_TRANSIENT_RETRIES - 1:
+                    wait = 2 ** attempt
+                    logger.warning("Pipeline run_id=%s upload attempt %d failed (%s), retrying in %ds", run_id, attempt + 1, up_exc, wait)
+                    await _append_log(run_id, f"Upload attempt {attempt + 1} failed ({up_exc}), retrying in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+                raise
         upload_succeeded = True
         logger.info("Pipeline run_id=%s upload done: %s %s KB", run_id, output_filename, len(out_bytes) // 1024)
         await _append_log(run_id, f"Uploaded successfully.")
@@ -467,24 +526,24 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 r.error_message = str(exc)
                 r.completed_at = datetime.utcnow()
 
-            if "NO_DATA_EXTRACTED" in str(exc):
-                p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
-                p = p_res.scalar_one_or_none()
-                if p:
-                    failed = dict(p.failed_file_ids or {})
-                    failed[file_info["id"]] = failed.get(file_info["id"], 0) + 1
-                    p.failed_file_ids = failed
-                    count = failed[file_info["id"]]
-                    if count >= 3:
-                        logger.warning(
-                            "Pipeline %s: permanently skipping %s after %d failed extraction attempts",
-                            pipeline_id, file_info["name"], count,
-                        )
-                    else:
-                        logger.info(
-                            "Pipeline %s: extraction attempt %d/3 failed for %s, will retry",
-                            pipeline_id, count, file_info["name"],
-                        )
+            p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+            p = p_res.scalar_one_or_none()
+            if p:
+                failed = dict(p.failed_file_ids or {})
+                failed[file_info["id"]] = failed.get(file_info["id"], 0) + 1
+                p.failed_file_ids = failed
+                count = failed[file_info["id"]]
+                max_retries = 3 if "NO_DATA_EXTRACTED" in str(exc) else 5
+                if count >= max_retries:
+                    logger.warning(
+                        "Pipeline %s: permanently skipping %s after %d failed attempts",
+                        pipeline_id, file_info["name"], count,
+                    )
+                else:
+                    logger.info(
+                        "Pipeline %s: attempt %d/%d failed for %s, will retry next cycle",
+                        pipeline_id, count, max_retries, file_info["name"],
+                    )
 
             await db.commit()
     finally:
