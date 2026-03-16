@@ -157,8 +157,8 @@ const HOW_IT_WORKS = [
   {
     icon: Upload,
     step: '1',
-    title: 'Upload Your PDFs',
-    desc: 'Drag and drop one or more PDF files. Works with scanned documents, digital PDFs, and even photos of documents (PNG, JPEG).',
+    title: 'Upload PDFs or Images',
+    desc: 'Drag and drop PDF, PNG, or JPEG files. Works with scanned documents, digital PDFs, and photos of documents.',
   },
   {
     icon: MousePointerClick,
@@ -305,7 +305,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'About $0.05 per page — no monthly subscription, no commitment. Add funds to your account balance ($5, $10, $20, or any custom amount) and it depletes as you process documents. Your balance never expires. For context, 200 annual reports would cost roughly $800 — versus $20,000+ in manual analyst time.',
+    a: 'It\'s free to get started — just sign up and start extracting. After that, it\'s about $0.05 per page with no monthly subscription or commitment. Your balance never expires. For context, 200 annual reports would cost roughly $800 — versus $20,000+ in manual analyst time.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
@@ -472,7 +472,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
-            Upload your PDFs, tell it what data you need, and get a structured Excel file in seconds.
+            Upload your PDFs or image files (PNG, JPEG), tell it what data you need, and get a structured Excel file in seconds.
             Works on invoices, financial reports, insurance forms, contracts, and more —
             even messy, scanned, or inconsistently formatted documents.
           </p>
@@ -489,7 +489,7 @@ export default function LandingPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              No setup required · Pay as you go · Files deleted after processing
+              Free to start · No setup required · Files deleted after processing
             </p>
           </div>
         </div>
@@ -875,7 +875,7 @@ export default function LandingPage() {
             ~$0.05 per page. No subscriptions.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Pay only for what you process. Add funds to your balance and it depletes as you extract.
+            Start for free — no credit card required. Pay only for what you process after that.
             No monthly fees, no commitment, no expiry. Most competitors charge $0.10–$0.50 per page
             or lock you into $99+/month plans.
           </p>
@@ -1074,7 +1074,7 @@ export default function LandingPage() {
             Stop copying data from PDFs by hand
           </h2>
           <p className="text-muted-foreground text-sm mb-3">
-            Upload your first PDF and see structured results in seconds. No setup, pay as you go, no commitment.
+            Upload your first PDF and see structured results in seconds. Free to start — no setup, no commitment.
           </p>
           <p className="text-muted-foreground text-xs mb-8 flex items-center justify-center gap-1.5">
             <Lock size={10} />
