@@ -22,7 +22,7 @@ export default function TermsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Terms of Service</h1>
           <p className="text-muted-foreground text-sm mb-4">Last updated: March 2026</p>
           <p className="text-muted-foreground text-sm mb-10 leading-relaxed">
-            These Terms of Service ("Terms") govern your use of PDFExcel.ai ("Service"), operated by
+            These Terms of Service ("Terms") govern your use of PDFexcel.ai ("Service"), operated by
             Big Vision Systems LLC ("Company", "we", "us", or "our"). By accessing or using the Service,
             you agree to be bound by these Terms. If you do not agree, do not use the Service.
           </p>
@@ -35,7 +35,7 @@ export default function TermsPage() {
               </h2>
               <div className="text-muted-foreground space-y-3">
                 <p>
-                  PDFExcel.ai is an AI-powered document data extraction platform. The Service allows users to
+                  PDFexcel.ai is an AI-powered document data extraction platform. The Service allows users to
                   upload PDF documents and other supported file types, select data fields to extract, and
                   receive structured spreadsheet output (Excel or CSV).
                 </p>

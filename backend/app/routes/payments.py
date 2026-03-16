@@ -112,7 +112,7 @@ async def checkout_go(
             line_items=[{
                 "price_data": {
                     "currency": "usd",
-                    "product_data": {"name": "PDFExcel.ai Balance Top-Up"},
+                    "product_data": {"name": "PDFexcel.ai Balance Top-Up"},
                     "unit_amount": amount_cents,
                 },
                 "quantity": 1,
@@ -185,7 +185,7 @@ async def create_checkout(
                 "price_data": {
                     "currency": "usd",
                     "product_data": {
-                        "name": "PDFExcel.ai Balance Top-Up",
+                        "name": "PDFexcel.ai Balance Top-Up",
                         "description": f"Add ${request.amount:.2f} to your balance",
                     },
                     "unit_amount": amount_cents,
