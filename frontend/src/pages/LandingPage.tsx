@@ -26,7 +26,7 @@ const FEATURES = [
   },
   {
     icon: Target,
-    title: '94%+ Accuracy on Real Documents',
+    title: '99%+ Accuracy on Real Documents',
     desc: 'Tested across thousands of real-world invoices, SEC filings, insurance forms, and scanned receipts — not just clean samples. Our models are fine-tuned on messy, inconsistent, real-world data.',
   },
   {
@@ -78,21 +78,21 @@ const PRICING_EXAMPLES = [
   {
     label: '50 invoices',
     pages: 50,
-    cost: '$2.50',
+    cost: '$0.01',
     time: '~3 min',
     manual: '4+ hours',
   },
   {
     label: '200 annual reports (avg 80 pages)',
     pages: 16000,
-    cost: '$800',
+    cost: '$1.60',
     time: '~45 min',
     manual: '400+ hours',
   },
   {
     label: '500 scanned receipts',
     pages: 500,
-    cost: '$25',
+    cost: '$0.05',
     time: '~12 min',
     manual: '20+ hours',
   },
@@ -222,9 +222,9 @@ const USE_CASES = [
 
 /* ─── Stats ──────────────────────────────────────────────────────────────────── */
 const STATS = [
-  { value: '94%+', label: 'Field extraction accuracy' },
-  { value: '~$0.05', label: 'Per page processed' },
-  { value: '< 30s', label: 'Average processing time' },
+  { value: '99%+', label: 'Field extraction accuracy' },
+  { value: '~$0.0001', label: 'Per page processed' },
+  { value: '< 10s', label: 'Average processing time' },
   { value: 'Any PDF', label: 'Scanned, digital, or photo' },
 ]
 
@@ -301,11 +301,11 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How accurate is the extraction?',
-    a: 'We achieve 94%+ field accuracy across thousands of real-world documents. Accuracy depends on document quality — clear, high-resolution PDFs produce the best results. For scanned or low-quality documents, results are still strong but we recommend reviewing the output.',
+    a: 'We achieve 99%+ field accuracy across thousands of real-world documents. Accuracy depends on document quality — clear, high-resolution PDFs produce the best results. For scanned or low-quality documents, results are still strong but we recommend reviewing the output.',
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting. After that, it\'s about $0.05 per page with no monthly subscription or commitment. Your balance never expires. For context, 200 annual reports would cost roughly $800 — versus $20,000+ in manual analyst time.',
+    a: 'It\'s free to get started — just sign up and start extracting. After that, it\'s about $0.0001 per page with no monthly subscription or commitment. Your balance never expires. For context, 200 annual reports would cost roughly $1.60 — versus $20,000+ in manual analyst time.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
@@ -749,7 +749,7 @@ export default function LandingPage() {
                 <div className="px-5 py-3 bg-muted/10 border-t border-border/50 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
                     <CheckCircle2 size={12} className="text-emerald-500 inline mr-1" />
-                    Extracted in &lt;30 seconds · Fields chosen by you · Download as .xlsx or .csv
+                    Extracted in &lt;10 seconds · Fields chosen by you · Download as .xlsx or .csv
                   </p>
                   <SignInButton size="sm" label="Try with your own PDFs" className="shadow-none" />
                 </div>
@@ -846,7 +846,7 @@ export default function LandingPage() {
           <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
             Most "AI PDF extractors" just send your document to a chatbot and hope for the best.
             We built a dedicated extraction engine — purpose-trained models that understand document
-            structure, not just text. That's why we hit 94%+ accuracy where others fall apart.
+            structure, not just text. That's why we hit 99%+ accuracy where others fall apart.
           </p>
           <div className="grid sm:grid-cols-2 gap-5">
             {FEATURES.map((f) => (
@@ -872,7 +872,7 @@ export default function LandingPage() {
             Simple pricing
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            ~$0.05 per page. No subscriptions.
+            ~$0.0001 per page. No subscriptions.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
             Start for free — no credit card required. Pay only for what you process after that.
@@ -880,7 +880,7 @@ export default function LandingPage() {
             or lock you into $99+/month plans.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
-            That's up to 90% cheaper than alternatives like Docparser, Rossum, or Nanonets.
+            That's up to 90% cheaper than alternatives.
           </p>
 
           {/* Pricing comparison cards */}
@@ -889,7 +889,7 @@ export default function LandingPage() {
               <div key={ex.label} className="bg-card border border-border rounded-xl p-5 text-center hover:border-primary/30 hover:shadow-sm transition-all">
                 <p className="text-xs text-muted-foreground font-medium mb-3 min-h-[32px]">{ex.label}</p>
                 <p className="text-3xl font-bold text-primary mb-1">{ex.cost}</p>
-                <p className="text-xs text-muted-foreground mb-4">{ex.pages.toLocaleString()} pages × $0.05</p>
+                <p className="text-xs text-muted-foreground mb-4">{ex.pages.toLocaleString()} pages × $0.0001</p>
                 <div className="border-t border-border/50 pt-3 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">With PDFExcel.ai</span>
@@ -907,7 +907,7 @@ export default function LandingPage() {
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-5">
               <DollarSign size={12} className="inline mr-1 text-primary" />
-              Example: 200 annual reports (avg 80 pages each) = 16,000 pages = <strong>$800 total</strong>. Manually, that's 400+ analyst-hours at $50/hr = <strong>$20,000</strong>. You save <strong>96%</strong>.
+              Example: 200 annual reports (avg 80 pages each) = 16,000 pages = <strong>$1.60 total</strong>. Manually, that's 400+ analyst-hours at $50/hr = <strong>$20,000</strong>. You save <strong>99.99%</strong>.
             </p>
             <SignInButton size="xl" label="Start extracting" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
