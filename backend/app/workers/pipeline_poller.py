@@ -231,14 +231,9 @@ async def _check_pipeline_inner(pipeline: Pipeline) -> None:
         else:
             processed_map = dict(raw_processed)
 
-        failed_counts: dict = dict(p.failed_file_ids or {})
-        permanently_failed = {fid for fid, cnt in failed_counts.items() if cnt >= 3}
-
         new_files = []
         for f in source_files:
             fid = f["id"]
-            if fid in permanently_failed:
-                continue
             file_hash = _file_content_hash(f)
             if fid not in processed_map or (file_hash and processed_map.get(fid) != file_hash):
                 new_files.append(f)
@@ -251,9 +246,7 @@ async def _check_pipeline_inner(pipeline: Pipeline) -> None:
             for f in source_files:
                 fid = f["id"]
                 file_hash = _file_content_hash(f)
-                if fid in permanently_failed:
-                    tag = "SKIPPED (permanently failed)"
-                elif fid not in processed_map:
+                if fid not in processed_map:
                     tag = "NEW"
                 elif file_hash and processed_map.get(fid) != file_hash:
                     tag = "UPDATED (content changed)"
@@ -532,11 +525,6 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 if was_new:
                     p.files_processed = (p.files_processed or 0) + 1
                 p.last_run_at = datetime.utcnow()
-                # Clear failure counter on success
-                if file_info["id"] in (p.failed_file_ids or {}):
-                    failed = dict(p.failed_file_ids)
-                    del failed[file_info["id"]]
-                    p.failed_file_ids = failed
 
             user_res = await db.execute(select(User).where(User.id == pipeline.user_id))
             user = user_res.scalar_one_or_none()
@@ -565,24 +553,10 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 r.error_message = str(exc)
                 r.completed_at = datetime.utcnow()
 
-            p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
-            p = p_res.scalar_one_or_none()
-            if p:
-                failed = dict(p.failed_file_ids or {})
-                failed[file_info["id"]] = failed.get(file_info["id"], 0) + 1
-                p.failed_file_ids = failed
-                count = failed[file_info["id"]]
-                max_retries = 3 if "NO_DATA_EXTRACTED" in str(exc) else 5
-                if count >= max_retries:
-                    logger.warning(
-                        "Pipeline %s: permanently skipping %s after %d failed attempts",
-                        pipeline_id, file_info["name"], count,
-                    )
-                else:
-                    logger.info(
-                        "Pipeline %s: attempt %d/%d failed for %s, will retry next cycle",
-                        pipeline_id, count, max_retries, file_info["name"],
-                    )
+            logger.info(
+                "Pipeline %s: %s failed, will retry next cycle",
+                pipeline_id, file_info["name"],
+            )
 
             await db.commit()
     finally:
