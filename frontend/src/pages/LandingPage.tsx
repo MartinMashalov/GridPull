@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoogleLogin } from '@react-oauth/google'
+import { PublicClientApplication } from '@azure/msal-browser'
+import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileSpreadsheet, ArrowRight,
   Building2, GitBranch, Lock, Mail,
@@ -9,6 +11,7 @@ import {
   Upload, MousePointerClick, Download, Eye,
   ShieldCheck, Trash2, ServerCrash, KeyRound,
   HelpCircle, Star, DollarSign, Brain, Cpu, Target, FlaskConical,
+  X,
 } from 'lucide-react'
 import { trackEvent } from '@/lib/analytics'
 import api from '@/lib/api'
@@ -16,6 +19,15 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+
+const msalInstance = new PublicClientApplication({
+  auth: {
+    clientId: import.meta.env.VITE_MICROSOFT_CLIENT_ID || '',
+    authority: 'https://login.microsoftonline.com/common',
+    redirectUri: window.location.origin,
+  },
+  cache: { cacheLocation: 'sessionStorage' },
+})
 
 /* ─── Feature cards (Purpose-built AI) ──────────────────────────────────────── */
 const FEATURES = [
@@ -335,9 +347,11 @@ export default function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [activeSample, setActiveSample] = useState(0)
   const [activePdfFile, setActivePdfFile] = useState(0)
+  const [showProviderDialog, setShowProviderDialog] = useState(false)
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
+      setShowProviderDialog(false)
       setLoading(true)
       setLoginError(null)
       trackEvent('login_start', { method: 'google' })
@@ -362,6 +376,40 @@ export default function LandingPage() {
     },
   })
 
+  const microsoftLogin = useCallback(async () => {
+    setShowProviderDialog(false)
+    setLoading(true)
+    setLoginError(null)
+    trackEvent('login_start', { method: 'microsoft' })
+    try {
+      await msalInstance.initialize()
+      const result = await msalInstance.loginPopup({
+        scopes: ['User.Read', 'openid', 'profile', 'email'],
+      })
+      const res = await api.post('/auth/microsoft', {
+        access_token: result.accessToken,
+      })
+      setUser(res.data.user, res.data.access_token)
+      trackEvent('login_success', { method: 'microsoft' })
+      navigate('/dashboard')
+    } catch (err: any) {
+      if (err.errorCode === 'user_cancelled') {
+        setLoginError('Microsoft sign-in was cancelled. Please try again.')
+        trackEvent('login_cancelled', { method: 'microsoft' })
+      } else {
+        const detail = err.response?.data?.detail
+        setLoginError(typeof detail === 'string' ? detail : 'Microsoft login failed. Please try again.')
+        trackEvent('login_error', { method: 'microsoft' })
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [setUser, navigate])
+
+  const openSignIn = useCallback(() => {
+    setShowProviderDialog(true)
+  }, [])
+
   if (user) {
     navigate('/dashboard')
     return null
@@ -378,20 +426,26 @@ export default function LandingPage() {
     </svg>
   )
 
+  const MicrosoftIcon = () => (
+    <svg className="w-4 h-4" viewBox="0 0 21 21">
+      <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+      <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+      <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+    </svg>
+  )
+
   const SignInButton = ({ size = 'xl', label = 'Get started', className = '' }: { size?: 'default' | 'sm' | 'lg' | 'xl' | 'icon'; label?: string; className?: string }) => (
     <Button
       size={size}
-      onClick={() => { trackEvent('cta_click', { label, location: 'landing' }); googleLogin() }}
+      onClick={() => { trackEvent('cta_click', { label, location: 'landing' }); openSignIn() }}
       disabled={loading}
       className={`gap-3 shadow-lg shadow-primary/20 ${className}`}
     >
       {loading ? (
         <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" />
       ) : (
-        <>
-          <GoogleIcon />
-          {label}
-        </>
+        label
       )}
     </Button>
   )
@@ -435,7 +489,7 @@ export default function LandingPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { trackEvent('cta_click', { label: 'navbar_sign_in', location: 'header' }); googleLogin() }}
+              onClick={() => { trackEvent('cta_click', { label: 'navbar_sign_in', location: 'header' }); openSignIn() }}
               disabled={loading}
             >
               {loading ? (
@@ -822,7 +876,7 @@ export default function LandingPage() {
                   <div className="mt-5 pt-4 border-t border-border/50">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">+ any custom fields you define</span>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-primary" onClick={() => { trackEvent('cta_click', { label: 'try_it_use_case', location: 'use_cases' }); googleLogin() }}>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-primary" onClick={() => { trackEvent('cta_click', { label: 'try_it_use_case', location: 'use_cases' }); openSignIn() }}>
                         Try it <ArrowRight size={11} />
                       </Button>
                     </div>
@@ -1103,6 +1157,51 @@ export default function LandingPage() {
           <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>
       </footer>
+
+      {/* ── Sign-in provider chooser ──────────────────────────────────────── */}
+      <Dialog.Root open={showProviderDialog} onOpenChange={setShowProviderDialog}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-6 shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            <div className="flex items-center justify-between mb-6">
+              <Dialog.Title className="text-lg font-semibold">Sign in to continue</Dialog.Title>
+              <Dialog.Close className="rounded-full p-1 hover:bg-muted transition-colors">
+                <X size={16} />
+              </Dialog.Close>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { trackEvent('provider_select', { provider: 'google' }); googleLogin() }}
+                disabled={loading}
+                className="flex items-center gap-3 w-full rounded-lg border border-border px-4 py-3 text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                <GoogleIcon />
+                Continue with Google
+              </button>
+
+              <button
+                onClick={() => { trackEvent('provider_select', { provider: 'microsoft' }); microsoftLogin() }}
+                disabled={loading}
+                className="flex items-center gap-3 w-full rounded-lg border border-border px-4 py-3 text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-50"
+              >
+                <MicrosoftIcon />
+                Continue with Microsoft
+              </button>
+            </div>
+
+            {loginError && (
+              <p className="mt-4 text-sm text-red-500 text-center">{loginError}</p>
+            )}
+
+            <p className="mt-5 text-xs text-muted-foreground text-center">
+              By signing in, you agree to our{' '}
+              <a href="/terms" className="underline hover:text-foreground">Terms</a> and{' '}
+              <a href="/privacy" className="underline hover:text-foreground">Privacy Policy</a>.
+            </p>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   )
 }

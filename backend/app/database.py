@@ -114,4 +114,5 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_id VARCHAR",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
+            
     await ddl_engine.dispose()
