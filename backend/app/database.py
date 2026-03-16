@@ -108,6 +108,8 @@ async def init_db():
             "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS source_config JSON",
             # Per-run structured log lines for real-time tracking
             "ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS log_lines JSON",
+            # Track files that permanently failed extraction (skip after max retries)
+            "ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS failed_file_ids JSON",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
     await ddl_engine.dispose()

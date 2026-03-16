@@ -48,6 +48,7 @@ class Pipeline(Base):
 
     fields = Column(JSON, nullable=False, default=list)   # [{name, description}]
     processed_file_ids = Column(JSON, nullable=False, default=list)  # dedup guard
+    failed_file_ids = Column(JSON, nullable=False, default=dict)  # {file_id: attempt_count}
 
     last_checked_at = Column(DateTime, nullable=True)
     last_run_at = Column(DateTime, nullable=True)

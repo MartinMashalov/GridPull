@@ -196,7 +196,10 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         logger.info("Pipeline %s (%s): scanning folder_id=%s", p.id, p.name, p.source_folder_id)
         source_files = await _list_source_files(conn.access_token, p.source_folder_id, p.source_type, source_config)
         processed_ids: list = list(p.processed_file_ids or [])
-        new_files = [f for f in source_files if f["id"] not in processed_ids]
+        failed_counts: dict = dict(p.failed_file_ids or {})
+        MAX_EXTRACTION_RETRIES = 3
+        permanently_failed = {fid for fid, cnt in failed_counts.items() if cnt >= MAX_EXTRACTION_RETRIES}
+        new_files = [f for f in source_files if f["id"] not in processed_ids and f["id"] not in permanently_failed]
 
         logger.info(
             "Pipeline %s (%s): found %d supported file(s) in folder, %d already processed, %d new",
@@ -204,7 +207,13 @@ async def _check_pipeline(pipeline: Pipeline) -> None:
         )
         if source_files:
             for f in source_files:
-                logger.info("  File: %s (id=%s) %s", f["name"], f["id"][:20], "NEW" if f["id"] not in processed_ids else "already processed")
+                if f["id"] in permanently_failed:
+                    tag = "SKIPPED (permanently failed)"
+                elif f["id"] in processed_ids:
+                    tag = "already processed"
+                else:
+                    tag = "NEW"
+                logger.info("  File: %s (id=%s) %s", f["name"], f["id"][:20], tag)
 
         if not new_files:
             p.last_checked_at = datetime.utcnow()
@@ -457,6 +466,26 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
                 r.status = "failed"
                 r.error_message = str(exc)
                 r.completed_at = datetime.utcnow()
+
+            if "NO_DATA_EXTRACTED" in str(exc):
+                p_res = await db.execute(select(Pipeline).where(Pipeline.id == pipeline_id))
+                p = p_res.scalar_one_or_none()
+                if p:
+                    failed = dict(p.failed_file_ids or {})
+                    failed[file_info["id"]] = failed.get(file_info["id"], 0) + 1
+                    p.failed_file_ids = failed
+                    count = failed[file_info["id"]]
+                    if count >= 3:
+                        logger.warning(
+                            "Pipeline %s: permanently skipping %s after %d failed extraction attempts",
+                            pipeline_id, file_info["name"], count,
+                        )
+                    else:
+                        logger.info(
+                            "Pipeline %s: extraction attempt %d/3 failed for %s, will retry",
+                            pipeline_id, count, file_info["name"],
+                        )
+
             await db.commit()
     finally:
         if tmp_path and os.path.exists(tmp_path):
