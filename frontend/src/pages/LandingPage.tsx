@@ -28,7 +28,14 @@ const msalInstance = new PublicClientApplication({
   },
   cache: { cacheLocation: 'sessionStorage' },
 })
-const msalRedirectResult = msalInstance.initialize().then(() => msalInstance.handleRedirectPromise())
+const msalRedirectResult = msalInstance.initialize()
+  .then(() => msalInstance.handleRedirectPromise())
+  .then((result) => {
+    if (window.location.hash.includes('state=') || window.location.search.includes('state=')) {
+      window.history.replaceState(null, '', `${window.location.pathname}`)
+    }
+    return result
+  })
 
 /* ─── Feature cards (Purpose-built AI) ──────────────────────────────────────── */
 const FEATURES = [
