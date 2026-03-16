@@ -754,17 +754,6 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
     }
   }, [open])
 
-  // Auto-fill name from source in create mode
-  useEffect(() => {
-    if (!isEdit && !pipelineName) {
-      if (provider === 'outlook' && outlookConfig.folder_name) {
-        setPipelineName(`${outlookConfig.folder_name} Pipeline`)
-      } else if (sourceFolder) {
-        setPipelineName(`${sourceFolder.name} Pipeline`)
-      }
-    }
-  }, [sourceFolder, outlookConfig.folder_name, provider])
-
   const handleConnect = () => {
     if (!provider) return
     const endpoint = provider === 'google_drive'

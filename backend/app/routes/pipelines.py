@@ -551,6 +551,9 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new pipeline."""
+    cleaned_name = (body.name or "").strip()
+    if not cleaned_name:
+        raise HTTPException(status_code=400, detail="Pipeline name is required")
     if body.source_type not in ("google_drive", "sharepoint", "dropbox", "box", "outlook"):
         raise HTTPException(status_code=400, detail="Invalid source_type")
     if body.dest_format not in ("xlsx", "csv"):
@@ -576,7 +579,7 @@ async def create_pipeline(
 
     pipeline = Pipeline(
         user_id=current_user.id,
-        name=body.name,
+        name=cleaned_name,
         source_type=body.source_type,
         source_folder_id=body.source_folder_id,
         source_folder_name=body.source_folder_name,
@@ -615,7 +618,10 @@ async def update_pipeline(
         raise HTTPException(status_code=404, detail="Pipeline not found")
 
     if body.name is not None:
-        pipeline.name = body.name
+        cleaned_name = body.name.strip()
+        if not cleaned_name:
+            raise HTTPException(status_code=400, detail="Pipeline name is required")
+        pipeline.name = cleaned_name
     if body.status is not None:
         if body.status not in ("active", "paused"):
             raise HTTPException(status_code=400, detail="Status must be 'active' or 'paused'")
