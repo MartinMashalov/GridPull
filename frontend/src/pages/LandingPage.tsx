@@ -28,6 +28,7 @@ const msalInstance = new PublicClientApplication({
   },
   cache: { cacheLocation: 'sessionStorage' },
 })
+const msalReady = msalInstance.initialize()
 
 /* ─── Feature cards (Purpose-built AI) ──────────────────────────────────────── */
 const FEATURES = [
@@ -382,7 +383,7 @@ export default function LandingPage() {
     setLoginError(null)
     trackEvent('login_start', { method: 'microsoft' })
     try {
-      await msalInstance.initialize()
+      await msalReady
       const result = await msalInstance.loginPopup({
         scopes: ['User.Read', 'openid', 'profile', 'email'],
       })
@@ -393,13 +394,21 @@ export default function LandingPage() {
       trackEvent('login_success', { method: 'microsoft' })
       navigate('/dashboard')
     } catch (err: any) {
+      console.error('Microsoft login error:', err.errorCode, err.errorMessage || err.message, err)
       if (err.errorCode === 'user_cancelled') {
         setLoginError('Microsoft sign-in was cancelled. Please try again.')
         trackEvent('login_cancelled', { method: 'microsoft' })
+      } else if (err.errorCode === 'popup_window_error' || err.errorCode === 'empty_window_error') {
+        setLoginError('Popup was blocked by your browser. Please allow popups for this site and try again.')
+        trackEvent('login_error', { method: 'microsoft', error: err.errorCode })
+      } else if (err.errorCode === 'interaction_in_progress') {
+        setLoginError('A sign-in is already in progress. Please wait or refresh the page.')
+        trackEvent('login_error', { method: 'microsoft', error: err.errorCode })
       } else {
         const detail = err.response?.data?.detail
-        setLoginError(typeof detail === 'string' ? detail : 'Microsoft login failed. Please try again.')
-        trackEvent('login_error', { method: 'microsoft' })
+        const msalMessage = err.errorMessage || err.message
+        setLoginError(typeof detail === 'string' ? detail : (typeof msalMessage === 'string' ? msalMessage : 'Microsoft login failed. Please try again.'))
+        trackEvent('login_error', { method: 'microsoft', error: err.errorCode || 'unknown' })
       }
     } finally {
       setLoading(false)
