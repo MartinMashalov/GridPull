@@ -6,10 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import urllib.parse
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, List
 
 import httpx
@@ -23,15 +21,12 @@ _DROPBOX_TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 _DROPBOX_API = "https://api.dropboxapi.com/2"
 _DROPBOX_CONTENT_API = "https://content.dropboxapi.com/2"
 _SCOPES = "files.metadata.read files.content.read files.content.write sharing.write account_info.read"
-_BACKEND_ENV = {}
-_BACKEND_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-if _BACKEND_ENV_PATH.exists():
-    for line in _BACKEND_ENV_PATH.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        _BACKEND_ENV[key.strip()] = value.strip().strip("'").strip('"')
+_DROPBOX_CLIENT_ID = (settings.dropbox_client_id or settings.dropbox_app_key or "").strip().strip("'").strip('"')
+_DROPBOX_CLIENT_SECRET = (settings.dropbox_client_secret or settings.dropbox_app_secret or "").strip().strip("'").strip('"')
+if _DROPBOX_CLIENT_ID.lower() in {"none", "null"}:
+    _DROPBOX_CLIENT_ID = ""
+if _DROPBOX_CLIENT_SECRET.lower() in {"none", "null"}:
+    _DROPBOX_CLIENT_SECRET = ""
 
 def _folder_path(folder_id: str) -> str:
     return "" if folder_id in ("", "root", "/") else folder_id
@@ -43,27 +38,10 @@ def _join_path(folder_id: str, filename: str) -> str:
 
 
 def get_auth_url(redirect_uri: str, state: str) -> str:
-    client_id = next(
-        (
-            value
-            for value in (
-                settings.dropbox_client_id,
-                settings.dropbox_app_key,
-                os.getenv("DROPBOX_CLIENT_ID"),
-                os.getenv("DROPBOX_APP_KEY"),
-                _BACKEND_ENV.get("DROPBOX_CLIENT_ID"),
-                _BACKEND_ENV.get("DROPBOX_APP_KEY"),
-            )
-            if value
-            and value.strip().strip("'").strip('"')
-            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
-        ),
-        "",
-    ).strip().strip("'").strip('"')
-    if not client_id:
+    if not _DROPBOX_CLIENT_ID:
         raise ValueError("Dropbox client ID is not configured")
     params = {
-        "client_id": client_id,
+        "client_id": _DROPBOX_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "state": state,
@@ -74,47 +52,13 @@ def get_auth_url(redirect_uri: str, state: str) -> str:
 
 
 async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
-    client_id = next(
-        (
-            value
-            for value in (
-                settings.dropbox_client_id,
-                settings.dropbox_app_key,
-                os.getenv("DROPBOX_CLIENT_ID"),
-                os.getenv("DROPBOX_APP_KEY"),
-                _BACKEND_ENV.get("DROPBOX_CLIENT_ID"),
-                _BACKEND_ENV.get("DROPBOX_APP_KEY"),
-            )
-            if value
-            and value.strip().strip("'").strip('"')
-            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
-        ),
-        "",
-    ).strip().strip("'").strip('"')
-    client_secret = next(
-        (
-            value
-            for value in (
-                settings.dropbox_client_secret,
-                settings.dropbox_app_secret,
-                os.getenv("DROPBOX_CLIENT_SECRET"),
-                os.getenv("DROPBOX_APP_SECRET"),
-                _BACKEND_ENV.get("DROPBOX_CLIENT_SECRET"),
-                _BACKEND_ENV.get("DROPBOX_APP_SECRET"),
-            )
-            if value
-            and value.strip().strip("'").strip('"')
-            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
-        ),
-        "",
-    ).strip().strip("'").strip('"')
-    if not client_id or not client_secret:
+    if not _DROPBOX_CLIENT_ID or not _DROPBOX_CLIENT_SECRET:
         raise ValueError("Dropbox OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_DROPBOX_TOKEN_URL, data={
             "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": _DROPBOX_CLIENT_ID,
+            "client_secret": _DROPBOX_CLIENT_SECRET,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         })
@@ -123,47 +67,13 @@ async def exchange_code(code: str, redirect_uri: str) -> Dict[str, Any]:
 
 
 async def _refresh_token(conn: Any) -> str:
-    client_id = next(
-        (
-            value
-            for value in (
-                settings.dropbox_client_id,
-                settings.dropbox_app_key,
-                os.getenv("DROPBOX_CLIENT_ID"),
-                os.getenv("DROPBOX_APP_KEY"),
-                _BACKEND_ENV.get("DROPBOX_CLIENT_ID"),
-                _BACKEND_ENV.get("DROPBOX_APP_KEY"),
-            )
-            if value
-            and value.strip().strip("'").strip('"')
-            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
-        ),
-        "",
-    ).strip().strip("'").strip('"')
-    client_secret = next(
-        (
-            value
-            for value in (
-                settings.dropbox_client_secret,
-                settings.dropbox_app_secret,
-                os.getenv("DROPBOX_CLIENT_SECRET"),
-                os.getenv("DROPBOX_APP_SECRET"),
-                _BACKEND_ENV.get("DROPBOX_CLIENT_SECRET"),
-                _BACKEND_ENV.get("DROPBOX_APP_SECRET"),
-            )
-            if value
-            and value.strip().strip("'").strip('"')
-            and value.strip().strip("'").strip('"').lower() not in {"none", "null"}
-        ),
-        "",
-    ).strip().strip("'").strip('"')
-    if not client_id or not client_secret:
+    if not _DROPBOX_CLIENT_ID or not _DROPBOX_CLIENT_SECRET:
         raise ValueError("Dropbox OAuth credentials are not configured")
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_DROPBOX_TOKEN_URL, data={
             "refresh_token": conn.refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": _DROPBOX_CLIENT_ID,
+            "client_secret": _DROPBOX_CLIENT_SECRET,
             "grant_type": "refresh_token",
         })
         resp.raise_for_status()
