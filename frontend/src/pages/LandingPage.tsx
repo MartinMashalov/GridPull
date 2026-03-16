@@ -28,7 +28,7 @@ const msalInstance = new PublicClientApplication({
   },
   cache: { cacheLocation: 'sessionStorage' },
 })
-const msalReady = msalInstance.initialize()
+const msalRedirectResult = msalInstance.initialize().then(() => msalInstance.handleRedirectPromise())
 
 /* ─── Feature cards (Purpose-built AI) ──────────────────────────────────────── */
 const FEATURES = [
@@ -352,8 +352,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     let cancelled = false
-    msalReady
-      .then(() => msalInstance.handleRedirectPromise())
+    msalRedirectResult
       .then(async (result) => {
         if (cancelled || !result) return
         setLoading(true)
@@ -415,7 +414,7 @@ export default function LandingPage() {
     setLoginError(null)
     trackEvent('login_start', { method: 'microsoft' })
     try {
-      await msalReady
+      await msalRedirectResult
       await msalInstance.loginRedirect({
         scopes: ['User.Read', 'openid', 'profile', 'email'],
       })
