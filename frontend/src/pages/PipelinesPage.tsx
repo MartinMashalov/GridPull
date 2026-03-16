@@ -364,6 +364,12 @@ export default function PipelinesPage() {
 
   return (
     <div className="h-full flex flex-col bg-background">
+      {/* Page header — always visible */}
+      <div className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 border-b border-border">
+        <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">Automate extraction from your cloud folders</p>
+      </div>
+
       {/* Body */}
       <div className="flex-1 overflow-y-auto flex flex-col">
         {loading ? (
@@ -422,14 +428,7 @@ export default function PipelinesPage() {
           </div>
         ) : (
           <div className="p-4 sm:p-6 max-w-5xl mx-auto w-full">
-            {/* Header with description */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-5">
-              <div>
-                <h1 className="text-lg font-semibold text-foreground">Pipelines</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  Your automated extraction workflows. Each pipeline watches a folder and processes new documents automatically.
-                </p>
-              </div>
+            <div className="flex justify-end mb-4">
               <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
                 <Plus size={15} /> New Pipeline
               </Button>

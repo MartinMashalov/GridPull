@@ -294,11 +294,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* How it works — inline guide */}
+      {/* How it works — inline guide (hidden on mobile to reduce clutter) */}
       {!job && files.length === 0 && (
-        <div className="mb-6">
+        <div className="mb-6 hidden sm:block">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How it works</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col items-center text-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                 <Upload size={14} className="text-primary" />
@@ -330,9 +330,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Security trust strip */}
+      {/* Security trust strip — hidden on mobile, shown on sm+ */}
       {!job && (
-        <div className="mb-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
+        <div className="mb-5 hidden sm:flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1.5"><Lock size={11} className="text-emerald-500" /> Encrypted in transit</span>
           <span className="flex items-center gap-1.5"><Trash2 size={11} className="text-emerald-500" /> Files deleted after processing</span>
           <span className="flex items-center gap-1.5"><Eye size={11} className="text-emerald-500" /> No human access to your documents</span>
@@ -367,7 +367,7 @@ export default function DashboardPage() {
       <div
         {...getRootProps()}
         className={cn(
-          'border-2 border-dashed rounded-xl p-8 sm:p-14 text-center cursor-pointer transition-all duration-200',
+          'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-all duration-200',
           'bg-white',
           isDragActive
             ? 'border-primary bg-primary/5'
@@ -392,6 +392,14 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Mobile-only compact security line */}
+      {!job && (
+        <p className="mt-2 text-center text-[11px] text-muted-foreground sm:hidden">
+          <Lock size={10} className="inline text-emerald-500 mr-1" />
+          Encrypted · files deleted after processing · no human access
+        </p>
+      )}
 
       {/* Validation message */}
       {validationMsg && (
