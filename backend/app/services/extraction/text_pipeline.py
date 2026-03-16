@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Any, Dict, List
 
-from app.services.pdf_service import ParsedDocument
+from app.services.pdf_service import ParsedDocument, ParsedPage
 
 from .core import (
     _CHUNK_SIZE,
@@ -470,3 +470,65 @@ def _should_extract_multi(doc: ParsedDocument, fields: List[Dict[str, str]]) -> 
         return False
     data_tables = [t for t in doc.tables if t.row_count >= 4 and t.col_count >= 2]
     return len(data_tables) >= 1
+
+
+_PER_PAGE_CONCURRENCY = 4
+
+
+async def extract_per_page(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    usage: LLMUsage,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    """Split document page-by-page, extract a single record from each page concurrently."""
+    field_names = [f["name"] for f in fields]
+    fblock = _fields_block(fields)
+    semaphore = asyncio.Semaphore(_PER_PAGE_CONCURRENCY)
+
+    async def _extract_page(page: ParsedPage) -> List[Dict[str, Any]]:
+        async with semaphore:
+            page_text = f"=== Page {page.page_num} ===\n{page.text}"
+            tables_md = "\n\n".join(
+                f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+                for t in page.tables
+            )
+            parts = [
+                f"--- Document Info ---\n"
+                f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
+                f"Extracting from: page {page.page_num}",
+                f"\n--- Fields to Extract ---\n{fblock}",
+            ]
+            if instructions.strip():
+                parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+            parts.append(f"\n--- Document Text ---\n{page_text}")
+            if tables_md:
+                parts.append(f"\n--- Detected Tables ---\n{tables_md}")
+            parts.append(
+                "\n--- Extraction Mode ---\n"
+                "This page is one of many independent records in a compiled PDF. "
+                "Extract the single record on this page. If the page has no relevant "
+                'data for the requested fields, return: {"records": []}.'
+            )
+            prompt = "\n".join(parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
+            return await _llm_extract(_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage, _TEXT_MODEL)
+
+    page_results = await asyncio.gather(*[_extract_page(p) for p in doc.pages])
+
+    all_rows: List[Dict[str, Any]] = []
+    empty_markers = {"", "n/a", "na", "none", "null", "-", "—"}
+    for rows in page_results:
+        for row in rows:
+            filled = sum(
+                1 for fn in field_names
+                if row.get(fn) is not None
+                and str(row[fn]).strip().lower() not in empty_markers
+            )
+            if filled > 0:
+                all_rows.append(row)
+
+    logger.info(
+        "Per-page extraction for %s: %d pages -> %d non-empty records",
+        doc.filename, doc.page_count, len(all_rows),
+    )
+    return all_rows if all_rows else _empty([doc.filename], field_names)

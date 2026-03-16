@@ -22,6 +22,7 @@ from .text_pipeline import (
     _should_extract_multi,
     extract_multi_record,
     extract_multi_record_chunked,
+    extract_per_page,
     extract_single_record,
 )
 
@@ -67,11 +68,16 @@ async def extract_from_document(
             "for the requested schema.\n\n"
             "Reply with exactly one word:\n"
             "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
-            "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
+            "- multi: the same requested fields can be filled repeatedly from the same file (e.g. rows in a single table)\n"
+            "- multi_paged: the file is a compilation of independent documents/invoices/statements where each page "
+            "(or small group of pages) is a separate record with its own values for the requested fields. "
+            "Examples: a PDF of many invoices concatenated together, monthly statements batched into one file, "
+            "multiple insurance policies or customer accounts printed sequentially.\n\n"
             "Rules:\n"
             "- Base the decision on the requested fields plus the document structure\n"
             "- A file can contain tables and still be single if the requested fields are document-level\n"
             "- A file can be multi even when repeated records are arranged across columns instead of rows\n"
+            "- Use multi_paged ONLY when pages clearly belong to different independent records, not when a single record spans multiple pages\n"
             "- If unsure, reply single\n\n"
             f"Filename: {doc.filename}\n"
             f"Total pages: {doc.page_count}\n"
@@ -90,14 +96,22 @@ async def extract_from_document(
             )
             if planner_resp.usage:
                 usage.add(planner_resp.usage.prompt_tokens, planner_resp.usage.completion_tokens)
-            planner_raw = (planner_resp.choices[0].message.content or "").strip().lower()
-            extraction_mode = "multi" if planner_raw == "multi" else "single"
+            planner_raw = (planner_resp.choices[0].message.content or "").strip().lower().replace("_", "")
+            if "multipaged" in planner_raw or planner_raw == "multi_paged":
+                extraction_mode = "multi_paged"
+            elif planner_raw == "multi":
+                extraction_mode = "multi"
+            else:
+                extraction_mode = "single"
             logger.info("Routing %s -> TEXT pipeline (%s, hint=%s)", doc.filename, extraction_mode, doc.doc_type_hint)
         except Exception as exc:
             extraction_mode = "multi" if _should_extract_multi(doc, fields) else "single"
             logger.warning("Routing planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
 
-        if extraction_mode == "multi":
+        if extraction_mode == "multi_paged":
+            logger.info("TEXT per-page extraction: %s (%d pages)", doc.filename, doc.page_count)
+            rows = await extract_per_page(doc, fields, usage, instructions)
+        elif extraction_mode == "multi":
             if doc.page_count > _CHUNK_THRESHOLD_PAGES:
                 n_chunks = -(-doc.page_count // _CHUNK_SIZE)
                 logger.info("TEXT chunked multi-record: %s (%d pages, %d chunks)", doc.filename, doc.page_count, n_chunks)
