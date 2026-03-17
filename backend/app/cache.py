@@ -69,6 +69,10 @@ class CachedUser:
     stripe_payment_method_id: Optional[str] = None
     stripe_card_brand: Optional[str] = None
     stripe_card_last4: Optional[str] = None
+    subscription_tier: str = "free"
+    subscription_status: str = "active"
+    files_used_this_period: int = 0
+    overage_files_this_period: int = 0
 
     def to_json(self) -> str:
         return json.dumps(
@@ -82,6 +86,10 @@ class CachedUser:
                 "stripe_payment_method_id": self.stripe_payment_method_id,
                 "stripe_card_brand": self.stripe_card_brand,
                 "stripe_card_last4": self.stripe_card_last4,
+                "subscription_tier": self.subscription_tier,
+                "subscription_status": self.subscription_status,
+                "files_used_this_period": self.files_used_this_period,
+                "overage_files_this_period": self.overage_files_this_period,
             }
         )
 
@@ -91,6 +99,10 @@ class CachedUser:
         d.setdefault("stripe_payment_method_id", None)
         d.setdefault("stripe_card_brand", None)
         d.setdefault("stripe_card_last4", None)
+        d.setdefault("subscription_tier", "free")
+        d.setdefault("subscription_status", "active")
+        d.setdefault("files_used_this_period", 0)
+        d.setdefault("overage_files_this_period", 0)
         return cls(**d)
 
     @classmethod
@@ -105,6 +117,10 @@ class CachedUser:
             stripe_payment_method_id=getattr(user, "stripe_payment_method_id", None),
             stripe_card_brand=getattr(user, "stripe_card_brand", None),
             stripe_card_last4=getattr(user, "stripe_card_last4", None),
+            subscription_tier=getattr(user, "subscription_tier", "free") or "free",
+            subscription_status=getattr(user, "subscription_status", "active") or "active",
+            files_used_this_period=getattr(user, "files_used_this_period", 0) or 0,
+            overage_files_this_period=getattr(user, "overage_files_this_period", 0) or 0,
         )
 
 

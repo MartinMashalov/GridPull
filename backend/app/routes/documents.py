@@ -82,7 +82,7 @@ async def start_extraction(
         raise HTTPException(status_code=400, detail="No extraction fields provided")
 
     # ── Subscription-based usage enforcement ──────────────────────────────────
-    tier = get_tier(current_user.subscription_tier or "free")
+    tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
     num_files = len(files)
 
     # Reset usage if period rolled over
@@ -460,7 +460,7 @@ async def get_job_history(
         })
 
     # Current-period count
-    tier = get_tier(current_user.subscription_tier or "free")
+    tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
     from app.routes.payments import _maybe_reset_usage
     result_u = await db.execute(select(User).where(User.id == current_user.id))
     db_user = result_u.scalar_one_or_none()
@@ -508,7 +508,7 @@ async def download_result(
         raise HTTPException(status_code=404, detail="Output file not found")
 
     # Block download for free-tier users who have exceeded their limit
-    tier = get_tier(current_user.subscription_tier or "free")
+    tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
     if tier.name == "free":
         r2 = await db.execute(select(User).where(User.id == current_user.id))
         u = r2.scalar_one_or_none()

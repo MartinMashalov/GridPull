@@ -3,7 +3,7 @@ import { trackEvent } from '@/lib/analytics'
 import {
   CreditCard, User, Zap, Check, StickyNote, Trash2, X,
   Crown, Rocket, Building2, FileText, AlertTriangle,
-  Sparkles, Shield, ChevronRight, BarChart3, Clock,
+  Sparkles, ChevronRight, BarChart3, Clock,
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -491,27 +491,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* Competitive comparison */}
-              <div className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Shield size={14} className="text-emerald-500" />
-                  <p className="text-xs font-semibold">Why we're the best value</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px] text-muted-foreground">
-                  <div>
-                    <p className="font-medium text-foreground">vs. Lido ($29/mo)</p>
-                    <p>100 pages. We give 200 files for $19.</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">vs. Parseur ($49/mo)</p>
-                    <p>$0.10/page. Our Pro is $0.049/file.</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-foreground">vs. Docsumo ($299+)</p>
-                    <p>Our Business is $149 with Pipeline.</p>
-                  </div>
-                </div>
-              </div>
             </>
           ) : null}
         </TabsContent>
