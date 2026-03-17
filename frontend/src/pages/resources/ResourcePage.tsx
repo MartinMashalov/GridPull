@@ -142,17 +142,45 @@ export default function ResourcePage() {
     mainEntityOfPage: resource.canonicalUrl || `https://pdfexcel.ai/resources/${resource.slug}`,
   } : null
 
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://pdfexcel.ai/' },
+      { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://pdfexcel.ai/resources' },
+      { '@type': 'ListItem', position: 3, name: resource.title, item: `https://pdfexcel.ai/resources/${resource.slug}` },
+    ],
+  }
+
+  const pageUrl = `https://pdfexcel.ai/resources/${resource.slug}`
+
   return (
     <>
       <Helmet>
         <title>{resource.metaTitle}</title>
         <meta name="description" content={resource.metaDescription} />
         <meta name="robots" content={isNoindex ? 'noindex, follow' : 'index, follow'} />
-        <link rel="canonical" href={resource.canonicalUrl || `https://pdfexcel.ai/resources/${resource.slug}`} />
+        <link rel="canonical" href={resource.canonicalUrl || pageUrl} />
+        {/* Open Graph */}
         <meta property="og:title" content={resource.metaTitle} />
         <meta property="og:description" content={resource.metaDescription} />
-        <meta property="og:url" content={`https://pdfexcel.ai/resources/${resource.slug}`} />
+        <meta property="og:url" content={pageUrl} />
         <meta property="og:type" content="article" />
+        <meta property="og:site_name" content="PDFexcel.ai" />
+        <meta property="og:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={resource.metaTitle} />
+        {resource.publishedAt && <meta property="article:published_time" content={resource.publishedAt} />}
+        {resource.updatedAt && <meta property="article:modified_time" content={resource.updatedAt} />}
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={resource.metaTitle} />
+        <meta name="twitter:description" content={resource.metaDescription} />
+        <meta name="twitter:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta name="twitter:image:alt" content={resource.metaTitle} />
+        {/* Structured Data */}
+        <script type="application/ld+json">{JSON.stringify(breadcrumbSchema)}</script>
         {faqSchema && <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>}
         {articleSchema && <script type="application/ld+json">{JSON.stringify(articleSchema)}</script>}
       </Helmet>

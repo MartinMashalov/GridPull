@@ -80,6 +80,39 @@ export default function ResourcesHub() {
         <meta name="description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://pdfexcel.ai/resources" />
+        {/* Open Graph */}
+        <meta property="og:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
+        <meta property="og:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
+        <meta property="og:url" content="https://pdfexcel.ai/resources" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="PDFexcel.ai" />
+        <meta property="og:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
+        <meta name="twitter:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, and automating workflows." />
+        <meta name="twitter:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta name="twitter:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
+        {/* Structured Data */}
+        <script type="application/ld+json">{JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: 'PDF to Excel Resources',
+          description: 'Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai.',
+          url: 'https://pdfexcel.ai/resources',
+          publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://pdfexcel.ai' },
+        })}</script>
+        <script type="application/ld+json">{JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://pdfexcel.ai/' },
+            { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://pdfexcel.ai/resources' },
+          ],
+        })}</script>
       </Helmet>
 
       <div className="min-h-screen bg-background">

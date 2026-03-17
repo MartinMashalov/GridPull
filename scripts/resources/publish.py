@@ -178,14 +178,28 @@ def _summary_scores(quality: dict[str, Any]) -> dict[str, Any]:
 
 
 def set_related_resources(resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Set related resources links deterministically based on template type and keywords."""
-    slugs_by_type: dict[str, list[str]] = {}
+    """Set related resources links using ALL published articles plus current candidates.
+
+    This ensures every new article links to existing published content (and vice versa),
+    building the internal link graph that Google values for SEO.
+    """
+    # Combine current candidates with all existing published articles
+    existing = _load_all_published()
+    existing_slugs = {r["slug"] for r in existing}
+    all_resources = list(existing)
     for r in resources:
+        if r["slug"] not in existing_slugs:
+            all_resources.append(r)
+
+    # Build slug-to-type index for all resources
+    slugs_by_type: dict[str, list[str]] = {}
+    for r in all_resources:
         t = r.get("templateType", "")
         if t not in slugs_by_type:
             slugs_by_type[t] = []
         slugs_by_type[t].append(r["slug"])
 
+    # Only set related resources on the current candidates (not re-writing existing)
     for r in resources:
         related = []
         own_slug = r["slug"]
