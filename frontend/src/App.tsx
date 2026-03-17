@@ -1,4 +1,4 @@
-import { Component, ReactNode, useEffect } from 'react'
+import { Component, ReactNode, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { trackPageView } from '@/lib/analytics'
 import LandingPage from '@/pages/LandingPage'
@@ -9,6 +9,9 @@ import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
+
+const ResourcesHub = lazy(() => import('@/pages/resources/ResourcesHub'))
+const ResourcePage = lazy(() => import('@/pages/resources/ResourcePage'))
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null }
@@ -41,6 +44,14 @@ function PageViewTracker() {
     trackPageView(location.pathname, document.title)
   }, [location.pathname])
   return null
+}
+
+function ResourcesLoader() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
 }
 
 export default function App() {
@@ -82,6 +93,8 @@ export default function App() {
         />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        <Route path="/resources" element={<Suspense fallback={<ResourcesLoader />}><ResourcesHub /></Suspense>} />
+        <Route path="/resources/:slug" element={<Suspense fallback={<ResourcesLoader />}><ResourcePage /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </ErrorBoundary>

@@ -1,0 +1,71 @@
+{
+  "run_id": "20260317_144338",
+  "started": "2026-03-17T14:43:38.236244+00:00",
+  "seed_results": {
+    "published_index": [
+      {
+        "slug": "pdf-to-excel",
+        "scores": {
+          "intent": 90,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        }
+      }
+    ],
+    "published_noindex": [
+      {
+        "slug": "batch-convert-pdf-to-excel",
+        "scores": {
+          "intent": 50,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "noindex"
+        },
+        "gate_failures": [
+          "Intent match too low: 50 < 80"
+        ]
+      },
+      {
+        "slug": "bank-statement-pdf-to-excel",
+        "scores": {
+          "intent": 55,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "noindex"
+        },
+        "gate_failures": [
+          "Intent match too low: 55 < 80"
+        ]
+      }
+    ],
+    "drafted": [],
+    "rejected": [
+      {
+        "slug": "invoice-pdf-to-excel",
+        "gate_failures": [
+          "Intent match too low: 55 < 80",
+          "Duplication risk too high: 45 > 20"
+        ]
+      },
+      {
+        "slug": "scanned-pdf-to-excel",
+        "gate_failures": [
+          "Intent match too low: 55 < 80",
+          "Duplication risk too high: 75 > 20"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "completed": "2026-03-17T14:43:38.244932+00:00"
+}

@@ -1180,6 +1180,7 @@ export default function LandingPage() {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
             <a href="/terms" className="hover:text-foreground transition-colors">Terms of Service</a>
+            <a href="/resources" className="hover:text-foreground transition-colors">Resources</a>
             <a href="#security" className="hover:text-foreground transition-colors">Security</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
