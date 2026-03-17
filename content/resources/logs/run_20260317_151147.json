@@ -1,0 +1,106 @@
+{
+  "run_id": "20260317_151147",
+  "started": "2026-03-17T15:11:47.108015+00:00",
+  "discovered": 10,
+  "generated": 10,
+  "publish_results": {
+    "published_index": [
+      {
+        "slug": "pdf-to-csv",
+        "scores": {
+          "intent": 100,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        }
+      },
+      {
+        "slug": "extract-tables-from-pdf",
+        "scores": {
+          "intent": 100,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        }
+      },
+      {
+        "slug": "purchase-order-pdf-to-excel",
+        "scores": {
+          "intent": 100,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        }
+      }
+    ],
+    "published_noindex": [
+      {
+        "slug": "image-table-to-excel",
+        "scores": {
+          "intent": 100,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        },
+        "gate_failures": []
+      },
+      {
+        "slug": "statement-to-spreadsheet",
+        "scores": {
+          "intent": 100,
+          "uniqueness": 100,
+          "thinRisk": 0,
+          "dupRisk": 0,
+          "truthfulness": 100,
+          "helpfulness": 100,
+          "recommendation": "index"
+        },
+        "gate_failures": []
+      }
+    ],
+    "drafted": [
+      {
+        "slug": "supplier-pdf-to-excel",
+        "reason": "Publish quota reached"
+      },
+      {
+        "slug": "automate-pdf-to-excel-workflow",
+        "reason": "Publish quota reached"
+      }
+    ],
+    "rejected": [
+      {
+        "slug": "ocr-pdf-to-excel",
+        "gate_failures": [
+          "Duplication risk too high: 75 > 20"
+        ]
+      },
+      {
+        "slug": "receipt-pdf-to-excel",
+        "gate_failures": [
+          "Duplication risk too high: 75 > 20"
+        ]
+      },
+      {
+        "slug": "financial-statement-pdf-to-excel",
+        "gate_failures": [
+          "Duplication risk too high: 75 > 20"
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "completed": "2026-03-17T15:15:50.649145+00:00"
+}
