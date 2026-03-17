@@ -192,16 +192,28 @@ def _score_thin_content_risk(data: dict[str, Any], template_config: dict, reason
         risk += 15
         reasons.append("Summary too short (< 100 chars)")
 
-    # Total content volume check
-    total_items = sum(
-        len(data.get(f, []))
-        for f in ["whoItsFor", "whenThisIsRelevant", "supportedInputs",
-                   "expectedOutputs", "commonChallenges", "howItWorksSteps",
-                   "whyPdfExcelAiFits", "limitations", "faq", "exampleUseCases"]
-    )
-    if total_items < 15:
-        risk += 15
-        reasons.append(f"Total content items too low ({total_items})")
+    # Editorial content: check sections depth instead of bullet-list volume
+    sections = data.get("sections", [])
+    if sections:
+        min_sections = template_config.get("min_sections", 0)
+        if len(sections) < min_sections:
+            risk += 15
+            reasons.append(f"Too few article sections ({len(sections)} < {min_sections})")
+        total_body = sum(len(s.get("body", "")) for s in sections)
+        if total_body < 600:
+            risk += 15
+            reasons.append(f"Article body too short ({total_body} total chars)")
+    else:
+        # Product content: check bullet-list volume
+        total_items = sum(
+            len(data.get(f, []))
+            for f in ["whoItsFor", "whenThisIsRelevant", "supportedInputs",
+                       "expectedOutputs", "commonChallenges", "howItWorksSteps",
+                       "whyPdfExcelAiFits", "limitations", "faq", "exampleUseCases"]
+        )
+        if total_items < 15:
+            risk += 15
+            reasons.append(f"Total content items too low ({total_items})")
 
     return max(0, min(100, risk))
 
@@ -254,6 +266,7 @@ def _score_truthfulness(data: dict[str, Any], reasons: list[str]) -> int:
 
 def _score_helpfulness(data: dict[str, Any], template_config: dict, reasons: list[str]) -> int:
     """Score how genuinely helpful the content would be to a real user."""
+    is_editorial = template_config.get("is_editorial", False)
     score = 60  # Start at base, add points for good things
 
     # Has substantive FAQ
@@ -263,27 +276,43 @@ def _score_helpfulness(data: dict[str, Any], template_config: dict, reasons: lis
     if faq and all(len(f.get("answer", "")) >= 50 for f in faq):
         score += 5
 
-    # Has clear how-it-works
-    how = data.get("howItWorksSteps", [])
-    if len(how) >= 3:
-        score += 8
+    if is_editorial:
+        # Editorial content: score based on article sections depth
+        sections = data.get("sections", [])
+        if len(sections) >= 4:
+            score += 10
+        elif len(sections) >= 3:
+            score += 6
+        # Check section body depth (substantial paragraphs)
+        if sections:
+            avg_body_len = sum(len(s.get("body", "")) for s in sections) / len(sections)
+            if avg_body_len >= 300:
+                score += 10  # Deep, substantive sections
+            elif avg_body_len >= 150:
+                score += 5
+            else:
+                reasons.append(f"Article sections too shallow (avg {avg_body_len:.0f} chars)")
+        # Has who-its-for
+        if len(data.get("whoItsFor", [])) >= 2:
+            score += 5
+    else:
+        # Product content: score based on product-page fields
+        how = data.get("howItWorksSteps", [])
+        if len(how) >= 3:
+            score += 8
 
-    # Has real limitations (honesty = helpful)
-    limitations = data.get("limitations", [])
-    if len(limitations) >= 2:
-        score += 8
+        limitations = data.get("limitations", [])
+        if len(limitations) >= 2:
+            score += 8
 
-    # Has who-its-for (targeting)
-    if len(data.get("whoItsFor", [])) >= 2:
-        score += 5
+        if len(data.get("whoItsFor", [])) >= 2:
+            score += 5
 
-    # Has example use cases
-    if len(data.get("exampleUseCases", [])) >= 2:
-        score += 5
+        if len(data.get("exampleUseCases", [])) >= 2:
+            score += 5
 
-    # Has trust signals
-    if len(data.get("trustSignals", [])) >= 2:
-        score += 3
+        if len(data.get("trustSignals", [])) >= 2:
+            score += 3
 
     # Has related resources (navigation help)
     if len(data.get("relatedResources", [])) >= 1:
@@ -317,6 +346,9 @@ def _get_all_text(data: dict[str, Any]) -> str:
     for faq in data.get("faq", []):
         parts.append(faq.get("question", ""))
         parts.append(faq.get("answer", ""))
+    for section in data.get("sections", []):
+        parts.append(section.get("heading", ""))
+        parts.append(section.get("body", ""))
     return " ".join(str(p) for p in parts)
 
 

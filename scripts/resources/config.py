@@ -158,4 +158,26 @@ TEMPLATE_TYPES = {
         "min_challenges": 1,
         "min_limitations": 1,
     },
+    "guide": {
+        "required_fields": [
+            "whoItsFor", "sections", "faq", "limitations"
+        ],
+        "min_faq": 4,
+        "min_howItWorks": 0,
+        "min_challenges": 0,
+        "min_limitations": 2,
+        "min_sections": 4,
+        "is_editorial": True,
+    },
+    "industry_insight": {
+        "required_fields": [
+            "whoItsFor", "sections", "faq"
+        ],
+        "min_faq": 3,
+        "min_howItWorks": 0,
+        "min_challenges": 0,
+        "min_limitations": 0,
+        "min_sections": 4,
+        "is_editorial": True,
+    },
 }

@@ -6,7 +6,7 @@ import {
   Users, Clock, FileInput, FileOutput, Zap, HelpCircle, Target, Shield
 } from 'lucide-react'
 import type { ResourceContent } from './types'
-import { TEMPLATE_LABELS } from './types'
+import { TEMPLATE_LABELS, EDITORIAL_TEMPLATES } from './types'
 
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
   return (
@@ -33,6 +33,39 @@ function BulletList({ items, icon }: { items: string[]; icon?: 'check' | 'alert'
       ))}
     </ul>
   )
+}
+
+function ArticleBody({ sections }: { sections: { heading: string; body: string }[] }) {
+  return (
+    <div className="space-y-8">
+      {sections.map((section, i) => (
+        <section key={i}>
+          <h2 className="text-lg font-semibold text-foreground mb-3">{section.heading}</h2>
+          <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+            {section.body}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function estimateReadTime(resource: ResourceContent): number {
+  let totalWords = 0
+  const countWords = (text: string) => text.split(/\s+/).filter(Boolean).length
+  totalWords += countWords(resource.summary || '')
+  for (const s of resource.sections || []) {
+    totalWords += countWords(s.body || '')
+  }
+  for (const f of resource.faq || []) {
+    totalWords += countWords(f.answer || '')
+  }
+  for (const field of ['whoItsFor', 'commonChallenges', 'howItWorksSteps', 'whyPdfExcelAiFits', 'limitations', 'exampleUseCases'] as const) {
+    for (const item of (resource as unknown as Record<string, string[]>)[field] || []) {
+      totalWords += countWords(item || '')
+    }
+  }
+  return Math.max(1, Math.round(totalWords / 230))
 }
 
 function NumberedList({ items }: { items: string[] }) {
@@ -85,6 +118,8 @@ export default function ResourcePage() {
   }
 
   const isNoindex = resource.indexationStatus === 'noindex'
+  const isEditorial = EDITORIAL_TEMPLATES.has(resource.templateType)
+  const readTime = estimateReadTime(resource)
 
   const faqSchema = resource.faq.length > 0 ? {
     '@context': 'https://schema.org',
@@ -94,6 +129,17 @@ export default function ResourcePage() {
       name: f.question,
       acceptedAnswer: { '@type': 'Answer', text: f.answer },
     })),
+  } : null
+
+  const articleSchema = isEditorial ? {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: resource.h1,
+    description: resource.metaDescription,
+    datePublished: resource.publishedAt,
+    dateModified: resource.updatedAt || resource.publishedAt,
+    publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://pdfexcel.ai' },
+    mainEntityOfPage: resource.canonicalUrl || `https://pdfexcel.ai/resources/${resource.slug}`,
   } : null
 
   return (
@@ -108,6 +154,7 @@ export default function ResourcePage() {
         <meta property="og:url" content={`https://pdfexcel.ai/resources/${resource.slug}`} />
         <meta property="og:type" content="article" />
         {faqSchema && <script type="application/ld+json">{JSON.stringify(faqSchema)}</script>}
+        {articleSchema && <script type="application/ld+json">{JSON.stringify(articleSchema)}</script>}
       </Helmet>
 
       <div className="min-h-screen bg-background">
@@ -147,9 +194,19 @@ export default function ResourcePage() {
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight mb-3">
                 {resource.h1}
               </h1>
-              <p className="text-sm text-muted-foreground max-w-2xl mb-4">
+              <p className="text-sm text-muted-foreground max-w-2xl mb-3">
                 {resource.hero.subheadline}
               </p>
+              {(isEditorial || resource.publishedAt) && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground/70 mb-4">
+                  {resource.publishedAt && (
+                    <time dateTime={resource.publishedAt}>
+                      {new Date(resource.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </time>
+                  )}
+                  {isEditorial && <span>{readTime} min read</span>}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Link
                   to="/"
@@ -176,81 +233,111 @@ export default function ResourcePage() {
 
             <div className="grid gap-0 lg:grid-cols-[1fr_280px] lg:gap-10">
               <div>
-                {/* Who it's for */}
-                {resource.whoItsFor.length > 0 && (
-                  <Section icon={Users} title="Who This Is For">
-                    <BulletList items={resource.whoItsFor} />
-                  </Section>
-                )}
-
-                {/* When relevant */}
-                {resource.whenThisIsRelevant.length > 0 && (
-                  <Section icon={Clock} title="When This Is Relevant">
-                    <BulletList items={resource.whenThisIsRelevant} />
-                  </Section>
-                )}
-
-                {/* Supported inputs */}
-                {resource.supportedInputs.length > 0 && (
-                  <Section icon={FileInput} title="Supported Inputs">
-                    <BulletList items={resource.supportedInputs} icon="check" />
-                  </Section>
-                )}
-
-                {/* Expected outputs */}
-                {resource.expectedOutputs.length > 0 && (
-                  <Section icon={FileOutput} title="Expected Outputs">
-                    <BulletList items={resource.expectedOutputs} icon="check" />
-                  </Section>
-                )}
-
-                {/* Common challenges */}
-                {resource.commonChallenges.length > 0 && (
-                  <Section icon={AlertTriangle} title="Common Challenges">
-                    <BulletList items={resource.commonChallenges} />
-                  </Section>
-                )}
-
-                {/* How it works */}
-                {resource.howItWorksSteps.length > 0 && (
-                  <Section icon={Zap} title="How It Works">
-                    <NumberedList items={resource.howItWorksSteps} />
-                  </Section>
-                )}
-
-                {/* Why pdfexcel.ai */}
-                {resource.whyPdfExcelAiFits.length > 0 && (
-                  <Section icon={Target} title="Why PDFexcel.ai">
-                    <BulletList items={resource.whyPdfExcelAiFits} icon="check" />
-                  </Section>
-                )}
-
-                {/* Limitations */}
-                {resource.limitations.length > 0 && (
-                  <Section icon={Shield} title="Limitations & Edge Cases">
-                    <BulletList items={resource.limitations} icon="alert" />
-                  </Section>
-                )}
-
-                {/* Example use cases */}
-                {resource.exampleUseCases.length > 0 && (
-                  <Section icon={Target} title="Example Use Cases">
-                    <BulletList items={resource.exampleUseCases} />
-                  </Section>
-                )}
-
-                {/* FAQ */}
-                {resource.faq.length > 0 && (
-                  <Section icon={HelpCircle} title="Frequently Asked Questions">
-                    <div className="space-y-4">
-                      {resource.faq.map((f, i) => (
-                        <div key={i} className="border border-border/40 rounded-lg p-4">
-                          <h3 className="text-sm font-medium text-foreground mb-1.5">{f.question}</h3>
-                          <p className="text-xs text-muted-foreground leading-relaxed">{f.answer}</p>
-                        </div>
-                      ))}
+                {isEditorial && resource.sections && resource.sections.length > 0 ? (
+                  <>
+                    {/* Editorial: Article body sections */}
+                    <div className="mb-10">
+                      <ArticleBody sections={resource.sections} />
                     </div>
-                  </Section>
+
+                    {/* Who it's for */}
+                    {resource.whoItsFor.length > 0 && (
+                      <Section icon={Users} title="Who This Is For">
+                        <BulletList items={resource.whoItsFor} />
+                      </Section>
+                    )}
+
+                    {/* Limitations / Caveats */}
+                    {resource.limitations.length > 0 && (
+                      <Section icon={Shield} title="Caveats & Limitations">
+                        <BulletList items={resource.limitations} icon="alert" />
+                      </Section>
+                    )}
+
+                    {/* FAQ */}
+                    {resource.faq.length > 0 && (
+                      <Section icon={HelpCircle} title="Frequently Asked Questions">
+                        <div className="space-y-4">
+                          {resource.faq.map((f, i) => (
+                            <div key={i} className="border border-border/40 rounded-lg p-4">
+                              <h3 className="text-sm font-medium text-foreground mb-1.5">{f.question}</h3>
+                              <p className="text-xs text-muted-foreground leading-relaxed">{f.answer}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* Product content: standard sections */}
+                    {resource.whoItsFor.length > 0 && (
+                      <Section icon={Users} title="Who This Is For">
+                        <BulletList items={resource.whoItsFor} />
+                      </Section>
+                    )}
+
+                    {resource.whenThisIsRelevant.length > 0 && (
+                      <Section icon={Clock} title="When This Is Relevant">
+                        <BulletList items={resource.whenThisIsRelevant} />
+                      </Section>
+                    )}
+
+                    {resource.supportedInputs.length > 0 && (
+                      <Section icon={FileInput} title="Supported Inputs">
+                        <BulletList items={resource.supportedInputs} icon="check" />
+                      </Section>
+                    )}
+
+                    {resource.expectedOutputs.length > 0 && (
+                      <Section icon={FileOutput} title="Expected Outputs">
+                        <BulletList items={resource.expectedOutputs} icon="check" />
+                      </Section>
+                    )}
+
+                    {resource.commonChallenges.length > 0 && (
+                      <Section icon={AlertTriangle} title="Common Challenges">
+                        <BulletList items={resource.commonChallenges} />
+                      </Section>
+                    )}
+
+                    {resource.howItWorksSteps.length > 0 && (
+                      <Section icon={Zap} title="How It Works">
+                        <NumberedList items={resource.howItWorksSteps} />
+                      </Section>
+                    )}
+
+                    {resource.whyPdfExcelAiFits.length > 0 && (
+                      <Section icon={Target} title="Why PDFexcel.ai">
+                        <BulletList items={resource.whyPdfExcelAiFits} icon="check" />
+                      </Section>
+                    )}
+
+                    {resource.limitations.length > 0 && (
+                      <Section icon={Shield} title="Limitations & Edge Cases">
+                        <BulletList items={resource.limitations} icon="alert" />
+                      </Section>
+                    )}
+
+                    {resource.exampleUseCases.length > 0 && (
+                      <Section icon={Target} title="Example Use Cases">
+                        <BulletList items={resource.exampleUseCases} />
+                      </Section>
+                    )}
+
+                    {resource.faq.length > 0 && (
+                      <Section icon={HelpCircle} title="Frequently Asked Questions">
+                        <div className="space-y-4">
+                          {resource.faq.map((f, i) => (
+                            <div key={i} className="border border-border/40 rounded-lg p-4">
+                              <h3 className="text-sm font-medium text-foreground mb-1.5">{f.question}</h3>
+                              <p className="text-xs text-muted-foreground leading-relaxed">{f.answer}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+                  </>
                 )}
               </div>
 

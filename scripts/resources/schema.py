@@ -79,6 +79,17 @@ RESOURCE_SCHEMA = {
         },
         "trustSignals": {"type": "array", "items": {"type": "string"}},
         "exampleUseCases": {"type": "array", "items": {"type": "string"}},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["heading", "body"],
+                "properties": {
+                    "heading": {"type": "string", "minLength": 5},
+                    "body": {"type": "string", "minLength": 100},
+                },
+            },
+        },
         "qualityReview": {
             "type": "object",
             "required": [
@@ -91,12 +102,25 @@ RESOURCE_SCHEMA = {
 }
 
 
+EDITORIAL_REQUIRED = [
+    "slug", "title", "metaTitle", "metaDescription", "h1",
+    "primaryKeyword", "secondaryKeywords", "searchIntent",
+    "templateType", "indexationStatus", "canonicalUrl",
+    "hero", "summary", "whoItsFor", "sections",
+    "faq", "relatedResources", "qualityReview"
+]
+
+EDITORIAL_TEMPLATES = {"guide", "industry_insight"}
+
+
 def validate_schema(data: dict[str, Any]) -> list[str]:
     """Validate resource data against the schema. Returns list of error strings."""
     errors = []
 
-    # Check required top-level fields
-    for field in RESOURCE_SCHEMA["required"]:
+    # Check required top-level fields (editorial templates have different requirements)
+    template_type = data.get("templateType", "")
+    required = EDITORIAL_REQUIRED if template_type in EDITORIAL_TEMPLATES else RESOURCE_SCHEMA["required"]
+    for field in required:
         if field not in data:
             errors.append(f"Missing required field: {field}")
 
@@ -125,7 +149,8 @@ def validate_schema(data: dict[str, Any]) -> list[str]:
         errors.append(f"Invalid searchIntent: {data.get('searchIntent')}")
     if data.get("templateType") not in [
         "file_conversion", "document_type", "workflow",
-        "use_case", "comparison", "support_education"
+        "use_case", "comparison", "support_education",
+        "guide", "industry_insight"
     ]:
         errors.append(f"Invalid templateType: {data.get('templateType')}")
     if data.get("indexationStatus") not in ["draft", "published", "noindex", "rejected"]:
@@ -171,6 +196,17 @@ def validate_schema(data: dict[str, Any]) -> list[str]:
                 errors.append(f"qualityReview.{field} must be 0-100")
         if qr.get("indexRecommendation") not in ["index", "noindex"]:
             errors.append(f"qualityReview.indexRecommendation invalid")
+
+    # Sections validation (for editorial content)
+    sections = data.get("sections", [])
+    if isinstance(sections, list):
+        for i, item in enumerate(sections):
+            if not isinstance(item, dict):
+                errors.append(f"sections[{i}] must be an object")
+            elif not item.get("heading") or not item.get("body"):
+                errors.append(f"sections[{i}] missing heading or body")
+            elif isinstance(item.get("body"), str) and len(item["body"]) < 100:
+                errors.append(f"sections[{i}] body too short (min 100 chars, got {len(item['body'])})")
 
     # Slug format
     slug = data.get("slug", "")
