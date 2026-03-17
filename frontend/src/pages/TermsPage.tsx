@@ -19,10 +19,10 @@ export default function TermsPage() {
       {/* Content */}
       <main className="flex-1 py-10 sm:py-16 px-4 sm:px-6">
         <div className="max-w-3xl mx-auto">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Terms of Service</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Terms &amp; Conditions</h1>
           <p className="text-muted-foreground text-sm mb-4">Last updated: March 2026</p>
           <p className="text-muted-foreground text-sm mb-10 leading-relaxed">
-            These Terms of Service ("Terms") govern your use of PDFexcel.ai ("Service"), operated by
+            These Terms &amp; Conditions ("Terms") govern your use of PDFexcel.ai ("Service"), operated by
             Big Vision Systems LLC ("Company", "we", "us", or "our"). By accessing or using the Service,
             you agree to be bound by these Terms. If you do not agree, do not use the Service.
           </p>
@@ -116,8 +116,8 @@ export default function TermsPage() {
                   are deducted as you process documents. All payments are processed securely through Stripe.
                 </p>
                 <p>
-                  <strong>No subscriptions:</strong> There are no recurring charges unless you explicitly enable
-                  the auto-renewal feature, which tops up your balance when it falls below a threshold you set.
+                  <strong>No subscriptions:</strong> We do not charge monthly subscription fees. Optional
+                  auto top-up only reloads your prepaid balance and can be turned on or off at any time.
                 </p>
                 <p>
                   <strong>Refunds:</strong> Account balances are non-refundable except where required by law or

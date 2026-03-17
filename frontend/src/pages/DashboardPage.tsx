@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -12,6 +12,17 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
+
+interface UsageWarning {
+  warning: string | null
+  files_used: number
+  files_limit: number
+  overage_files: number
+  overage_rate: number | null
+  usage_percent: number
+  tier: string
+  next_tier: { name: string; display_name: string; price_monthly: number; files_per_month: number } | null
+}
 
 export type ExportFormat = 'xlsx' | 'csv'
 
@@ -102,15 +113,21 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { user, updateBalance } = useAuthStore()
+  const { user, updateBalance, updateSubscription } = useAuthStore()
   const [files, setFiles] = useState<File[]>([])
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
+  const [usageWarning, setUsageWarning] = useState<UsageWarning | null>(null)
+  const [isPaywalled, setIsPaywalled] = useState(false)
 
   const { event } = useJobProgress(activeJobId)
+
+  useEffect(() => {
+    api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
+  }, [])
 
   // ── Restore active job on page reload ──────────────────────────────────────
   useEffect(() => {
@@ -152,7 +169,7 @@ export default function DashboardPage() {
       if (event.cost != null && user) {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
-      if (event.download_url) {
+      if (event.download_url && !isPaywalled) {
         trackEvent('file_download', { format: exportFormat })
         const token = useAuthStore.getState().token ?? ''
         const a = document.createElement('a')
@@ -224,9 +241,22 @@ export default function DashboardPage() {
       localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format: exportFormat }))
       setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
       setActiveJobId(jobId)
+
+      if (res.data.usage) {
+        updateSubscription({ files_used_this_period: res.data.usage.files_used })
+        api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
+      }
     } catch (err: any) {
       const detail = err.response?.data?.detail
       const status = err.response?.status
+
+      if (status === 402 && typeof detail === 'object' && detail?.type === 'file_limit_reached') {
+        setJob((p) => p ? { ...p, status: 'error', message: 'File limit reached', error: detail.message } : null)
+        setIsPaywalled(true)
+        api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
+        return
+      }
+
       const msg = typeof detail === 'string'
         ? detail
         : status
@@ -251,6 +281,7 @@ export default function DashboardPage() {
     setActiveJobId(null)
     setFiles([])
     setValidationMsg(null)
+    setIsPaywalled(false)
   }
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
@@ -289,10 +320,62 @@ export default function DashboardPage() {
           <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, or JPEGs — choose the fields to extract and download a clean spreadsheet</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Balance:</span>
-          <Badge variant="blue" className="font-mono">${(user?.balance ?? 0).toFixed(2)}</Badge>
+          {usageWarning && (
+            <>
+              <span className="text-xs text-muted-foreground">{usageWarning.files_used}/{usageWarning.files_limit} files</span>
+              <Badge
+                variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
+                className="font-mono text-[11px]"
+              >
+                {user?.subscription_tier === 'free' ? 'Free' : (user?.subscription_tier || 'Free')}
+              </Badge>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Usage warning banner */}
+      {usageWarning?.warning === 'near_limit' && usageWarning.next_tier && (
+        <div className="relative mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={15} className="text-amber-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              You've used {usageWarning.files_used} of {usageWarning.files_limit} files this month
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {usageWarning.overage_rate
+                ? `Extra files cost $${(usageWarning.overage_rate / 100).toFixed(2)} each.`
+                : 'You\'ll be blocked when you hit the limit.'
+              }
+              {' '}Upgrade to {usageWarning.next_tier.display_name} for {usageWarning.next_tier.files_per_month.toLocaleString()} files at ${(usageWarning.next_tier.price_monthly / 100).toFixed(0)}/mo.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => navigate('/settings')} className="flex-shrink-0">
+            <Crown size={12} className="mr-1" /> Upgrade
+          </Button>
+        </div>
+      )}
+
+      {usageWarning?.warning === 'limit_reached_free' && (
+        <div className="relative mb-4 rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center flex-shrink-0">
+            <Lock size={15} className="text-red-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              Free limit reached ({usageWarning.files_limit} files/month)
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Upgrade to Starter for 200 files/month — just $9.50 for your first month.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">
+            Upgrade <ArrowRight size={12} className="ml-1" />
+          </Button>
+        </div>
+      )}
 
       {/* How it works — inline guide (hidden on mobile to reduce clutter) */}
       {!job && files.length === 0 && (
@@ -450,6 +533,7 @@ export default function DashboardPage() {
           format={exportFormat}
           cost={job.cost}
           onNew={handleNew}
+          paywalled={isPaywalled}
         />
       )}
 

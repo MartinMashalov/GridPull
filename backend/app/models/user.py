@@ -14,7 +14,7 @@ class User(Base):
     picture = Column(String, nullable=True)
     google_id = Column(String, unique=True, nullable=True, index=True)
     microsoft_id = Column(String, unique=True, nullable=True, index=True)
-    balance = Column(Float, default=1.0)   # Dollar balance; new users start with $1.00
+    balance = Column(Float, default=1.0)
     is_active = Column(Boolean, default=True)
     auto_renewal_enabled = Column(Boolean, default=False)
     auto_renewal_threshold = Column(Float, default=5.0)
@@ -23,6 +23,17 @@ class User(Base):
     stripe_payment_method_id = Column(String, nullable=True)
     stripe_card_brand = Column(String, nullable=True)
     stripe_card_last4 = Column(String, nullable=True)
+
+    # Subscription fields
+    subscription_tier = Column(String, default="free")  # free / starter / pro / business
+    stripe_subscription_id = Column(String, nullable=True)
+    subscription_status = Column(String, default="active")  # active / canceled / past_due / trialing
+    current_period_end = Column(DateTime, nullable=True)
+    files_used_this_period = Column(Integer, default=0)
+    overage_files_this_period = Column(Integer, default=0)
+    usage_reset_at = Column(DateTime, nullable=True)
+    first_month_discount_used = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

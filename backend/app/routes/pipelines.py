@@ -551,6 +551,14 @@ async def create_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new pipeline."""
+    from app.services.subscription_tiers import get_tier
+    tier = get_tier(current_user.subscription_tier or "free")
+    if not tier.has_pipeline:
+        raise HTTPException(
+            status_code=403,
+            detail="Pipeline auto-processing requires a Business plan. Upgrade in Settings.",
+        )
+
     cleaned_name = (body.name or "").strip()
     if not cleaned_name:
         raise HTTPException(status_code=400, detail="Pipeline name is required")

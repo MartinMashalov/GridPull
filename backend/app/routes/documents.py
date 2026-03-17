@@ -6,6 +6,7 @@ GET  /documents/job/{id}         — poll job status (fallback for non-SSE clien
 GET  /documents/progress/{id}    — SSE stream of real-time progress events
 GET  /documents/results/{id}     — fetch extracted data as JSON (for UI table)
 GET  /documents/download/{id}    — stream the xlsx/csv file
+GET  /documents/history          — paginated job history for current user
 """
 
 import asyncio
@@ -17,7 +18,7 @@ from typing import AsyncIterator, List
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, func, desc
 from sqlalchemy.orm import joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,7 @@ from app.database import get_db
 from app.middleware.auth_middleware import get_current_user, get_current_user_sse
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
+from app.services.subscription_tiers import get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
 
@@ -79,15 +81,38 @@ async def start_extraction(
         logger.warning("Extract request with no fields — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No extraction fields provided")
 
-    if current_user.balance < 0.001:
-        logger.warning(
-            "Extract rejected — insufficient balance $%.6f — user_id=%s",
-            current_user.balance, current_user.id,
-        )
+    # ── Subscription-based usage enforcement ──────────────────────────────────
+    tier = get_tier(current_user.subscription_tier or "free")
+    num_files = len(files)
+
+    # Reset usage if period rolled over
+    from app.routes.payments import _maybe_reset_usage
+    result_u = await db.execute(select(User).where(User.id == current_user.id))
+    db_user = result_u.scalar_one_or_none()
+    if db_user:
+        _maybe_reset_usage(db_user)
+        await db.commit()
+        await db.refresh(db_user)
+        used = db_user.files_used_this_period or 0
+    else:
+        used = current_user.files_used_this_period or 0
+
+    remaining = max(0, tier.files_per_month - used)
+
+    if tier.name == "free" and used + num_files > tier.files_per_month:
         raise HTTPException(
             status_code=402,
-            detail="Insufficient balance — please add funds.",
+            detail={
+                "type": "file_limit_reached",
+                "message": f"Free plan allows {tier.files_per_month} files/month. You've used {used}.",
+                "files_used": used,
+                "files_limit": tier.files_per_month,
+                "tier": tier.name,
+            },
         )
+
+    # Paid tiers: allow overages
+    overage_count = max(0, (used + num_files) - tier.files_per_month)
 
     filenames = [f.filename for f in files]
     logger.info(
@@ -113,7 +138,14 @@ async def start_extraction(
     await db.commit()
     await db.refresh(job)
 
-    logger.info("Job created — job_id=%s user_id=%s", job.id, current_user.id)
+    # Increment usage counters
+    if db_user:
+        db_user.files_used_this_period = (db_user.files_used_this_period or 0) + num_files
+        if overage_count > 0:
+            db_user.overage_files_this_period = (db_user.overage_files_this_period or 0) + overage_count
+        await db.commit()
+
+    logger.info("Job created — job_id=%s user_id=%s files_used=%d", job.id, current_user.id, (db_user.files_used_this_period if db_user else 0))
 
     # Persist uploaded files
     upload_dir = os.path.join(settings.upload_dir, job.id)
@@ -148,7 +180,20 @@ async def start_extraction(
         job.id, queue_depth, current_user.id,
     )
 
-    return {"job_id": job.id, "status": "queued"}
+    new_used = (db_user.files_used_this_period if db_user else used + num_files)
+    usage_pct = (new_used / tier.files_per_month * 100) if tier.files_per_month else 0
+
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "usage": {
+            "files_used": new_used,
+            "files_limit": tier.files_per_month,
+            "usage_percent": min(usage_pct, 100),
+            "overage_files": overage_count,
+            "tier": tier.name,
+        },
+    }
 
 
 @router.get("/job/{job_id}")
@@ -363,6 +408,67 @@ async def cancel_job(
     return {"ok": True}
 
 
+@router.get("/history")
+async def get_job_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Return the user's extraction job history, newest first."""
+    # Total count
+    count_q = await db.execute(
+        select(func.count(ExtractionJob.id)).where(ExtractionJob.user_id == current_user.id)
+    )
+    total = count_q.scalar() or 0
+
+    # Jobs with document filenames
+    result = await db.execute(
+        select(ExtractionJob)
+        .options(joinedload(ExtractionJob.documents))
+        .where(ExtractionJob.user_id == current_user.id)
+        .order_by(desc(ExtractionJob.created_at))
+        .offset(offset)
+        .limit(min(limit, 100))
+    )
+    jobs = result.unique().scalars().all()
+
+    items = []
+    for j in jobs:
+        filenames = [d.filename for d in j.documents] if j.documents else []
+        items.append({
+            "job_id": j.id,
+            "status": j.status,
+            "file_count": j.file_count,
+            "filenames": filenames,
+            "fields": [f["name"] for f in j.fields] if j.fields else [],
+            "format": j.format,
+            "cost": j.cost,
+            "created_at": j.created_at.isoformat() if j.created_at else None,
+        })
+
+    # Current-period count
+    tier = get_tier(current_user.subscription_tier or "free")
+    from app.routes.payments import _maybe_reset_usage
+    result_u = await db.execute(select(User).where(User.id == current_user.id))
+    db_user = result_u.scalar_one_or_none()
+    if db_user:
+        _maybe_reset_usage(db_user)
+        await db.commit()
+
+    files_used = db_user.files_used_this_period if db_user else 0
+    files_limit = tier.files_per_month
+
+    return {
+        "jobs": items,
+        "total": total,
+        "files_used_this_period": files_used,
+        "files_limit": files_limit,
+        "usage_percent": min((files_used / files_limit * 100) if files_limit else 0, 100),
+        "tier": tier.name,
+    }
+
+
 @router.get("/download/{job_id}")
 async def download_result(
     job_id: str,
@@ -388,6 +494,21 @@ async def download_result(
             job_id, job.output_path,
         )
         raise HTTPException(status_code=404, detail="Output file not found")
+
+    # Block download for free-tier users who have exceeded their limit
+    tier = get_tier(current_user.subscription_tier or "free")
+    if tier.name == "free":
+        r2 = await db.execute(select(User).where(User.id == current_user.id))
+        u = r2.scalar_one_or_none()
+        if u and (u.files_used_this_period or 0) > tier.files_per_month:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "type": "paywall",
+                    "message": "Upgrade to download your results",
+                    "tier": "free",
+                },
+            )
 
     file_size = os.path.getsize(job.output_path)
     logger.info(

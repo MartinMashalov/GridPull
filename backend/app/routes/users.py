@@ -17,9 +17,10 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "name": current_user.name,
         "picture": current_user.picture,
         "balance": current_user.balance,
-        "auto_renewal_enabled": current_user.auto_renewal_enabled,
-        "auto_renewal_threshold": current_user.auto_renewal_threshold,
-        "auto_renewal_refill": current_user.auto_renewal_refill,
+        "subscription_tier": current_user.subscription_tier or "free",
+        "subscription_status": current_user.subscription_status or "active",
+        "files_used_this_period": current_user.files_used_this_period or 0,
+        "current_period_end": current_user.current_period_end.isoformat() if current_user.current_period_end else None,
     }
 
 

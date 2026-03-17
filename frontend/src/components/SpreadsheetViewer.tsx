@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { ChevronUp, ChevronDown, ChevronsUpDown, Download, FileSpreadsheet, AlertTriangle, Plus } from 'lucide-react'
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, FileSpreadsheet, AlertTriangle, Plus, Lock, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
+import { useNavigate } from 'react-router-dom'
 
 export interface SpreadsheetViewerProps {
   results: Record<string, string>[]
@@ -12,6 +13,7 @@ export interface SpreadsheetViewerProps {
   format: 'xlsx' | 'csv'
   cost?: number
   onNew?: () => void
+  paywalled?: boolean
 }
 
 type SortDir = 'asc' | 'desc'
@@ -23,10 +25,11 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew, paywalled }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const token = useAuthStore((s) => s.token)
+  const navigate = useNavigate()
 
   const handleDownload = () => {
     const a = document.createElement('a')
@@ -82,10 +85,11 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
             size="icon"
             variant="outline"
             className="h-8 w-8"
-            onClick={handleDownload}
-            title={`Download ${format.toUpperCase()}`}
+            onClick={paywalled ? () => navigate('/settings') : handleDownload}
+            title={paywalled ? 'Upgrade to download' : `Download ${format.toUpperCase()}`}
+            disabled={false}
           >
-            <Download size={14} />
+            {paywalled ? <Lock size={14} /> : <Download size={14} />}
           </Button>
           {onNew && (
             <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onNew}>
@@ -105,66 +109,102 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
       )}
 
       {/* Table */}
-      <div className="overflow-auto max-h-[480px] scrollbar-thin">
-        <table className="w-full text-xs border-collapse min-w-max">
-          <thead className="sticky top-0 z-10">
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col}
-                  onClick={() => toggleSort(col)}
-                  className="group px-4 py-2.5 text-left font-semibold bg-secondary text-muted-foreground cursor-pointer select-none whitespace-nowrap border-r border-border last:border-r-0 hover:bg-accent hover:text-foreground transition-colors"
-                >
-                  <div className="flex items-center gap-1.5">
-                    {col}
-                    <SortIcon field={col} sortField={sortField} dir={sortDir} />
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {displayRows.map((row, ri) => {
-              const hasError = !!row['_error']
-              return (
-                <tr
-                  key={ri}
-                  className={cn(
-                    'border-b border-border transition-colors',
-                    hasError
-                      ? 'bg-red-500/5 hover:bg-red-500/10'
-                      : ri % 2 === 0
-                      ? 'hover:bg-accent/50'
-                      : 'bg-secondary/30 hover:bg-accent/50'
-                  )}
-                >
-                  {columns.map((col) => {
-                    const key = col === 'Source File' ? '_source_file' : col
-                    const val = row[key] ?? ''
-                    return (
-                      <td
-                        key={col}
-                        className="px-4 py-2 text-foreground border-r border-border last:border-r-0 max-w-xs"
-                        title={val}
-                      >
-                        <div className="truncate max-w-[220px]">
-                          {hasError && col === 'Source File' ? (
-                            <span className="flex items-center gap-1 text-red-400">
-                              <AlertTriangle size={11} />
-                              {val}
-                            </span>
-                          ) : (
-                            val || <span className="text-muted-foreground/40 italic">—</span>
+      <div className="relative">
+        <div className={cn(
+          'overflow-auto max-h-[480px] scrollbar-thin',
+          paywalled && 'max-h-[200px] overflow-hidden',
+        )}>
+          <table className={cn(
+            'w-full text-xs border-collapse min-w-max',
+            paywalled && 'select-none',
+          )}>
+            <thead className="sticky top-0 z-10">
+              <tr>
+                {columns.map((col) => (
+                  <th
+                    key={col}
+                    onClick={() => !paywalled && toggleSort(col)}
+                    className="group px-4 py-2.5 text-left font-semibold bg-secondary text-muted-foreground cursor-pointer select-none whitespace-nowrap border-r border-border last:border-r-0 hover:bg-accent hover:text-foreground transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {col}
+                      <SortIcon field={col} sortField={sortField} dir={sortDir} />
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {displayRows.map((row, ri) => {
+                const hasError = !!row['_error']
+                return (
+                  <tr
+                    key={ri}
+                    className={cn(
+                      'border-b border-border transition-colors',
+                      hasError
+                        ? 'bg-red-500/5 hover:bg-red-500/10'
+                        : ri % 2 === 0
+                        ? 'hover:bg-accent/50'
+                        : 'bg-secondary/30 hover:bg-accent/50'
+                    )}
+                  >
+                    {columns.map((col) => {
+                      const key = col === 'Source File' ? '_source_file' : col
+                      const val = row[key] ?? ''
+                      return (
+                        <td
+                          key={col}
+                          className={cn(
+                            'px-4 py-2 text-foreground border-r border-border last:border-r-0 max-w-xs',
+                            paywalled && ri > 0 && 'blur-sm',
                           )}
-                        </div>
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                          title={paywalled && ri > 0 ? '' : val}
+                        >
+                          <div className="truncate max-w-[220px]">
+                            {hasError && col === 'Source File' ? (
+                              <span className="flex items-center gap-1 text-red-400">
+                                <AlertTriangle size={11} />
+                                {val}
+                              </span>
+                            ) : (
+                              val || <span className="text-muted-foreground/40 italic">—</span>
+                            )}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Paywall overlay */}
+        {paywalled && (
+          <div className="absolute inset-x-0 bottom-0 h-full flex items-end">
+            <div className="w-full bg-gradient-to-t from-background via-background/95 to-transparent pt-24 pb-6 px-6">
+              <div className="text-center max-w-sm mx-auto">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                  <Lock size={20} className="text-primary" />
+                </div>
+                <p className="text-base font-semibold mb-1">Upgrade to download your results</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Your extraction is complete! Upgrade to Starter to download this file and get 200 files/month.
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <Button onClick={() => navigate('/settings')} className="gap-1.5">
+                    View Plans <ArrowRight size={14} />
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  Starting at $9.50 for your first month
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Footer */}

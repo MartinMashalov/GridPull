@@ -7,9 +7,10 @@ interface User {
   name: string
   picture?: string
   balance: number
-  auto_renewal_enabled?: boolean
-  auto_renewal_threshold?: number
-  auto_renewal_refill?: number
+  subscription_tier: string
+  subscription_status: string
+  files_used_this_period: number
+  current_period_end?: string | null
 }
 
 interface AuthState {
@@ -17,6 +18,7 @@ interface AuthState {
   token: string | null
   setUser: (user: User, token: string) => void
   updateBalance: (balance: number) => void
+  updateSubscription: (data: Partial<Pick<User, 'subscription_tier' | 'subscription_status' | 'files_used_this_period' | 'current_period_end'>>) => void
   logout: () => void
 }
 
@@ -30,10 +32,14 @@ export const useAuthStore = create<AuthState>()(
         set((state) => ({
           user: state.user ? { ...state.user, balance } : null,
         })),
+      updateSubscription: (data) =>
+        set((state) => ({
+          user: state.user ? { ...state.user, ...data } : null,
+        })),
       logout: () => set({ user: null, token: null }),
     }),
     {
-      name: 'gridpull-auth-v4',
+      name: 'gridpull-auth-v5',
     }
   )
 )

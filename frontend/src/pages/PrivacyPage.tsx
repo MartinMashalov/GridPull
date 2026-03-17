@@ -277,7 +277,7 @@ export default function PrivacyPage() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
-            <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+            <Link to="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</Link>
             <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
           <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>

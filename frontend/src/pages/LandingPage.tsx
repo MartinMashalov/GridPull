@@ -956,7 +956,7 @@ export default function LandingPage() {
             Simple pricing
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            ~$0.0001 per page. No subscriptions.
+            $0.0001 per page. No subscriptions.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
             Start for free — no credit card required. Pay only for what you process after that.
@@ -964,7 +964,7 @@ export default function LandingPage() {
             or lock you into $99+/month plans.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
-            That's up to 90% cheaper than alternatives.
+            That's up to 99.9% cheaper than alternatives.
           </p>
 
           {/* Pricing comparison cards */}
@@ -1179,7 +1179,7 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
-            <a href="/terms" className="hover:text-foreground transition-colors">Terms of Service</a>
+            <a href="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</a>
             <a href="/resources" className="hover:text-foreground transition-colors">Resources</a>
             <a href="#security" className="hover:text-foreground transition-colors">Security</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>

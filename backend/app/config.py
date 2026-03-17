@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     stripe_publishable_key: str = ""
 
+    # Stripe Price IDs for subscription tiers (created in Stripe Dashboard)
+    stripe_price_starter: str = ""
+    stripe_price_pro: str = ""
+    stripe_price_business: str = ""
+    stripe_starter_coupon_id: str = ""  # 50% off first month coupon
+
     # URLs
     frontend_url: str = "http://localhost:3000"
 
