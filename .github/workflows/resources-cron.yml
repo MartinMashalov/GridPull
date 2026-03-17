@@ -1,0 +1,95 @@
+name: Resources SEO Cron
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Cron mode'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - '--discover'
+          - '--generate'
+          - '--publish'
+          - '--sitemap'
+          - '--seed'
+
+jobs:
+  resources-cron:
+    name: Generate & Publish Resources
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    env:
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+      RESOURCES_CRON_ENABLED: 'true'
+      RESOURCES_MAX_CANDIDATES_PER_RUN: '10'
+      RESOURCES_MAX_PUBLISHES_PER_RUN: '5'
+      RESOURCES_MAX_INDEXABLE_PUBLISHES_PER_RUN: '3'
+      RESOURCES_MIN_HELPFULNESS_SCORE: '85'
+      RESOURCES_MIN_UNIQUENESS_SCORE: '80'
+      RESOURCES_MAX_DUPLICATION_RISK: '20'
+      RESOURCES_MIN_TRUTHFULNESS_SCORE: '95'
+      RESOURCES_PUBLISHING_MODE: 'AUTOPUBLISH_STRICT'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run resources cron
+        run: python -m scripts.resources.cron ${{ github.event.inputs.mode }}
+
+      - name: Commit and push new content
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage published content and frontend files
+          git add content/resources/published/ \
+                content/resources/rejected/ \
+                content/resources/drafts/ \
+                content/resources/logs/ \
+                frontend/public/content/resources/ \
+                frontend/public/sitemap-resources.xml \
+            || true
+
+          # Only commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No new content to commit"
+          else
+            git commit -m "chore(resources): auto-publish resources [cron]"
+            git push
+          fi
+
+      - name: Deploy to server
+        if: success()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 157.180.91.138
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/gridpull
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Rebuild frontend only (content changed)
+            docker compose build --no-cache frontend
+            docker compose up -d frontend
+
+            echo "Resources content deployed."
