@@ -48,13 +48,18 @@ def generate_resource(topic: dict[str, Any]) -> dict[str, Any] | None:
         return data
 
     except ImportError:
-        print("[generate] anthropic package not installed. Run: pip install anthropic")
+        print("[generate] FATAL: anthropic package not installed. Run: pip install anthropic")
         return None
     except json.JSONDecodeError as e:
         print(f"[generate] JSON parse error for '{topic['slug']}': {e}")
+        # Log the raw content for debugging
+        if 'content' in dir():
+            print(f"[generate] Raw response (first 500 chars): {content[:500]}")
         return None
     except Exception as e:
-        print(f"[generate] Generation error for '{topic['slug']}': {e}")
+        print(f"[generate] Generation error for '{topic['slug']}': {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 

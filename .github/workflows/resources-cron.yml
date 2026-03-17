@@ -2,8 +2,8 @@ name: Resources SEO Cron
 
 on:
   schedule:
-    # Run every 2 hours
-    - cron: '0 */2 * * *'
+    # Run every hour
+    - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -57,6 +57,23 @@ jobs:
       - name: Run resources cron
         run: python -m scripts.resources.cron ${{ github.event.inputs.mode }}
 
+      - name: Show generated content summary
+        if: always()
+        run: |
+          echo "=== Published resources ==="
+          ls -la content/resources/published/ || echo "No published dir"
+          echo ""
+          echo "=== Frontend resources ==="
+          ls -la frontend/public/content/resources/ || echo "No frontend dir"
+          echo ""
+          echo "=== Latest log ==="
+          LATEST_LOG=$(ls -t content/resources/logs/run_*.json 2>/dev/null | head -1)
+          if [ -n "$LATEST_LOG" ]; then
+            cat "$LATEST_LOG"
+          else
+            echo "No log files found"
+          fi
+
       - name: Commit and push new content
         run: |
           git config user.name "github-actions[bot]"
@@ -75,7 +92,8 @@ jobs:
           if git diff --staged --quiet; then
             echo "No new content to commit"
           else
-            git commit -m "chore(resources): auto-publish resources [cron]"
+            PUBLISHED_COUNT=$(git diff --staged --name-only -- frontend/public/content/resources/ | grep -c '\.json$' || true)
+            git commit -m "chore(resources): auto-publish ${PUBLISHED_COUNT} resources [cron]"
             git push
           fi
 

@@ -105,20 +105,32 @@ def main():
 
             if not topics:
                 print("[cron] No new topics to generate")
+                log["status"] = "no_topics"
                 return
 
             # 2. Generate
             candidates = []
+            generation_errors = []
             for topic in topics:
                 print(f"[cron] Generating: {topic['slug']}...")
                 result = generate_resource(topic)
                 if result:
                     candidates.append(result)
+                    print(f"  -> Generated successfully")
+                else:
+                    generation_errors.append(topic['slug'])
+                    print(f"  -> FAILED to generate")
             log["generated"] = len(candidates)
+            log["generation_failures"] = generation_errors
 
             if not candidates:
-                print("[cron] No candidates generated successfully")
-                return
+                msg = f"[cron] FATAL: All {len(topics)} generations failed. Check CLAUDE_API_KEY and API connectivity."
+                print(msg)
+                log["status"] = "all_generation_failed"
+                log["error"] = msg
+                sys.exit(1)
+
+            print(f"[cron] Generated {len(candidates)}/{len(topics)} candidates")
 
             # 3. Set internal links
             candidates = set_related_resources(candidates)
@@ -127,6 +139,17 @@ def main():
             results = publish_pipeline(candidates)
             log["publish_results"] = results
             _print_results(results)
+
+            # Check if anything was actually published
+            total_published = len(results.get("published_index", [])) + len(results.get("published_noindex", []))
+            log["total_published"] = total_published
+            if total_published == 0:
+                print(f"[cron] WARNING: {len(candidates)} candidates generated but 0 published.")
+                print(f"[cron] Rejected: {len(results.get('rejected', []))}, Drafted: {len(results.get('drafted', []))}")
+                for r in results.get("rejected", []):
+                    print(f"  REJECTED {r['slug']}: {r.get('reason', r.get('gate_failures', ''))}")
+                for d in results.get("drafted", []):
+                    print(f"  DRAFTED {d['slug']}: {d.get('reason', '')}")
 
     except Exception as e:
         log["error"] = str(e)
