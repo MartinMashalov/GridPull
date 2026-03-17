@@ -19,6 +19,9 @@ on:
           - '--sitemap'
           - '--seed'
 
+permissions:
+  contents: write
+
 jobs:
   resources-cron:
     name: Generate & Publish Resources
