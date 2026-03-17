@@ -21,6 +21,11 @@ export interface QualityReview {
   reasons: string[]
 }
 
+export interface ArticleSection {
+  heading: string
+  body: string
+}
+
 export interface ResourceContent {
   slug: string
   title: string
@@ -30,7 +35,7 @@ export interface ResourceContent {
   primaryKeyword: string
   secondaryKeywords: string[]
   searchIntent: string
-  templateType: 'file_conversion' | 'document_type' | 'workflow' | 'use_case' | 'comparison' | 'support_education'
+  templateType: 'file_conversion' | 'document_type' | 'workflow' | 'use_case' | 'comparison' | 'support_education' | 'guide' | 'industry_insight'
   indexationStatus: 'draft' | 'published' | 'noindex' | 'rejected'
   canonicalUrl: string
   hero: ResourceHero
@@ -43,6 +48,7 @@ export interface ResourceContent {
   howItWorksSteps: string[]
   whyPdfExcelAiFits: string[]
   limitations: string[]
+  sections?: ArticleSection[]
   faq: ResourceFAQItem[]
   relatedResources: string[]
   relatedProductLinks: { label: string; url: string }[]
@@ -77,9 +83,13 @@ export const TEMPLATE_LABELS: Record<string, string> = {
   use_case: 'Use Case Guide',
   comparison: 'Comparison',
   support_education: 'Tutorial',
+  guide: 'In-Depth Guide',
+  industry_insight: 'Industry Insight',
 }
 
 export const CATEGORY_MAP: Record<string, string> = {
+  guide: 'Guides & How-Tos',
+  industry_insight: 'Industry Insights',
   file_conversion: 'Conversion Guides',
   document_type: 'Document-Specific Guides',
   workflow: 'Workflow Automation',
@@ -87,3 +97,5 @@ export const CATEGORY_MAP: Record<string, string> = {
   comparison: 'Comparisons',
   support_education: 'Tutorials',
 }
+
+export const EDITORIAL_TEMPLATES = new Set(['guide', 'industry_insight'])

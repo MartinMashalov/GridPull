@@ -231,6 +231,223 @@ SEED_TOPICS = [
         "priority": 7,
         "angle": "Comparison with the common copy-paste approach and its limitations",
     },
+
+    # =========================================================================
+    # EDITORIAL CONTENT — Original articles for SEO authority
+    # These are educational, genuinely useful articles that build topical
+    # authority. Product mentions are minimal and natural.
+    # =========================================================================
+
+    # F. Guides — practical how-to articles
+    {
+        "keyword": "how to extract data from pdf",
+        "slug": "how-to-extract-data-from-pdf",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 10,
+        "angle": "Comprehensive guide covering all methods: copy-paste, Python libraries, online tools, AI extraction. Honest pros/cons of each.",
+    },
+    {
+        "keyword": "pdf table extraction methods",
+        "slug": "pdf-table-extraction-methods-compared",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Technical comparison of extraction approaches: regex, coordinate-based, ML-based, template-based. When each works best.",
+    },
+    {
+        "keyword": "how ocr works",
+        "slug": "how-ocr-works-explained",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Plain-language explanation of OCR technology: from image preprocessing to character recognition to modern neural approaches.",
+    },
+    {
+        "keyword": "why copying from pdf is so hard",
+        "slug": "why-copying-from-pdf-is-so-hard",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Explains PDF internals — why PDFs store visual layout not data structure, and why table boundaries get lost. Technical but accessible.",
+    },
+    {
+        "keyword": "how to digitize paper documents",
+        "slug": "how-to-digitize-paper-documents",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Practical guide to scanning, OCR, and organizing paper documents. Covers equipment, software, workflows, and common mistakes.",
+    },
+    {
+        "keyword": "pdf format explained",
+        "slug": "understanding-the-pdf-file-format",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "How PDFs actually store data internally — objects, streams, fonts, content streams. Why this makes extraction challenging.",
+    },
+    {
+        "keyword": "data entry automation guide",
+        "slug": "data-entry-automation-guide",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Complete guide to automating manual data entry: OCR, RPA, AI extraction, APIs. Includes decision framework for choosing approach.",
+    },
+    {
+        "keyword": "spreadsheet data cleaning tips",
+        "slug": "spreadsheet-data-cleaning-tips",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 7,
+        "angle": "Practical techniques for cleaning messy spreadsheet data: deduplication, formatting, validation, formulas. Tool-agnostic advice.",
+    },
+    {
+        "keyword": "how to organize financial documents",
+        "slug": "how-to-organize-financial-documents",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 7,
+        "angle": "Guide to organizing invoices, receipts, statements, and tax documents. Digital filing systems, naming conventions, retention policies.",
+    },
+    {
+        "keyword": "invoice processing best practices",
+        "slug": "invoice-processing-best-practices",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Best practices for accounts payable: intake, validation, approval workflows, error reduction. Industry-standard advice.",
+    },
+    {
+        "keyword": "bank statement reconciliation guide",
+        "slug": "bank-statement-reconciliation-guide",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Step-by-step guide to reconciling bank statements with accounting records. Manual vs automated approaches, common discrepancies.",
+    },
+    {
+        "keyword": "common pdf extraction mistakes",
+        "slug": "common-pdf-extraction-mistakes",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Real-world mistakes people make when extracting data from PDFs: wrong tool choice, ignoring encoding, skipping validation. How to avoid each.",
+    },
+    {
+        "keyword": "structured vs unstructured data explained",
+        "slug": "structured-vs-unstructured-data-explained",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 7,
+        "angle": "Clear explanation of structured, semi-structured, and unstructured data with real examples. Why it matters for document processing.",
+    },
+    {
+        "keyword": "how ai reads documents",
+        "slug": "how-ai-reads-documents",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "How modern AI systems process documents: vision models, layout analysis, field extraction. Real capabilities vs marketing hype.",
+    },
+    {
+        "keyword": "excel vs csv when to use which",
+        "slug": "excel-vs-csv-when-to-use-which",
+        "template": "guide",
+        "cluster": "editorial_guide",
+        "intent": "informational",
+        "priority": 7,
+        "angle": "Practical comparison of Excel and CSV formats: compatibility, size limits, formulas, encoding pitfalls. Decision guide for each use case.",
+    },
+
+    # G. Industry insights — thought leadership and original analysis
+    {
+        "keyword": "state of document processing",
+        "slug": "state-of-document-processing-2026",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Analysis of where document processing stands: adoption rates, technology shifts, remaining challenges. Based on observable industry trends.",
+    },
+    {
+        "keyword": "why manual data entry persists",
+        "slug": "why-manual-data-entry-persists",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Honest analysis of why businesses still rely on manual data entry despite automation tools. Trust gaps, edge cases, organizational inertia.",
+    },
+    {
+        "keyword": "future of ocr technology",
+        "slug": "future-of-ocr-technology",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Where OCR is heading: multimodal AI, layout-aware models, domain-specific fine-tuning. Honest assessment of progress and remaining gaps.",
+    },
+    {
+        "keyword": "small business document automation",
+        "slug": "small-business-document-automation-guide",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Realistic guide for small businesses: where to start, what to automate first, common pitfalls, ROI expectations. Not vendor-specific.",
+    },
+    {
+        "keyword": "hidden costs of manual document processing",
+        "slug": "hidden-costs-of-manual-document-processing",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Analysis of real costs beyond labor: error rates, compliance risk, opportunity cost, employee burnout. Framework for calculating true cost.",
+    },
+    {
+        "keyword": "accounting automation trends",
+        "slug": "accounting-automation-trends",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 7,
+        "angle": "How accounting workflows are evolving: from manual ledgers to AI-assisted processing. What's working, what's overhyped, what's next.",
+    },
+    {
+        "keyword": "ai document processing accuracy benchmarks",
+        "slug": "ai-document-processing-accuracy-benchmarks",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 9,
+        "angle": "Honest look at accuracy claims in document AI: what 99% really means, how to measure correctly, where systems still fail.",
+    },
+    {
+        "keyword": "document processing security best practices",
+        "slug": "document-processing-security-best-practices",
+        "template": "industry_insight",
+        "cluster": "editorial_insight",
+        "intent": "informational",
+        "priority": 8,
+        "angle": "Security considerations when processing sensitive documents: data residency, encryption, access controls, compliance (GDPR, HIPAA).",
+    },
 ]
 
 
@@ -267,9 +484,17 @@ def _score_opportunity(topic: dict[str, Any], existing_slugs: set[str]) -> float
     if topic["template"] in ("file_conversion", "document_type"):
         score += 10
 
+    # Bonus for editorial content (builds SEO authority)
+    if topic["template"] in ("guide", "industry_insight"):
+        score += 8
+
     # Bonus for transactional intent
     if topic["intent"] == "transactional":
         score += 5
+
+    # Bonus for informational intent (editorial SEO value)
+    if topic["intent"] == "informational":
+        score += 3
 
     # Check cluster saturation - penalize if too many from same cluster
     cluster = topic["cluster"]
