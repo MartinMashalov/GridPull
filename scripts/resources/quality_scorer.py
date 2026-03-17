@@ -97,7 +97,7 @@ def _score_intent_match(data: dict[str, Any], reasons: list[str]) -> int:
     intent_template_map = {
         "transactional": ["file_conversion", "document_type"],
         "commercial": ["comparison", "use_case"],
-        "informational": ["support_education", "workflow"],
+        "informational": ["support_education", "workflow", "guide", "industry_insight"],
     }
     expected_templates = intent_template_map.get(intent, [])
     if expected_templates and template not in expected_templates:
