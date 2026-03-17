@@ -68,8 +68,39 @@ def generate_sitemap() -> str:
 
     xml_content = "\n".join(xml_parts)
 
-    # Write to frontend public directory
-    sitemap_path = FRONTEND_PUBLIC.parent.parent / "sitemap-resources.xml"
+    # Write resources sitemap
+    public_root = FRONTEND_PUBLIC.parent.parent
+    sitemap_path = public_root / "sitemap-resources.xml"
     sitemap_path.write_text(xml_content, encoding="utf-8")
 
+    # Also generate the master sitemap index (references all sub-sitemaps)
+    _generate_sitemap_index(public_root)
+
     return str(sitemap_path)
+
+
+def _generate_sitemap_index(public_root: Path) -> None:
+    """Generate a master sitemap index that references all sub-sitemaps.
+
+    Google discovers all sitemaps through this single entry point referenced
+    in robots.txt.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Collect all sitemap-*.xml files in public root
+    sub_sitemaps = sorted(public_root.glob("sitemap-*.xml"))
+
+    xml_parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for sitemap_file in sub_sitemaps:
+        xml_parts.append("  <sitemap>")
+        xml_parts.append(f"    <loc>{DEFAULT_CANONICAL_BASE_URL}/{sitemap_file.name}</loc>")
+        xml_parts.append(f"    <lastmod>{today}</lastmod>")
+        xml_parts.append("  </sitemap>")
+    xml_parts.append("</sitemapindex>")
+    xml_parts.append("")
+
+    index_path = public_root / "sitemap.xml"
+    index_path.write_text("\n".join(xml_parts), encoding="utf-8")
