@@ -71,11 +71,11 @@ def check_duplication(data: dict[str, Any], existing_resources: list[dict[str, A
                 reasons.append(f"Similar summary to '{existing.get('slug')}'")
 
         # Same template type + similar keyword = keyword swap risk
-        if (existing.get("templateType") == data.get("templateType")
-                and keyword and ex_keyword):
-            if _is_keyword_swap(keyword, ex_keyword):
-                risk = max(risk, 75)
-                reasons.append(f"Possible keyword-swap of '{existing.get('slug')}'")
+        if keyword and ex_keyword and _is_keyword_swap(keyword, ex_keyword):
+            same_template = existing.get("templateType") == data.get("templateType")
+            swap_risk = 60 if same_template else 35
+            risk = max(risk, swap_risk)
+            reasons.append(f"Possible keyword-swap of '{existing.get('slug')}'")
 
         max_risk = max(max_risk, risk)
 
@@ -106,10 +106,11 @@ def _normalize_words(text: str) -> list[str]:
 
 
 def _is_keyword_swap(kw1: str, kw2: str) -> bool:
-    """Detect if two keywords are just swapped versions of each other.
-    E.g., 'pdf to excel' vs 'pdf to csv' - same structure, different output.
-    Only flags true swaps, not legitimate subtopics (e.g., 'invoice pdf to excel'
-    is a legitimate subtopic of 'pdf to excel', not a swap).
+    """Detect if two keywords are truly interchangeable swaps.
+
+    E.g., 'pdf to excel free online' vs 'pdf to excel free tool' — same page,
+    different tail word. But NOT 'invoice pdf to excel' vs 'receipt pdf to excel',
+    which are legitimate separate document-type pages.
     """
     words1 = _normalize_words(kw1)
     words2 = _normalize_words(kw2)
@@ -117,8 +118,8 @@ def _is_keyword_swap(kw1: str, kw2: str) -> bool:
     if not words1 or not words2:
         return False
 
-    # Keywords must be similar length to be swaps (±1 word)
-    if abs(len(words1) - len(words2)) > 1:
+    # Keywords must be same length to be true swaps
+    if len(words1) != len(words2):
         return False
 
     # If one keyword is a subset of the other (subtopic), it's not a swap
@@ -126,11 +127,15 @@ def _is_keyword_swap(kw1: str, kw2: str) -> bool:
     if set1.issubset(set2) or set2.issubset(set1):
         return False
 
-    # True swap: same length, differ by exactly 1 word
     diff = set1.symmetric_difference(set2)
     shared = set1 & set2
 
-    if len(diff) == 2 and len(shared) >= 2:
+    # True swap: differ by exactly 1 word AND the differing words are
+    # synonyms/variants (not distinct document types or qualifiers).
+    # If shared words are the majority (>= 3), it's likely a real swap.
+    # If shared is only 2 (e.g., "pdf" + "excel"), the differing words
+    # likely represent genuinely different topics (invoice vs receipt).
+    if len(diff) == 2 and len(shared) >= 3:
         return True
 
     return False
