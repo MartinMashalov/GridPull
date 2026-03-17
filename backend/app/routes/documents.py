@@ -274,7 +274,11 @@ async def job_progress_sse(
         for d in docs:
             if d.extracted_data:
                 results.extend(d.extracted_data if isinstance(d.extracted_data, list) else [d.extracted_data])
-        field_names = [f["name"] for f in job.fields]
+        field_names = (
+            [f["name"] if isinstance(f, dict) else str(f) for f in job.fields]
+            if isinstance(job.fields, list)
+            else []
+        )
 
         async def _done_stream() -> AsyncIterator[str]:
             event = {
@@ -370,7 +374,11 @@ async def get_results(
     payload = {
         "job_id": job.id,
         "format": job.format,
-        "fields": [f["name"] for f in job.fields],
+        "fields": (
+            [f["name"] if isinstance(f, dict) else str(f) for f in job.fields]
+            if isinstance(job.fields, list)
+            else []
+        ),
         "results": flat_results,
         "cost": job.cost,
     }
@@ -441,7 +449,11 @@ async def get_job_history(
             "status": j.status,
             "file_count": j.file_count,
             "filenames": filenames,
-            "fields": [f["name"] for f in j.fields] if j.fields else [],
+            "fields": (
+                [f["name"] if isinstance(f, dict) else str(f) for f in j.fields]
+                if isinstance(j.fields, list)
+                else []
+            ),
             "format": j.format,
             "cost": j.cost,
             "created_at": j.created_at.isoformat() if j.created_at else None,
