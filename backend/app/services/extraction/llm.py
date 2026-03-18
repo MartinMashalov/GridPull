@@ -43,12 +43,13 @@ async def _llm_extract(
     max_tokens: int = 4_096,
     vision_tokens: bool = False,
 ) -> List[Dict[str, Any]]:
+    system_prompt = f"{_system_with_date(system)}\n\nReturn a valid JSON object only."
     for attempt in range(3):
         try:
             resp = await _litellm_acompletion(
                 model=model,
                 messages=[
-                    {"role": "system", "content": _system_with_date(system)},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0,

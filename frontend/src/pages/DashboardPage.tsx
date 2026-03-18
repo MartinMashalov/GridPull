@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
+import JSZip from 'jszip'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
@@ -61,6 +62,9 @@ export interface JobState {
 
 const _ACTIVE_JOB_KEY = 'gridpull-active-job'
 const _ACCEPTED_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg'])
+const _SUPPORTED_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg'])
+const _ZIP_MIME_TYPES = new Set(['application/zip', 'application/x-zip-compressed'])
+const _ZIP_MAX_SIZE_BYTES = 20 * 1024 * 1024
 
 // ── Progress bar ───────────────────────────────────────────────────────────────
 function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void }) {
@@ -85,11 +89,6 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
             {isError ? 'Extraction Failed' : isComplete ? 'Complete!' : 'Processing…'}
           </span>
           <div className="flex items-center gap-3">
-            {totalDocs > 0 && (
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {completedDocs}/{totalDocs} file{totalDocs !== 1 ? 's' : ''}
-              </span>
-            )}
             {!isComplete && !isError && (
               <button
                 onClick={onCancel}
@@ -184,16 +183,6 @@ export default function DashboardPage() {
       if (event.cost != null && user) {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
       }
-      if (event.download_url && !isPaywalled) {
-        trackEvent('file_download', { format: exportFormat })
-        const token = useAuthStore.getState().token ?? ''
-        const a = document.createElement('a')
-        a.href = `${event.download_url}?token=${encodeURIComponent(token)}`
-        a.download = `export.${exportFormat}`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-      }
     }
 
     if (event.type === 'error') {
@@ -205,13 +194,80 @@ export default function DashboardPage() {
     }
   }, [event])
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const valid = acceptedFiles.filter((f) => _ACCEPTED_TYPES.has(f.type))
-    if (valid.length !== acceptedFiles.length) {
-      setValidationMsg('Only PDF, PNG, and JPEG files are accepted.')
-    } else {
-      setValidationMsg(null)
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    const valid: File[] = []
+    let unsupportedDirectCount = 0
+    let oversizedZipCount = 0
+    let unreadableZipCount = 0
+    let ignoredZipEntryCount = 0
+    let zipWithNoSupportedFilesCount = 0
+
+    for (const droppedFile of acceptedFiles) {
+      const fileName = droppedFile.name.toLowerCase()
+      const ext = fileName.includes('.') ? fileName.split('.').pop() ?? '' : ''
+      const isZip = _ZIP_MIME_TYPES.has(droppedFile.type) || ext === 'zip'
+
+      if (!isZip) {
+        const isSupported = _ACCEPTED_TYPES.has(droppedFile.type) || _SUPPORTED_EXTENSIONS.has(ext)
+        if (isSupported) valid.push(droppedFile)
+        else unsupportedDirectCount += 1
+        continue
+      }
+
+      if (droppedFile.size > _ZIP_MAX_SIZE_BYTES) {
+        oversizedZipCount += 1
+        continue
+      }
+
+      try {
+        const zip = await JSZip.loadAsync(droppedFile)
+        let extractedFromThisZip = 0
+
+        for (const entry of Object.values(zip.files)) {
+          if (entry.dir) continue
+          const entryFileName = entry.name.split('/').pop() ?? ''
+          const entryExt = entryFileName.includes('.') ? (entryFileName.split('.').pop() ?? '').toLowerCase() : ''
+
+          if (!_SUPPORTED_EXTENSIONS.has(entryExt)) {
+            ignoredZipEntryCount += 1
+            continue
+          }
+
+          const blob = await entry.async('blob')
+          const type = entryExt === 'pdf'
+            ? 'application/pdf'
+            : entryExt === 'png'
+              ? 'image/png'
+              : 'image/jpeg'
+          valid.push(new File([blob], entryFileName, { type, lastModified: Date.now() }))
+          extractedFromThisZip += 1
+        }
+
+        if (extractedFromThisZip === 0) zipWithNoSupportedFilesCount += 1
+      } catch {
+        unreadableZipCount += 1
+      }
     }
+
+    const issues: string[] = []
+    if (unsupportedDirectCount > 0) {
+      issues.push(`${unsupportedDirectCount} unsupported file${unsupportedDirectCount > 1 ? 's' : ''} skipped`)
+    }
+    if (oversizedZipCount > 0) {
+      issues.push(`${oversizedZipCount} ZIP file${oversizedZipCount > 1 ? 's' : ''} exceeded 20 MB`)
+    }
+    if (unreadableZipCount > 0) {
+      issues.push(`${unreadableZipCount} ZIP file${unreadableZipCount > 1 ? 's' : ''} could not be read`)
+    }
+    if (zipWithNoSupportedFilesCount > 0) {
+      issues.push(`${zipWithNoSupportedFilesCount} ZIP file${zipWithNoSupportedFilesCount > 1 ? 's' : ''} had no supported files`)
+    }
+    if (ignoredZipEntryCount > 0) {
+      issues.push(`${ignoredZipEntryCount} unsupported ZIP entr${ignoredZipEntryCount === 1 ? 'y' : 'ies'} ignored`)
+    }
+
+    setValidationMsg(issues.length ? issues.join(' · ') : null)
+
     trackEvent('files_uploaded', { count: valid.length })
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name + f.size))
@@ -225,16 +281,22 @@ export default function DashboardPage() {
       'application/pdf': ['.pdf'],
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
+      'application/zip': ['.zip'],
+      'application/x-zip-compressed': ['.zip'],
     },
     multiple: true,
     noKeyboard: true,
   })
 
   const handleProcess = () => {
-    if (!files.length) { setValidationMsg('Upload at least one PDF file.'); return }
+    if (!files.length) { setValidationMsg('Upload at least one supported file.'); return }
     setValidationMsg(null)
     if (documentType === 'quickbooks') {
-      handleExtract(QUICKBOOKS_FIELDS, exportFormat, 'Extract all transactions from this bank statement. For each transaction return the date, description/payee, and amount. Use positive values for deposits/credits and negative for withdrawals/debits.')
+      handleExtract(
+        QUICKBOOKS_FIELDS,
+        exportFormat,
+        'Extract accounting-ready transaction fields from each document. Return Date, Description, and Amount. For invoices, use invoice date, vendor or purpose as Description, and total due as a negative Amount. For statements, use transaction date, payee, and amount with positive values for credits and negative values for debits. If a field is not present in the source, leave it blank.',
+      )
     } else {
       setShowModal(true)
     }
@@ -312,6 +374,8 @@ export default function DashboardPage() {
   filesLengthRef.current = files.length
   const isProcessingRef = useRef(isProcessing)
   isProcessingRef.current = isProcessing
+  const documentTypeRef = useRef(documentType)
+  documentTypeRef.current = documentType
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -336,7 +400,7 @@ export default function DashboardPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs & Images</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, or JPEGs — choose the fields to extract and download a clean spreadsheet</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 20 MB each) — choose fields and download a clean spreadsheet</p>
         </div>
         <div className="flex items-center gap-2">
           {usageWarning && (
@@ -407,7 +471,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <p className="text-xs font-medium text-foreground">1. Upload your documents</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">PDF, PNG, or JPEG — one or many at a time</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">PDF, PNG, JPEG, or ZIP (up to 20 MB)</p>
               </div>
             </div>
             <div className="flex flex-col items-center text-center gap-2">
@@ -448,7 +512,12 @@ export default function DashboardPage() {
           {DOC_TYPE_OPTIONS.map((dt) => (
             <button
               key={dt.id}
-              onClick={() => setDocumentType(dt.id)}
+              onClick={() => {
+                if (documentType === dt.id) return
+                setDocumentType(dt.id)
+                setFiles([])
+                setValidationMsg(null)
+              }}
               className={cn(
                 'flex-1 px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap',
                 documentType === dt.id
@@ -510,7 +579,7 @@ export default function DashboardPage() {
           ) : (
             <div>
               <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
-              <p className="text-muted-foreground text-sm mt-1">Supports PDF, PNG, and JPEG — upload multiple files at once</p>
+              <p className="text-muted-foreground text-sm mt-1">Supports PDF, PNG, JPEG, and ZIP (max 20 MB ZIP) — upload multiple files at once</p>
             </div>
           )}
         </div>
@@ -573,7 +642,6 @@ export default function DashboardPage() {
           fields={job.fields}
           jobId={job.jobId}
           format={exportFormat}
-          cost={job.cost}
           onNew={handleNew}
           paywalled={isPaywalled}
           documentType={documentType}

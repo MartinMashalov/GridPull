@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronUp, ChevronDown, ChevronsUpDown, Download, FileSpreadsheet, AlertTriangle, Plus, Lock, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
@@ -27,7 +26,7 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew, paywalled, documentType }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, cost: _cost, onNew, paywalled, documentType }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const token = useAuthStore((s) => s.token)
@@ -75,8 +74,6 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
     })
   }, [results, sortField, sortDir])
 
-  const hasErrors = results.some((r) => r['_error'])
-
   return (
     <div className="mt-6 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
       {/* Toolbar */}
@@ -87,9 +84,6 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-foreground">Extracted Results</span>
-            {cost != null && (
-              <Badge variant="blue" className="text-[11px]">${cost.toFixed(6)} cost</Badge>
-            )}
           </div>
         </div>
 
@@ -126,14 +120,6 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => handleAccountingDownload('ofx')}>
             <Download size={12} /> Xero
           </Button>
-        </div>
-      )}
-
-      {/* Error notice */}
-      {hasErrors && (
-        <div className="mx-4 mt-3 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-xs text-amber-400">
-          <AlertTriangle size={13} className="flex-shrink-0" />
-          Some rows had extraction errors.
         </div>
       )}
 

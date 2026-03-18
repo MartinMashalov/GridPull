@@ -107,7 +107,7 @@ export default function SettingsPage() {
   const [sub, setSub] = useState<SubscriptionData | null>(null)
   const [loadingSub, setLoadingSub] = useState(true)
   const [subscribing, setSubscribing] = useState<string | null>(null)
-  const [canceling, setCanceling] = useState(false)
+  const [, setCanceling] = useState(false)
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
@@ -295,7 +295,7 @@ export default function SettingsPage() {
             <>
               {/* Current plan card */}
               <div className={cn(
-                'relative overflow-hidden rounded-xl border p-6',
+                'relative overflow-hidden rounded-xl border p-6 pb-4',
                 TIER_BORDER[currentTier],
                 TIER_BG[currentTier],
               )}>
@@ -371,35 +371,6 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Tier details */}
-                <div className="mt-4 pt-4 border-t border-border/50 grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Files/month</p>
-                    <p className="text-sm font-semibold tabular-nums">{sub.tier.files_per_month.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Max pages/file</p>
-                    <p className="text-sm font-semibold tabular-nums">{sub.tier.max_pages_per_file}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Overage rate</p>
-                    <p className="text-sm font-semibold tabular-nums">
-                      {sub.tier.overage_rate ? `$${(sub.tier.overage_rate / 100).toFixed(2)}/file` : 'Blocked'}
-                    </p>
-                  </div>
-                </div>
-
-                {currentTier !== 'free' && sub.status !== 'canceled' && (
-                  <div className="mt-4 pt-3 border-t border-border/50">
-                    <button
-                      onClick={handleCancel}
-                      disabled={canceling}
-                      className="text-xs text-muted-foreground hover:text-red-500 transition-colors"
-                    >
-                      {canceling ? 'Canceling...' : 'Cancel subscription'}
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Tier cards */}

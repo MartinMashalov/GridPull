@@ -159,7 +159,24 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
         }
 
         if (data.type === 'progress' && !resolvedRef.current) {
-          setEvent(data)
+          setEvent((prev) => {
+            if (!prev) return data
+            const prevCount = prev.completed_docs ?? 0
+            const nextCount = data.completed_docs ?? prevCount
+            const prevProgress = prev.progress ?? 0
+            const nextProgress = data.progress ?? prevProgress
+
+            // Ignore late/out-of-order SSE frames that would regress progress.
+            if (nextCount < prevCount || nextProgress < prevProgress) return prev
+
+            return {
+              ...prev,
+              ...data,
+              completed_docs: nextCount,
+              total_docs: data.total_docs ?? prev.total_docs,
+              progress: nextProgress,
+            }
+          })
         }
       } catch {
         // malformed frame — ignore

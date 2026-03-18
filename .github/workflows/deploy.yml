@@ -26,6 +26,8 @@ jobs:
             if [ ! -d /opt/gridpull ]; then
               git clone https://github.com/${{ github.repository }} /opt/gridpull
             fi
+            # Fix ownership drift (for example after manual SCP/upload) so git commands succeed.
+            chown -R root:root /opt/gridpull
             cd /opt/gridpull
             git fetch origin main
             git reset --hard origin/main
@@ -51,11 +53,29 @@ jobs:
             touch /opt/gridpull/app.log
             chmod 666 /opt/gridpull/app.log
 
+            # Ensure cert directories exist and bootstrap temporary cert if missing.
+            # This allows nginx to start so certbot can complete HTTP-01 validation.
+            mkdir -p nginx/certs/live/pdfexcel.ai
+            if [ ! -f nginx/certs/live/pdfexcel.ai/fullchain.pem ] || [ ! -f nginx/certs/live/pdfexcel.ai/privkey.pem ]; then
+              openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+                -keyout nginx/certs/live/pdfexcel.ai/privkey.pem \
+                -out nginx/certs/live/pdfexcel.ai/fullchain.pem \
+                -subj "/CN=pdfexcel.ai"
+            fi
+
             # Build & restart containers
             docker compose down --remove-orphans --volumes || true
             docker rm -f gridpull_redis gridpull_backend gridpull_frontend gridpull_certbot 2>/dev/null || true
             docker compose build --no-cache
             docker compose up -d --remove-orphans
+
+            # Request/renew a trusted certificate from Let's Encrypt using webroot.
+            docker compose run --rm --entrypoint "" certbot certbot certonly \
+              --webroot -w /var/www/certbot \
+              --email admin@pdfexcel.ai \
+              --agree-tos --no-eff-email --non-interactive --keep-until-expiring \
+              -d pdfexcel.ai -d www.pdfexcel.ai
+            docker compose exec -T nginx nginx -s reload
 
             # Prune old images
             docker image prune -f

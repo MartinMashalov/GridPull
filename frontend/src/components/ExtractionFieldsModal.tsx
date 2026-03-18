@@ -14,30 +14,33 @@ const PRESET_FIELDS = [
 ]
 
 const INVOICE_DEFAULTS: ExtractionField[] = [
-  { name: 'Invoice Number', description: '' },
-  { name: 'Date', description: '' },
+  { name: 'Invoice Number', description: 'Unique identifier assigned to the invoice, often labeled Invoice #, Invoice No., or Inv #. Return the exact value as shown.' },
+  { name: 'Date', description: 'Invoice issue date, labeled Invoice Date or Date. Return in MM/DD/YYYY format when possible.' },
   { name: 'Vendor Name', description: 'Company or vendor issuing the invoice' },
-  { name: 'Description', description: '' },
-  { name: 'Amount', description: 'Total invoice amount' },
-  { name: 'Tax Amount', description: '' },
-  { name: 'Due Date', description: '' },
+  { name: 'Description', description: 'Brief summary of the goods or services billed. If multiple line items are present, combine them into a short comma-separated summary.' },
+  { name: 'Amount', description: 'Total invoice amount including taxes and fees, labeled Total, Invoice Total, or Amount Due. Return the numeric value.' },
+  { name: 'Tax Amount', description: 'Tax charged on the invoice, labeled Tax, VAT, GST, or Sales Tax. Return the numeric value, or leave blank if not present.' },
+  { name: 'Due Date', description: 'Payment due date, labeled Due Date, Pay By, or Payment Due. Return in MM/DD/YYYY format when possible.' },
 ]
 
 const SOV_DEFAULTS: ExtractionField[] = [
-  { name: 'Location #', description: '' },
-  { name: 'Address', description: 'Street address' },
-  { name: 'City', description: '' },
-  { name: 'State', description: '' },
-  { name: 'ZIP', description: '' },
-  { name: 'Construction Type', description: 'Frame, Joisted Masonry, Non-Combustible, Masonry Non-Combustible, Fire-Resistive, or Unknown' },
-  { name: 'Year Built', description: '' },
-  { name: 'Square Footage', description: '' },
-  { name: 'Stories', description: 'Number of stories' },
-  { name: 'Building Value', description: 'Replacement cost, not market value' },
-  { name: 'BPP Value', description: 'Business personal property / contents value' },
-  { name: 'Total Insured Value', description: 'Sum of building + BPP + business income' },
-  { name: 'Occupancy', description: 'e.g. Office, Retail, Warehouse, Manufacturing' },
-  { name: 'Sprinklered', description: 'Yes / No / Partial / Unknown' },
+  { name: 'Location Number', description: 'Extract the schedule location identifier exactly as shown in the SOV, including letters, dashes, and leading zeros. This is usually labeled as Location, Loc #, or Location Number and should uniquely identify one site. Example: if the table shows "Loc 0012", return "0012" when the prefix is clearly separate, otherwise return "Loc 0012". One-shot answer: if the row says "Location: 105A", return "105A".' },
+  { name: 'Address Line 1', description: 'Extract the primary street address for the insured location and keep suite, unit, or building numbers when present. Do not include city, state, or ZIP in this field unless the document combines everything on one line and cannot be separated. Example: "1450 W Commerce St, Suite 300" should return exactly "1450 W Commerce St, Suite 300". One-shot answer: if the row shows "901 Market Ave Bldg 2", return "901 Market Ave Bldg 2".' },
+  { name: 'City', description: 'Extract only the city name tied to the location address. Remove commas and avoid including state abbreviations or ZIP codes in this field. Example: from "Dallas, TX 75201", return "Dallas". One-shot answer: if the source line is "City: San Antonio", return "San Antonio".' },
+  { name: 'State', description: 'Extract the state or province code associated with the location, preferring the postal abbreviation when available. If the source uses full state names, keep the full name unless another column already contains the abbreviation. Example: from "CA 94105", return "CA", and from "California" return "California" when no abbreviation is shown. One-shot answer: if the row says "State: NY", return "NY".' },
+  { name: 'ZIP Code', description: 'Extract the postal code for the location exactly as displayed, including ZIP+4 formats when present. Do not include city or state text in this value. Example: "75201-4412" should remain "75201-4412" and not be shortened unless the source only shows five digits. One-shot answer: if the address line ends with "Chicago, IL 60611", return "60611".' },
+  { name: 'Construction Class', description: 'Extract the insurance construction classification used for underwriting, not a generic building description. Normalize obvious variants only when safe, such as mapping "Joist Masonry" to "Joisted Masonry". Example values include Frame, Joisted Masonry, Non-Combustible, Masonry Non-Combustible, and Fire Resistive. One-shot answer: if the schedule says "Constr: NC", return "Non-Combustible" only if the form legend defines NC that way, otherwise return "NC".' },
+  { name: 'Occupancy', description: 'Extract the primary occupancy or use type for the location in underwriting language. Keep concise labels like Office, Retail, Warehouse, Manufacturing, Habitational, or Mixed Use. Example: "Light Manufacturing - Plastics" should return "Light Manufacturing" unless the subtype is the only text provided. One-shot answer: if the row says "Occupancy: Retail Store", return "Retail Store".' },
+  { name: 'Year Built', description: 'Extract the original year of construction for the building and return only the year value. Do not convert to age or include renovation year unless the schedule explicitly labels it as Year Built. Example: from "Year Built: 1987", return "1987". One-shot answer: if you see "Built 2004 / Renovated 2019", return "2004".' },
+  { name: 'Number of Stories', description: 'Extract the count of above-grade stories for the building as shown in the SOV. Return a numeric value and keep half-story notation only when explicitly shown (for example 1.5). Example: "Stories: 3" should return "3". One-shot answer: if the source says "2 Story Masonry", return "2".' },
+  { name: 'Total Area (Sq Ft)', description: 'Extract total building area in square feet for the insured location. Remove commas only if needed by downstream numeric parsing, but do not change the magnitude. Example: "45,250 SF" should return "45250" or "45,250" consistently with your sheet style. One-shot answer: if the row says "Area: 12,800 sq ft", return "12800".' },
+  { name: 'Sprinklered', description: 'Extract fire sprinkler protection status for the site using clear categories. Preferred outputs are Yes, No, Partial, or Unknown unless the schedule provides a more specific phrase that matters for underwriting. Example: "100% Sprinklered" should map to "Yes", while "Partial Wet System" should map to "Partial". One-shot answer: if the source says "No sprinklers", return "No".' },
+  { name: 'Protection Class', description: 'Extract the fire protection class or district designation for the location. Accept any of these label formats: Protection Class, PC, PPC, ISO Class, ISO PPC, Fire District, Fire Protection Class, Prot Class, Prot. Class, Fire Class. The value is often a short number like "3", "5", "10", or a split like "5/9", "3/9X", or a district label like "District 6". It may appear as a standalone column with numeric values and no label on each row — if a column header matches any of these labels, extract the value from that column for each row. If the document states a single protection class or PPC that applies to all locations (e.g. "Protection Class: 5" in a header or notes section), use that value for every row. Leave blank only if genuinely absent from both the row data and the document-level notes. Example: column "PPC" with value "3" → "3"; header says "All locations: Protection Class 5/9" → "5/9".' },
+  { name: 'Building Value', description: 'Extract the insured building amount for the location, typically replacement cost, from the property values section. Return only the monetary figure without commentary and avoid mixing it with contents or business income amounts. Example: "$2,500,000 Building" should return "2500000" or "$2,500,000" based on your number format convention. One-shot answer: if the row shows "Building: 1,200,000", return "1200000".' },
+  { name: 'Contents / BPP Value', description: 'Extract the insured contents or business personal property amount for that location. Treat BPP, Contents, and Personal Property as the same bucket unless the schedule clearly separates them into different columns. Example: "Contents/BPP $475,000" should return "475000". One-shot answer: if the source says "BPP Limit: $90,000", return "90000".' },
+  { name: 'Business Income Value', description: 'Extract the business income or time-element insured amount for the location when provided. Do not infer this value from totals unless the schedule explicitly provides a formula and all components are present. Example: "Business Income: $300,000" should return "300000". One-shot answer: if the row says "Time Element 150,000", return "150000".' },
+  { name: 'Total Insured Value', description: 'Extract the total insured value for the location from the explicit total column when available. If a total is not explicitly listed, compute only when building, contents/BPP, and business income values are all clearly present and additive in the same row. Example: Building 2,000,000 plus BPP 500,000 plus BI 250,000 should return "2750000". One-shot answer: if the schedule shows "TIV: $3,400,000", return "3400000".' },
+  { name: 'Valuation Method', description: 'Extract the valuation basis for each location. First look for a per-row or per-location column with a label such as "Valuation", "Val", "Basis", "Val Method", "Val Basis", "RCV", "ACV", "RC", "Coinsurance", or similar and return that cell value. If no per-row value exists, scan the entire document — including headers, footers, methodology sections, schedule notes, and page 1 — for a document-wide valuation statement that applies to all locations; common phrases include "replacement cost", "replacement cost new", "RCN", "RCV", "actual cash value", "ACV", "agreed value". If found document-wide, use that value for every row. Normalize only obvious abbreviations: "replacement cost" or "replacement cost value" → "RCV"; "replacement cost new" or "RCN" → "RCN"; "actual cash value" → "ACV". Do NOT leave blank if a valuation basis is stated anywhere in the document. Example: per-row column "Valuation: RCV" → "RCV"; document header "All values expressed as Replacement Cost New (RCN)" → "RCN"; schedule note "Coinsurance: 100% RC" → "RCV".' },
 ]
 
 const CUSTOM_DEFAULTS: ExtractionField[] = [
