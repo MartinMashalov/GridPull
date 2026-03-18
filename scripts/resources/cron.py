@@ -98,44 +98,58 @@ def main():
             # Full pipeline
             print("[cron] Running full pipeline...")
 
-            # 1. Discover
+            candidates = []
+
+            # 1. Discover new topics
             topics = discover_topics(MAX_CANDIDATES_PER_RUN)
             print(f"[cron] Discovered {len(topics)} topics")
             log["discovered"] = len(topics)
 
-            if not topics:
-                print("[cron] No new topics to generate")
+            if topics:
+                # 2. Generate new content
+                generation_errors = []
+                for topic in topics:
+                    print(f"[cron] Generating: {topic['slug']}...")
+                    result = generate_resource(topic)
+                    if result:
+                        candidates.append(result)
+                        print(f"  -> Generated successfully")
+                    else:
+                        generation_errors.append(topic['slug'])
+                        print(f"  -> FAILED to generate")
+                log["generated"] = len(candidates)
+                log["generation_failures"] = generation_errors
+
+                if topics and not candidates:
+                    msg = f"[cron] FATAL: All {len(topics)} generations failed. Check CLAUDE_API_KEY and API connectivity."
+                    print(msg)
+                    log["status"] = "all_generation_failed"
+                    log["error"] = msg
+                    sys.exit(1)
+
+                print(f"[cron] Generated {len(candidates)}/{len(topics)} candidates")
+
+            # 3. Load existing drafts for publishing
+            draft_candidates = []
+            for path in DRAFTS_DIR.glob("*.json"):
+                data = load_resource(path)
+                if data and data.get("slug") not in {c.get("slug") for c in candidates}:
+                    draft_candidates.append(data)
+
+            if draft_candidates:
+                print(f"[cron] Found {len(draft_candidates)} existing drafts to retry")
+                candidates.extend(draft_candidates)
+                log["drafts_retried"] = len(draft_candidates)
+
+            if not candidates:
+                print("[cron] No new topics and no drafts to publish")
                 log["status"] = "no_topics"
                 return
 
-            # 2. Generate
-            candidates = []
-            generation_errors = []
-            for topic in topics:
-                print(f"[cron] Generating: {topic['slug']}...")
-                result = generate_resource(topic)
-                if result:
-                    candidates.append(result)
-                    print(f"  -> Generated successfully")
-                else:
-                    generation_errors.append(topic['slug'])
-                    print(f"  -> FAILED to generate")
-            log["generated"] = len(candidates)
-            log["generation_failures"] = generation_errors
-
-            if not candidates:
-                msg = f"[cron] FATAL: All {len(topics)} generations failed. Check CLAUDE_API_KEY and API connectivity."
-                print(msg)
-                log["status"] = "all_generation_failed"
-                log["error"] = msg
-                sys.exit(1)
-
-            print(f"[cron] Generated {len(candidates)}/{len(topics)} candidates")
-
-            # 3. Set internal links
+            # 4. Set internal links
             candidates = set_related_resources(candidates)
 
-            # 4. Publish
+            # 5. Publish
             results = publish_pipeline(candidates)
             log["publish_results"] = results
             _print_results(results)

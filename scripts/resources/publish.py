@@ -85,6 +85,7 @@ def publish_pipeline(candidates: list[dict[str, Any]]) -> dict[str, Any]:
             candidate["canonicalUrl"] = f"{DEFAULT_CANONICAL_BASE_URL}/resources/{slug}"
             save_resource(candidate, PUBLISHED_DIR / f"{slug}.json")
             _deploy_to_frontend(candidate)
+            _remove_draft(slug)
             existing.append(candidate)
             published_count += 1
             indexable_count += 1
@@ -97,6 +98,7 @@ def publish_pipeline(candidates: list[dict[str, Any]]) -> dict[str, Any]:
             candidate["canonicalUrl"] = f"{DEFAULT_CANONICAL_BASE_URL}/resources/{slug}"
             save_resource(candidate, PUBLISHED_DIR / f"{slug}.json")
             _deploy_to_frontend(candidate)
+            _remove_draft(slug)
             existing.append(candidate)
             published_count += 1
             results["published_noindex"].append({
@@ -126,6 +128,13 @@ def _deploy_to_frontend(resource: dict[str, Any]) -> None:
     """Copy resource JSON to the frontend public directory for serving."""
     slug = resource["slug"]
     save_resource(resource, FRONTEND_PUBLIC / f"{slug}.json")
+
+
+def _remove_draft(slug: str) -> None:
+    """Remove a draft file after successful publishing."""
+    draft_path = DRAFTS_DIR / f"{slug}.json"
+    if draft_path.exists():
+        draft_path.unlink()
 
 
 def _update_registry(resources: list[dict[str, Any]]) -> None:
