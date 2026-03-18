@@ -66,13 +66,16 @@ class CachedUser:
     picture: Optional[str]
     balance: float
     is_active: bool
+    stripe_customer_id: Optional[str] = None
     stripe_payment_method_id: Optional[str] = None
     stripe_card_brand: Optional[str] = None
     stripe_card_last4: Optional[str] = None
     subscription_tier: str = "free"
+    stripe_subscription_id: Optional[str] = None
     subscription_status: str = "active"
     files_used_this_period: int = 0
     overage_files_this_period: int = 0
+    first_month_discount_used: bool = False
 
     def to_json(self) -> str:
         return json.dumps(
@@ -83,26 +86,32 @@ class CachedUser:
                 "picture": self.picture,
                 "balance": self.balance,
                 "is_active": self.is_active,
+                "stripe_customer_id": self.stripe_customer_id,
                 "stripe_payment_method_id": self.stripe_payment_method_id,
                 "stripe_card_brand": self.stripe_card_brand,
                 "stripe_card_last4": self.stripe_card_last4,
                 "subscription_tier": self.subscription_tier,
+                "stripe_subscription_id": self.stripe_subscription_id,
                 "subscription_status": self.subscription_status,
                 "files_used_this_period": self.files_used_this_period,
                 "overage_files_this_period": self.overage_files_this_period,
+                "first_month_discount_used": self.first_month_discount_used,
             }
         )
 
     @classmethod
     def from_json(cls, data: str) -> "CachedUser":
         d = json.loads(data)
+        d.setdefault("stripe_customer_id", None)
         d.setdefault("stripe_payment_method_id", None)
         d.setdefault("stripe_card_brand", None)
         d.setdefault("stripe_card_last4", None)
         d.setdefault("subscription_tier", "free")
+        d.setdefault("stripe_subscription_id", None)
         d.setdefault("subscription_status", "active")
         d.setdefault("files_used_this_period", 0)
         d.setdefault("overage_files_this_period", 0)
+        d.setdefault("first_month_discount_used", False)
         return cls(**d)
 
     @classmethod
@@ -114,13 +123,16 @@ class CachedUser:
             picture=getattr(user, "picture", None),
             balance=user.balance,
             is_active=user.is_active,
+            stripe_customer_id=getattr(user, "stripe_customer_id", None),
             stripe_payment_method_id=getattr(user, "stripe_payment_method_id", None),
             stripe_card_brand=getattr(user, "stripe_card_brand", None),
             stripe_card_last4=getattr(user, "stripe_card_last4", None),
             subscription_tier=getattr(user, "subscription_tier", "free") or "free",
+            stripe_subscription_id=getattr(user, "stripe_subscription_id", None),
             subscription_status=getattr(user, "subscription_status", "active") or "active",
             files_used_this_period=getattr(user, "files_used_this_period", 0) or 0,
             overage_files_this_period=getattr(user, "overage_files_this_period", 0) or 0,
+            first_month_discount_used=bool(getattr(user, "first_month_discount_used", False)),
         )
 
 

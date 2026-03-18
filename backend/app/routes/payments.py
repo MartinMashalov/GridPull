@@ -37,14 +37,15 @@ async def _create_stripe_customer(email: str, name: str, user_id: str) -> str:
 
 
 async def _ensure_stripe_customer(user: User, db: AsyncSession) -> str:
-    if user.stripe_customer_id:
-        return user.stripe_customer_id
-    customer_id = await _create_stripe_customer(user.email, user.name, user.id)
     result = await db.execute(select(User).where(User.id == user.id))
     db_user = result.scalar_one_or_none()
-    if db_user:
-        db_user.stripe_customer_id = customer_id
-        await db.commit()
+    if not db_user:
+        raise HTTPException(404, "User not found")
+    if db_user.stripe_customer_id:
+        return db_user.stripe_customer_id
+    customer_id = await _create_stripe_customer(db_user.email, db_user.name, db_user.id)
+    db_user.stripe_customer_id = customer_id
+    await db.commit()
     return customer_id
 
 
@@ -123,6 +124,10 @@ async def create_subscription(
         raise HTTPException(500, "Stripe price not configured for this tier")
 
     customer_id = await _ensure_stripe_customer(current_user, db)
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
 
     session_kwargs = dict(
         customer=customer_id,
@@ -135,7 +140,7 @@ async def create_subscription(
     )
 
     # 50% off first month for Starter
-    if body.tier == "starter" and not current_user.first_month_discount_used and settings.stripe_starter_coupon_id:
+    if body.tier == "starter" and not db_user.first_month_discount_used and settings.stripe_starter_coupon_id:
         session_kwargs["discounts"] = [{"coupon": settings.stripe_starter_coupon_id}]
 
     session = await asyncio.to_thread(stripe.checkout.Session.create, **session_kwargs)
@@ -155,20 +160,21 @@ async def change_subscription(
     if body.tier not in STRIPE_PRICE_MAP:
         raise HTTPException(400, "Invalid tier")
 
-    if not current_user.stripe_subscription_id:
+    stripe_subscription_id = getattr(current_user, "stripe_subscription_id", None)
+    if not stripe_subscription_id:
         return await create_subscription(body=body, current_user=current_user, db=db)
 
     price_id = STRIPE_PRICE_MAP[body.tier]
     if not price_id:
         raise HTTPException(500, "Stripe price not configured")
 
-    sub = await asyncio.to_thread(stripe.Subscription.retrieve, current_user.stripe_subscription_id)
+    sub = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
     item_id = sub["items"]["data"][0]["id"]
 
     proration = "always_invoice" if is_upgrade(current_user.subscription_tier, body.tier) else "none"
     await asyncio.to_thread(
         stripe.Subscription.modify,
-        current_user.stripe_subscription_id,
+        stripe_subscription_id,
         items=[{"id": item_id, "price": price_id}],
         proration_behavior=proration,
         metadata={"tier": body.tier},
@@ -190,10 +196,11 @@ async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if current_user.stripe_subscription_id:
+    stripe_subscription_id = getattr(current_user, "stripe_subscription_id", None)
+    if stripe_subscription_id:
         await asyncio.to_thread(
             stripe.Subscription.modify,
-            current_user.stripe_subscription_id,
+            stripe_subscription_id,
             cancel_at_period_end=True,
         )
 
@@ -212,12 +219,13 @@ async def reactivate_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not current_user.stripe_subscription_id:
+    stripe_subscription_id = getattr(current_user, "stripe_subscription_id", None)
+    if not stripe_subscription_id:
         raise HTTPException(400, "No active subscription to reactivate")
 
     await asyncio.to_thread(
         stripe.Subscription.modify,
-        current_user.stripe_subscription_id,
+        stripe_subscription_id,
         cancel_at_period_end=False,
     )
 
@@ -394,6 +402,53 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     await _save_card_from_payment_method(user_id, pm_id, db)
             except Exception as e:
                 logger.warning("Could not save card from setup: %s", e)
+        elif mode == "subscription":
+            customer_id = session.get("customer")
+            sub_id = session.get("subscription")
+            tier = session.get("metadata", {}).get("tier", "starter")
+
+            user = None
+            if user_id:
+                result = await db.execute(select(User).where(User.id == user_id))
+                user = result.scalar_one_or_none()
+            if not user and customer_id:
+                result = await db.execute(select(User).where(User.stripe_customer_id == customer_id))
+                user = result.scalar_one_or_none()
+
+            if not user:
+                logger.warning(
+                    "checkout.session.completed(subscription) for unknown user_id=%s customer=%s",
+                    user_id, customer_id,
+                )
+                return {"status": "ok"}
+
+            sub = None
+            if sub_id:
+                try:
+                    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id)
+                except Exception as e:
+                    logger.warning("Could not retrieve Stripe subscription %s: %s", sub_id, e)
+
+            user.stripe_customer_id = customer_id or user.stripe_customer_id
+            user.stripe_subscription_id = sub_id or user.stripe_subscription_id
+            user.subscription_tier = tier
+            user.subscription_status = (
+                sub.get("status", "active")
+                if isinstance(sub, dict)
+                else "active"
+            )
+            if isinstance(sub, dict) and sub.get("current_period_end"):
+                user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
+                user.usage_reset_at = user.current_period_end
+            user.files_used_this_period = 0
+            user.overage_files_this_period = 0
+            if tier == "starter":
+                user.first_month_discount_used = True
+            await db.commit()
+            logger.info(
+                "Checkout subscription completed: user=%s tier=%s sub=%s",
+                user.id, tier, user.stripe_subscription_id,
+            )
 
     return {"status": "ok"}
 
@@ -411,7 +466,7 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
     user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     if sub.get("current_period_end"):
-        user.current_period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
+        user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
     user.files_used_this_period = 0
     user.overage_files_this_period = 0
@@ -433,7 +488,7 @@ async def _handle_subscription_updated(sub: dict, db: AsyncSession):
     user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     if sub.get("current_period_end"):
-        user.current_period_end = datetime.fromtimestamp(sub["current_period_end"], tz=timezone.utc)
+        user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
 
     if sub.get("cancel_at_period_end"):
@@ -492,7 +547,7 @@ async def _handle_invoice_paid(invoice: dict, db: AsyncSession):
             )
 
     if period_end_ts:
-        user.current_period_end = datetime.fromtimestamp(period_end_ts, tz=timezone.utc)
+        user.current_period_end = datetime.utcfromtimestamp(period_end_ts)
         user.usage_reset_at = user.current_period_end
     await db.commit()
     logger.info("Invoice paid — usage reset for user %s", user.id)
