@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
+import type { DocumentType } from '@/pages/DashboardPage'
 
 export interface SpreadsheetViewerProps {
   results: Record<string, string>[]
@@ -14,6 +15,7 @@ export interface SpreadsheetViewerProps {
   cost?: number
   onNew?: () => void
   paywalled?: boolean
+  documentType?: DocumentType
 }
 
 type SortDir = 'asc' | 'desc'
@@ -25,7 +27,7 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew, paywalled }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({ results, fields, jobId, format, cost, onNew, paywalled, documentType }: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const token = useAuthStore((s) => s.token)
@@ -35,6 +37,17 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
     const a = document.createElement('a')
     a.href = `/api/documents/download/${jobId}?token=${encodeURIComponent(token ?? '')}`
     a.download = `export.${format}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const handleAccountingDownload = (fmt: 'qb_csv' | 'qbo' | 'ofx') => {
+    const ext = fmt === 'qb_csv' ? 'csv' : fmt
+    const label = fmt === 'qb_csv' ? 'quickbooks_online' : fmt === 'qbo' ? 'quickbooks_desktop' : 'xero_import'
+    const a = document.createElement('a')
+    a.href = `/api/documents/download/${jobId}/accounting?fmt=${fmt}&token=${encodeURIComponent(token ?? '')}`
+    a.download = `${label}.${ext}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -99,6 +112,22 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
           )}
         </div>
       </div>
+
+      {/* QuickBooks / Xero download buttons */}
+      {documentType === 'quickbooks' && !paywalled && (
+        <div className="px-5 py-3 border-b border-border bg-secondary/30 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground mr-1">Download for:</span>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => handleAccountingDownload('qb_csv')}>
+            <Download size={12} /> QuickBooks Online
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => handleAccountingDownload('qbo')}>
+            <Download size={12} /> QuickBooks Desktop
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => handleAccountingDownload('ofx')}>
+            <Download size={12} /> Xero
+          </Button>
+        </div>
+      )}
 
       {/* Error notice */}
       {hasErrors && (

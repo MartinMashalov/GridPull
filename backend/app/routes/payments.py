@@ -10,7 +10,6 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
-from app.models.payment import Payment
 from app.middleware.auth_middleware import get_current_user
 from app.config import settings
 from app.services.subscription_tiers import (
@@ -474,6 +473,27 @@ async def _handle_invoice_paid(invoice: dict, db: AsyncSession):
     user.files_used_this_period = 0
     user.overage_files_this_period = 0
     user.subscription_status = "active"
+    period_end_ts = None
+    try:
+        lines = invoice.get("lines", {}).get("data", [])
+        if lines:
+            period_end_ts = lines[0].get("period", {}).get("end")
+    except Exception:
+        period_end_ts = None
+
+    if not period_end_ts:
+        try:
+            sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id)
+            period_end_ts = sub.get("current_period_end")
+        except Exception as e:
+            logger.warning(
+                "Could not fetch current_period_end from Stripe for sub %s: %s",
+                sub_id, e,
+            )
+
+    if period_end_ts:
+        user.current_period_end = datetime.fromtimestamp(period_end_ts, tz=timezone.utc)
+        user.usage_reset_at = user.current_period_end
     await db.commit()
     logger.info("Invoice paid — usage reset for user %s", user.id)
 

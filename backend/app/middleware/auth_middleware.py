@@ -19,7 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import cache_del_user, cache_get_user, cache_set_user
+from app.cache import cache_get_user, cache_set_user
 from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import verify_token

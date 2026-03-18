@@ -1,9 +1,10 @@
 import io
+import re
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 import csv
-import os
+from datetime import datetime, date
 from typing import List, Dict, Any
 
 
@@ -234,3 +235,166 @@ def generate_csv(
             writer.writerow(row)
 
     return output_path
+
+
+# ── Accounting format helpers ──────────────────────────────────────────────────
+
+def _clean_amount(raw: str) -> str:
+    """Normalize an amount string: strip $, commas, handle parentheses for negatives."""
+    if not raw:
+        return "0.00"
+    s = str(raw).strip()
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg = True
+        s = s[1:-1]
+    s = s.replace("$", "").replace(",", "").strip()
+    if not s:
+        return "0.00"
+    try:
+        val = float(s)
+        if neg:
+            val = -abs(val)
+        return f"{val:.2f}"
+    except ValueError:
+        return "0.00"
+
+
+_DATE_FORMATS = [
+    "%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%Y/%m/%d",
+    "%m/%d/%y", "%m-%d-%y", "%d/%m/%Y", "%d-%m-%Y",
+    "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y",
+    "%B %d %Y", "%b %d %Y",
+]
+
+
+def _parse_date(raw: str) -> date | None:
+    if not raw:
+        return None
+    s = str(raw).strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    digits = re.sub(r"[^\d]", "", s)
+    if len(digits) == 8:
+        try:
+            return datetime.strptime(digits, "%Y%m%d").date()
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(digits, "%m%d%Y").date()
+        except ValueError:
+            pass
+    return None
+
+
+def generate_quickbooks_csv_bytes(data: List[Dict[str, Any]]) -> bytes:
+    """Generate QuickBooks Online compatible CSV: Date, Description, Amount."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Date", "Description", "Amount"])
+    for row in data:
+        if row.get("_error"):
+            continue
+        parsed = _parse_date(row.get("Date", ""))
+        if not parsed:
+            continue
+        date_str = parsed.strftime("%m/%d/%Y")
+        desc = (row.get("Description", "") or "").replace(",", " ").strip()[:255]
+        amount = _clean_amount(row.get("Amount", ""))
+        if desc:
+            writer.writerow([date_str, desc, amount])
+    return buf.getvalue().encode("utf-8")
+
+
+def generate_qbo_bytes(data: List[Dict[str, Any]]) -> bytes:
+    """Generate QBO/OFX file (Web Connect format) for QuickBooks Desktop / Xero."""
+    transactions = []
+    dates = []
+    for row in data:
+        if row.get("_error"):
+            continue
+        parsed = _parse_date(row.get("Date", ""))
+        if not parsed:
+            continue
+        dates.append(parsed)
+        amount = _clean_amount(row.get("Amount", ""))
+        desc = (row.get("Description", "") or "").strip()[:32]
+        transactions.append((parsed, amount, desc))
+
+    if not transactions:
+        dt_start = dt_end = datetime.now().strftime("%Y%m%d")
+    else:
+        dt_start = min(dates).strftime("%Y%m%d")
+        dt_end = max(dates).strftime("%Y%m%d")
+
+    now_str = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    header = (
+        "OFXHEADER:100\n"
+        "DATA:OFXSGML\n"
+        "VERSION:102\n"
+        "SECURITY:NONE\n"
+        "ENCODING:USASCII\n"
+        "CHARSET:1252\n"
+        "COMPRESSION:NONE\n"
+        "OLDFILEUID:NONE\n"
+        "NEWFILEUID:NONE\n"
+        "\n"
+        "<OFX>\n"
+        "<SIGNONMSGSRSV1>\n"
+        "<SONRS>\n"
+        f"<STATUS><CODE>0<SEVERITY>INFO</STATUS>\n"
+        f"<DTSERVER>{now_str}\n"
+        "<LANGUAGE>ENG\n"
+        "</SONRS>\n"
+        "</SIGNONMSGSRSV1>\n"
+        "<BANKMSGSRSV1>\n"
+        "<STMTTRNRS>\n"
+        "<TRNUID>0\n"
+        f"<STATUS><CODE>0<SEVERITY>INFO</STATUS>\n"
+        "<STMTRS>\n"
+        "<CURDEF>USD\n"
+        "<BANKACCTFROM>\n"
+        "<BANKID>000000000\n"
+        "<ACCTID>000000000\n"
+        "<ACCTTYPE>CHECKING\n"
+        "</BANKACCTFROM>\n"
+        "<BANKTRANLIST>\n"
+        f"<DTSTART>{dt_start}\n"
+        f"<DTEND>{dt_end}\n"
+    )
+
+    txn_blocks = []
+    for i, (txn_date, amount, desc) in enumerate(transactions):
+        trntype = "CREDIT" if float(amount) >= 0 else "DEBIT"
+        dtposted = txn_date.strftime("%Y%m%d")
+        fitid = f"{dtposted}{i + 1:05d}"
+        txn_blocks.append(
+            f"<STMTTRN>\n"
+            f"<TRNTYPE>{trntype}\n"
+            f"<DTPOSTED>{dtposted}\n"
+            f"<TRNAMT>{amount}\n"
+            f"<FITID>{fitid}\n"
+            f"<NAME>{desc}\n"
+            f"</STMTTRN>\n"
+        )
+
+    total = sum(float(_clean_amount(r.get("Amount", ""))) for r in data if not r.get("_error"))
+    bal_str = f"{total:.2f}"
+
+    footer = (
+        "</BANKTRANLIST>\n"
+        "<LEDGERBAL>\n"
+        f"<BALAMT>{bal_str}\n"
+        f"<DTASOF>{dt_end}\n"
+        "</LEDGERBAL>\n"
+        "</STMTRS>\n"
+        "</STMTTRNRS>\n"
+        "</BANKMSGSRSV1>\n"
+        "</OFX>\n"
+    )
+
+    return (header + "".join(txn_blocks) + footer).encode("ascii", errors="replace")

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Plus, Trash2, Pencil } from 'lucide-react'
-import { ExtractionField, ExportFormat } from '@/pages/DashboardPage'
+import { ExtractionField, ExportFormat, DocumentType } from '@/pages/DashboardPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -13,24 +13,66 @@ const PRESET_FIELDS = [
   'Address', 'Signatory', 'Description', 'Tax Amount',
 ]
 
+const INVOICE_DEFAULTS: ExtractionField[] = [
+  { name: 'Invoice Number', description: '' },
+  { name: 'Date', description: '' },
+  { name: 'Vendor Name', description: 'Company or vendor issuing the invoice' },
+  { name: 'Description', description: '' },
+  { name: 'Amount', description: 'Total invoice amount' },
+  { name: 'Tax Amount', description: '' },
+  { name: 'Due Date', description: '' },
+]
+
+const SOV_DEFAULTS: ExtractionField[] = [
+  { name: 'Location #', description: '' },
+  { name: 'Address', description: 'Street address' },
+  { name: 'City', description: '' },
+  { name: 'State', description: '' },
+  { name: 'ZIP', description: '' },
+  { name: 'Construction Type', description: 'Frame, Joisted Masonry, Non-Combustible, Masonry Non-Combustible, Fire-Resistive, or Unknown' },
+  { name: 'Year Built', description: '' },
+  { name: 'Square Footage', description: '' },
+  { name: 'Stories', description: 'Number of stories' },
+  { name: 'Building Value', description: 'Replacement cost, not market value' },
+  { name: 'BPP Value', description: 'Business personal property / contents value' },
+  { name: 'Total Insured Value', description: 'Sum of building + BPP + business income' },
+  { name: 'Occupancy', description: 'e.g. Office, Retail, Warehouse, Manufacturing' },
+  { name: 'Sprinklered', description: 'Yes / No / Partial / Unknown' },
+]
+
+const CUSTOM_DEFAULTS: ExtractionField[] = [
+  { name: 'Invoice Number', description: '' },
+  { name: 'Date', description: '' },
+  { name: 'Total Amount', description: '' },
+]
+
+function getDefaultFields(dt: DocumentType): ExtractionField[] {
+  switch (dt) {
+    case 'invoices': return INVOICE_DEFAULTS.map(f => ({ ...f }))
+    case 'sov': return SOV_DEFAULTS.map(f => ({ ...f }))
+    default: return CUSTOM_DEFAULTS.map(f => ({ ...f }))
+  }
+}
+
 interface Props {
   open: boolean
   onClose: () => void
   onConfirm: (fields: ExtractionField[], format: ExportFormat, instructions: string) => void
   defaultFormat: ExportFormat
+  documentType: DocumentType
 }
 
-export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaultFormat }: Props) {
-  const [fields, setFields] = useState<ExtractionField[]>([
-    { name: 'Invoice Number', description: '' },
-    { name: 'Date', description: '' },
-    { name: 'Total Amount', description: '' },
-  ])
+export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaultFormat, documentType }: Props) {
+  const [fields, setFields] = useState<ExtractionField[]>(getDefaultFields(documentType))
   const [newFieldName, setNewFieldName] = useState('')
   const [instructions, setInstructions] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   const fieldsEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setFields(getDefaultFields(documentType))
+  }, [documentType])
 
   const scrollToBottom = () => {
     setTimeout(() => fieldsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30)

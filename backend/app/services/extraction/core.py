@@ -11,8 +11,6 @@ from datetime import date
 from typing import Any, Dict, List
 
 import httpx
-import litellm
-from openai import AsyncOpenAI
 
 from app.config import settings
 from app.services.pdf_service import ParsedDocument
@@ -22,10 +20,11 @@ logger = logging.getLogger(__name__)
 # Model names
 _TEXT_MODEL = "gpt-4.1-mini"
 _VISION_MODEL = "gpt-4.1-mini"
-_CLEANUP_MODEL = "gpt-4.1-nano"
+# Post-extraction single-row polish (llm._cleanup_single_row_with_nano).
+_CLEANUP_MODEL = "openai/gpt-5.4-nano"
+_METADATA_MODEL = "openai/gpt-5.4-mini"
 _OCR_MODEL = "mistral-ocr-latest"
 
-# Pricing (LiteLLM-backed)
 _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
 _MARKUP = 1.20
 
@@ -43,11 +42,9 @@ _SCAN_FINAL_RETRY_TEXT_BUDGET_CHARS = 52_000
 _SINGLE_DOC_MIN_FFR = 0.75
 _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 
-_openai = AsyncOpenAI(api_key=settings.openai_api_key)
-
-
 @dataclass
 class LLMUsage:
+    litellm_cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
     vision_input_tokens: int = 0
@@ -80,35 +77,16 @@ class LLMUsage:
 
     @property
     def cost_usd(self) -> float:
-        text_in_cost, text_out_cost = litellm.cost_per_token(
-            model=_TEXT_MODEL,
-            prompt_tokens=self.input_tokens,
-            completion_tokens=self.output_tokens,
-            call_type="completion",
+        return round(
+            (self.litellm_cost_usd + self.ocr_cost_usd + self.bear_removed_tokens * _BEAR_REMOVED_TOKEN_PRICE)
+            * _MARKUP,
+            6,
         )
-        vision_in_cost, vision_out_cost = litellm.cost_per_token(
-            model=_VISION_MODEL,
-            prompt_tokens=self.vision_input_tokens,
-            completion_tokens=self.vision_output_tokens,
-            call_type="completion",
-        )
-        cleanup_in_cost, cleanup_out_cost = litellm.cost_per_token(
-            model=_CLEANUP_MODEL,
-            prompt_tokens=self.cleanup_input_tokens,
-            completion_tokens=self.cleanup_output_tokens,
-            call_type="completion",
-        )
-        base = (
-            text_in_cost
-            + text_out_cost
-            + vision_in_cost
-            + vision_out_cost
-            + cleanup_in_cost
-            + cleanup_out_cost
-            + self.ocr_cost_usd
-            + self.bear_removed_tokens * _BEAR_REMOVED_TOKEN_PRICE
-        )
-        return round(base * _MARKUP, 6)
+
+
+def record_llm_usage_cost(usage: LLMUsage, response: Any) -> None:
+    hp = getattr(response, "_hidden_params", None) or {}
+    usage.litellm_cost_usd += float(hp.get("response_cost") or 0)
 
 
 def _fields_block(fields: List[Dict[str, str]]) -> str:

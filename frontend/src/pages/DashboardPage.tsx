@@ -25,11 +25,25 @@ interface UsageWarning {
 }
 
 export type ExportFormat = 'xlsx' | 'csv'
+export type DocumentType = 'custom' | 'quickbooks' | 'invoices' | 'sov'
 
 export interface ExtractionField {
   name: string
   description: string
 }
+
+const DOC_TYPE_OPTIONS: { id: DocumentType; label: string }[] = [
+  { id: 'custom', label: 'Custom Fields' },
+  { id: 'quickbooks', label: 'QuickBooks' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'sov', label: 'Statement of Values' },
+]
+
+const QUICKBOOKS_FIELDS: ExtractionField[] = [
+  { name: 'Date', description: 'Transaction date' },
+  { name: 'Description', description: 'Payee or transaction description' },
+  { name: 'Amount', description: 'Positive for deposits/credits, negative for withdrawals/debits' },
+]
 
 export interface JobState {
   jobId: string
@@ -117,6 +131,7 @@ export default function DashboardPage() {
   const [files, setFiles] = useState<File[]>([])
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
+  const [documentType, setDocumentType] = useState<DocumentType>('custom')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
@@ -218,7 +233,11 @@ export default function DashboardPage() {
   const handleProcess = () => {
     if (!files.length) { setValidationMsg('Upload at least one PDF file.'); return }
     setValidationMsg(null)
-    setShowModal(true)
+    if (documentType === 'quickbooks') {
+      handleExtract(QUICKBOOKS_FIELDS, exportFormat, 'Extract all transactions from this bank statement. For each transaction return the date, description/payee, and amount. Use positive values for deposits/credits and negative for withdrawals/debits.')
+    } else {
+      setShowModal(true)
+    }
   }
 
   const handleExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
@@ -422,6 +441,27 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Document type selector */}
+      <div className="mb-4">
+        <span className="text-xs text-muted-foreground block mb-2">Document type</span>
+        <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
+          {DOC_TYPE_OPTIONS.map((dt) => (
+            <button
+              key={dt.id}
+              onClick={() => setDocumentType(dt.id)}
+              className={cn(
+                'flex-1 px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap',
+                documentType === dt.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {dt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Format toggle */}
       <div className="flex items-center gap-3 mb-4">
         <span className="text-xs text-muted-foreground">Output format</span>
@@ -515,7 +555,9 @@ export default function DashboardPage() {
             Processing…
           </>
         ) : files.length > 0 ? (
-          `Choose fields & extract ${files.length} file${files.length > 1 ? 's' : ''}`
+          documentType === 'quickbooks'
+            ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} for QuickBooks`
+            : `Choose fields & extract ${files.length} file${files.length > 1 ? 's' : ''}`
         ) : (
           'Upload files to get started'
         )}
@@ -534,6 +576,7 @@ export default function DashboardPage() {
           cost={job.cost}
           onNew={handleNew}
           paywalled={isPaywalled}
+          documentType={documentType}
         />
       )}
 
@@ -563,6 +606,7 @@ export default function DashboardPage() {
         onClose={() => setShowModal(false)}
         onConfirm={handleExtract}
         defaultFormat={exportFormat}
+        documentType={documentType}
       />
     </div>
   )

@@ -16,14 +16,15 @@ from .core import (
     _empty,
     _fields_block,
     _maybe_compress_with_bear,
-    _openai,
     LLMUsage,
+    record_llm_usage_cost,
 )
+from .llm import _litellm_acompletion
 from .scan_pipeline import extract_from_scanned_document
 from .text_pipeline import (
     _should_extract_multi,
-    extract_multi_record,
-    extract_multi_record_chunked,
+    extract_multi_record_chunked_validated,
+    extract_multi_record_validated,
     extract_per_page,
     extract_single_record,
 )
@@ -90,7 +91,7 @@ async def extract_from_document(
             f"Detected tables:\n{await _maybe_compress_with_bear(planner_tables, doc.page_count, usage, f'{doc.filename} planner tables')}"
         )
         try:
-            planner_resp = await _openai.chat.completions.create(
+            planner_resp = await _litellm_acompletion(
                 model=_TEXT_MODEL,
                 messages=[{"role": "user", "content": planner_prompt}],
                 temperature=0,
@@ -98,6 +99,7 @@ async def extract_from_document(
             )
             if planner_resp.usage:
                 usage.add(planner_resp.usage.prompt_tokens, planner_resp.usage.completion_tokens)
+            record_llm_usage_cost(usage, planner_resp)
             planner_raw = (planner_resp.choices[0].message.content or "").strip().lower().replace("_", "")
             if "multipaged" in planner_raw or planner_raw == "multi_paged":
                 extraction_mode = "multi_paged"
@@ -116,10 +118,10 @@ async def extract_from_document(
         elif extraction_mode == "multi":
             if doc.page_count > _CHUNK_THRESHOLD_PAGES:
                 n_chunks = -(-doc.page_count // _CHUNK_SIZE)
-                logger.info("TEXT chunked multi-record: %s (%d pages, %d chunks)", doc.filename, doc.page_count, n_chunks)
-                rows = await extract_multi_record_chunked(doc, fields, usage, instructions)
+                logger.info("TEXT chunked multi-record (validated): %s (%d pages, %d chunks)", doc.filename, doc.page_count, n_chunks)
+                rows = await extract_multi_record_chunked_validated(doc, fields, usage, instructions)
             else:
-                rows = await extract_multi_record(doc, fields, usage, instructions)
+                rows = await extract_multi_record_validated(doc, fields, usage, instructions)
         else:
             rows = await extract_single_record(doc, fields, usage, instructions)
 

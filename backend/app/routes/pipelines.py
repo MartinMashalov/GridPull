@@ -31,7 +31,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.middleware.auth_middleware import get_current_user, get_current_user_sse
+from app.middleware.auth_middleware import get_current_user
 from app.models.pipeline import OAuthConnection, Pipeline, PipelineRun
 from app.models.user import User
 from app.services.auth_service import verify_token

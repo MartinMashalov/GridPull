@@ -33,6 +33,7 @@ from app.database import get_db
 from app.middleware.auth_middleware import get_current_user, get_current_user_sse
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
+from app.services.spreadsheet_service import generate_quickbooks_csv_bytes, generate_qbo_bytes
 from app.services.subscription_tiers import get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
@@ -538,3 +539,55 @@ async def download_result(
         media_type=media_type,
         filename=f"gridpull_export.{job.format}",
     )
+
+
+@router.get("/download/{job_id}/accounting")
+async def download_accounting_format(
+    job_id: str,
+    fmt: str = "qb_csv",
+    current_user: User = Depends(get_current_user_sse),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate and stream QuickBooks CSV, QBO, or OFX file from extracted results."""
+    if fmt not in ("qb_csv", "qbo", "ofx"):
+        raise HTTPException(status_code=400, detail="fmt must be qb_csv, qbo, or ofx")
+
+    result = await db.execute(
+        select(ExtractionJob)
+        .options(joinedload(ExtractionJob.documents))
+        .where(ExtractionJob.id == job_id, ExtractionJob.user_id == current_user.id)
+    )
+    job = result.unique().scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "complete":
+        raise HTTPException(status_code=400, detail="Job not complete")
+
+    tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
+    if tier.name == "free":
+        r2 = await db.execute(select(User).where(User.id == current_user.id))
+        u = r2.scalar_one_or_none()
+        if u and (u.files_used_this_period or 0) > tier.files_per_month:
+            raise HTTPException(status_code=402, detail={"type": "paywall", "message": "Upgrade to download"})
+
+    flat_results: list[dict] = []
+    for d in job.documents:
+        if d.extracted_data:
+            flat_results.extend(d.extracted_data if isinstance(d.extracted_data, list) else [d.extracted_data])
+
+    if fmt == "qb_csv":
+        content = generate_quickbooks_csv_bytes(flat_results)
+        return StreamingResponse(
+            iter([content]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=quickbooks_online.csv"},
+        )
+    else:
+        content = generate_qbo_bytes(flat_results)
+        ext = "qbo" if fmt == "qbo" else "ofx"
+        label = "quickbooks_desktop" if fmt == "qbo" else "xero_import"
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/x-ofx",
+            headers={"Content-Disposition": f"attachment; filename={label}.{ext}"},
+        )

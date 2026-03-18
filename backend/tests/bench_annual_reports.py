@@ -24,7 +24,6 @@ except ImportError:
 
 from app.services.extraction_service import extract_from_document, LLMUsage
 from app.services.pdf_service import parse_pdf
-from app.services.validator_service import score_extraction
 
 _TEST_DOCS = Path(__file__).resolve().parent.parent.parent / "test_documents"
 

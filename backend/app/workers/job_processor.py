@@ -3,7 +3,7 @@ Job processor: runs inside the worker pool.
 
 Responsibilities:
 1. Read each PDF with PyMuPDF
-2. Call OpenAI extraction (model rotation handled by extraction_service)
+2. Call LiteLLM-backed extraction (extraction_service)
 3. Generate Excel/CSV with openpyxl
 4. Deduct credits from the user
 5. Broadcast granular progress events for SSE subscribers
@@ -159,10 +159,22 @@ async def process_job(
                                 getattr(parsed_doc, "doc_type_hint", "unknown"),
                             )
 
+                            doc_usage = LLMUsage()
                             rows = await asyncio.wait_for(
-                                extract_from_document(parsed_doc, fields, job_usage, instructions),
+                                extract_from_document(parsed_doc, fields, doc_usage, instructions),
                                 timeout=settings.extraction_timeout_seconds,
                             )
+                            job_usage.litellm_cost_usd += doc_usage.litellm_cost_usd
+                            job_usage.input_tokens += doc_usage.input_tokens
+                            job_usage.output_tokens += doc_usage.output_tokens
+                            job_usage.vision_input_tokens += doc_usage.vision_input_tokens
+                            job_usage.vision_output_tokens += doc_usage.vision_output_tokens
+                            job_usage.cleanup_input_tokens += doc_usage.cleanup_input_tokens
+                            job_usage.cleanup_output_tokens += doc_usage.cleanup_output_tokens
+                            job_usage.ocr_cost_usd += doc_usage.ocr_cost_usd
+                            job_usage.bear_removed_tokens += doc_usage.bear_removed_tokens
+                            job_usage.bear_latency_ms += doc_usage.bear_latency_ms
+                            job_usage.bear_cache.update(doc_usage.bear_cache)
                             doc_obj.extracted_data = rows
                             doc_obj.status = "complete"
                             results_ordered[idx] = rows
@@ -174,8 +186,8 @@ async def process_job(
                             filled = sum(1 for r in rows for k, v in r.items() if k not in ("_source_file", "_error") and v not in (None, ""))
                             total_cells = len(rows) * len(field_names)
                             logger.info(
-                                "Job %s — extracted %s: rows=%d filled_cells=%d/%d error_rows=%d in %.0fms cost=$%.6f",
-                                job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, job_usage.cost_usd,
+                                "Job %s — extracted %s: rows=%d filled_cells=%d/%d error_rows=%d in %.0fms doc_cost=$%.6f job_total=$%.6f",
+                                job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, doc_usage.cost_usd, job_usage.cost_usd,
                             )
                             # Persist completed_docs so polling endpoint shows real progress
                             pct = 5 + int((completed_count / total_docs) * 65)

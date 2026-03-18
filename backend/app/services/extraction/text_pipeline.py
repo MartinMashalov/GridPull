@@ -9,7 +9,6 @@ from app.services.pdf_service import ParsedDocument, ParsedPage
 
 from .core import (
     _CHUNK_SIZE,
-    _EMPTY_VALUES,
     _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION,
     _MULTI_SYSTEM,
     _SINGLE_DOC_MIN_FFR,
@@ -30,7 +29,12 @@ from .core import (
     _single_record_valid,
     LLMUsage,
 )
-from .llm import _cleanup_single_row_with_nano, _llm_extract, _review_multi_rows
+from .llm import (
+    _cleanup_single_row_with_nano,
+    _extract_record_count_metadata,
+    _llm_extract,
+    _review_multi_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -462,6 +466,200 @@ async def extract_multi_record_chunked(
     if not all_rows:
         return _empty([doc.filename], field_names)
     return await _review_multi_rows(all_rows, field_names, doc.filename, usage, doc.content_text, instructions, _TEXT_MODEL)
+
+
+_MULTI_MAX_TOKENS = 16_384
+
+
+async def _build_multi_doc_context(
+    doc: ParsedDocument,
+    usage: LLMUsage,
+    label: str = "multi",
+) -> tuple[str, str]:
+    content_text = await _maybe_compress_with_bear(
+        doc.content_text, doc.page_count, usage, f"{doc.filename} {label} text",
+    )
+    table_parts, tbudget = [], 35_000
+    for t in doc.tables:
+        entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+        table_parts.append(entry[:3_000])
+        tbudget -= len(entry)
+        if tbudget <= 0:
+            break
+    full_tables_md = await _maybe_compress_with_bear(
+        "\n\n".join(table_parts), doc.page_count, usage, f"{doc.filename} {label} tables",
+    )
+    return content_text, full_tables_md
+
+
+def _build_multi_cacheable_prefix(
+    fblock: str,
+    ctx: str,
+    instructions: str,
+    full_tables_md: str,
+    content_text: str,
+) -> str:
+    """Build the prompt prefix with static content first for maximum cache hits.
+
+    Order: fields -> instructions -> mode -> doc info -> tables -> text
+    The trailing action instruction is appended by the caller and is the only
+    part that changes between the initial call and a validation retry, so the
+    entire prefix is an exact match for OpenAI prompt caching.
+    """
+    parts = [
+        f"--- Fields to Extract (one object per repeated record) ---\n{fblock}",
+    ]
+    if instructions.strip():
+        parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    parts.append(
+        "\n--- Extraction Mode ---\n"
+        "The output should contain one object per natural repeated record that matches the "
+        "requested fields. If the schema repeats across table rows, emit one object per row. "
+        "If the schema repeats across table columns, emit one object per column. If the "
+        "document does not actually contain repeated records that match the requested fields, "
+        "return a single best record instead of inventing multiples."
+    )
+    parts.append(f"\n--- Document Info ---\n{ctx}")
+    if full_tables_md:
+        parts.append(f"\n--- Detected Tables ---\n{full_tables_md}")
+    parts.append(f"\n--- Document Text ---\n{content_text}")
+    return "\n".join(parts)
+
+
+async def extract_multi_record_validated(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    usage: LLMUsage,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    field_names = [f["name"] for f in fields]
+    ctx = _doc_context_block(doc)
+    fblock = _fields_block(fields)
+    content_text, full_tables_md = await _build_multi_doc_context(doc, usage)
+
+    cacheable_prefix = _build_multi_cacheable_prefix(
+        fblock, ctx, instructions, full_tables_md, content_text,
+    )
+
+    metadata_context = f"{content_text}\n\n{full_tables_md}" if full_tables_md else content_text
+    expected_count = await _extract_record_count_metadata(
+        metadata_context, fblock, doc.filename, usage, instructions,
+    )
+
+    user_prompt = (
+        cacheable_prefix
+        + '\n\nExtract ALL records. Return: {"records": [{"Field": "value"}, ...]}'
+    )
+    rows = await _llm_extract(
+        _MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage,
+        _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+    )
+    rows = await _review_multi_rows(
+        rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
+    )
+
+    if expected_count is not None and len(rows) != expected_count:
+        logger.info(
+            "Row count validation failed for %s: extracted=%d expected=%d; retrying with count hint",
+            doc.filename, len(rows), expected_count,
+        )
+        retry_prompt = (
+            cacheable_prefix
+            + f"\n\nIMPORTANT: This document contains exactly {expected_count} data records. "
+            f"You previously returned {len(rows)} — extract ALL {expected_count} records. "
+            f"Do not skip any. Do not include subtotals or headers as records.\n"
+            'Return: {"records": [{"Field": "value"}, ...]}'
+        )
+        retry_rows = await _llm_extract(
+            _MULTI_SYSTEM, retry_prompt, field_names, doc.filename, usage,
+            _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+        )
+        retry_rows = await _review_multi_rows(
+            retry_rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
+        )
+
+        if abs(len(retry_rows) - expected_count) < abs(len(rows) - expected_count):
+            logger.info(
+                "Retry improved count for %s: %d -> %d (expected %d)",
+                doc.filename, len(rows), len(retry_rows), expected_count,
+            )
+            rows = retry_rows
+        else:
+            logger.info(
+                "Retry did not improve count for %s: kept %d (retry had %d, expected %d)",
+                doc.filename, len(rows), len(retry_rows), expected_count,
+            )
+    elif expected_count is not None:
+        logger.info(
+            "Row count validation passed for %s: %d records match expected",
+            doc.filename, len(rows),
+        )
+
+    return rows
+
+
+async def extract_multi_record_chunked_validated(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    usage: LLMUsage,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    field_names = [f["name"] for f in fields]
+    fblock = _fields_block(fields)
+
+    metadata_context = doc.content_text[:20_000]
+    if doc.tables_markdown:
+        metadata_context += "\n\n" + doc.tables_markdown[:10_000]
+    expected_count = await _extract_record_count_metadata(
+        metadata_context, fblock, doc.filename, usage, instructions,
+    )
+
+    rows = await extract_multi_record_chunked(doc, fields, usage, instructions)
+
+    if expected_count is not None and len(rows) != expected_count:
+        logger.info(
+            "Chunked row count validation failed for %s: extracted=%d expected=%d; retrying full-doc",
+            doc.filename, len(rows), expected_count,
+        )
+        ctx = _doc_context_block(doc)
+        content_text, full_tables_md = await _build_multi_doc_context(doc, usage, "multi retry")
+
+        cacheable_prefix = _build_multi_cacheable_prefix(
+            fblock, ctx, instructions, full_tables_md, content_text,
+        )
+        retry_prompt = (
+            cacheable_prefix
+            + f"\n\nIMPORTANT: This document contains exactly {expected_count} data records. "
+            f"Extract ALL {expected_count} records. Do not skip any. "
+            f"Do not include subtotals or headers as records.\n"
+            'Return: {"records": [{"Field": "value"}, ...]}'
+        )
+        retry_rows = await _llm_extract(
+            _MULTI_SYSTEM, retry_prompt, field_names, doc.filename, usage,
+            _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+        )
+        retry_rows = await _review_multi_rows(
+            retry_rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
+        )
+
+        if abs(len(retry_rows) - expected_count) < abs(len(rows) - expected_count):
+            logger.info(
+                "Chunked retry improved count for %s: %d -> %d (expected %d)",
+                doc.filename, len(rows), len(retry_rows), expected_count,
+            )
+            rows = retry_rows
+        else:
+            logger.info(
+                "Chunked retry did not improve count for %s: kept %d (retry had %d, expected %d)",
+                doc.filename, len(rows), len(retry_rows), expected_count,
+            )
+    elif expected_count is not None:
+        logger.info(
+            "Chunked row count validation passed for %s: %d records match expected",
+            doc.filename, len(rows),
+        )
+
+    return rows
 
 
 def _should_extract_multi(doc: ParsedDocument, fields: List[Dict[str, str]]) -> bool:
