@@ -220,6 +220,8 @@ _MULTI_SYSTEM = (
     "Each object must be one real schedule row (e.g. one insured location).\n"
     "- For property schedules and appraisal reports: ONE row per location; merge summary and "
     "detail lines for the same site into a single object\n"
+    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
+    "narrative appraisal subtotals exist for the same site\n"
     "- Use null for fields not present in a given record\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers - only include units literally in the cell\n"
@@ -271,6 +273,8 @@ _SCAN_MULTI_SYSTEM = (
     "- Skip pure headers and decorative content that are not actual records\n"
     "- Never emit blank spacer records (all fields empty). One row per real location in the schedule.\n"
     "- For appraisal/property schedules merge summary and detail for the same site into one record.\n"
+    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
+    "narrative appraisal subtotals exist for the same site\n"
     "- Use null for fields not present in a given record\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
@@ -355,6 +359,19 @@ def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool
         "location number" in blob
         or ("address line" in blob and "zip code" in blob)
     )
+
+
+def document_has_wide_data_grid(doc: ParsedDocument) -> bool:
+    """True when the PDF parser found a table shaped like a multi-entity schedule (rows x columns).
+
+    Used to avoid per-page extraction that drops cross-page schedule context. Based on layout
+    only, not on requested field names.
+    """
+
+    for t in doc.tables:
+        if t.row_count >= 5 and t.col_count >= 4:
+            return True
+    return False
 
 
 def _single_fill_rate(row: Dict[str, Any], field_names: List[str]) -> float:

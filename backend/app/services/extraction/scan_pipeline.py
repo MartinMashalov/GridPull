@@ -28,6 +28,7 @@ from .core import (
     _single_quality_gate,
     _single_record_valid,
     LLMUsage,
+    document_has_wide_data_grid,
 )
 from .llm import _cleanup_single_row_with_nano, _litellm_extract, _review_multi_rows
 
@@ -43,6 +44,25 @@ async def _extract_scanned_chunked(
     usage: LLMUsage,
     instructions: str = "",
 ) -> List[Dict[str, Any]]:
+    inject_global_tables = document_has_wide_data_grid(doc)
+    table_prefix = ""
+    if inject_global_tables and doc.tables:
+        table_parts: List[str] = []
+        tbudget = 14_000
+        for t in doc.tables:
+            if tbudget <= 0:
+                break
+            entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+            clipped = entry[: min(8_000, tbudget)]
+            if clipped:
+                table_parts.append(clipped)
+                tbudget -= len(clipped)
+        raw_tables = "\n\n".join(table_parts)[:14_000]
+        if raw_tables.strip():
+            table_prefix = await _maybe_compress_with_bear(
+                raw_tables, doc.page_count, usage, f"{doc.filename} OCR SOV tables",
+            )
+
     parts = re.split(r"(=== Page \d+ ===)", ocr_text)
     pages: List[str] = []
     i = 1
@@ -61,12 +81,23 @@ async def _extract_scanned_chunked(
             usage,
             f"{doc.filename} OCR chunk",
         )
+        sov_note = ""
+        if inject_global_tables and table_prefix:
+            sov_note = (
+                "--- Schedule priority ---\n"
+                "If parser-detected Tables include a master schedule of values with monetary columns, "
+                "emit one record per schedule row with all $ fields from that row; use this OCR chunk text "
+                "to fill fields the table omits. Do not use narrative component subtotals as schedule "
+                "amounts when the table row already lists building/BPP/BI/TIV for that location.\n\n"
+            )
         prompt = (
             f"--- Document Info ---\n"
             f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
             f"Source: Scanned document (OCR by Mistral)\n\n"
             f"--- Fields (one object per repeated record) ---\n{fblock}\n\n"
             + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + sov_note
+            + (f"--- Parser-detected tables (full file) ---\n{table_prefix}\n\n" if table_prefix else "")
             + f"--- OCR Text (this chunk) ---\n{chunk_text}\n\n"
             'Extract ALL repeated records in this chunk. '
             'Return: {"records": [...]}. No records here -> {"records": []}.'
@@ -156,6 +187,13 @@ async def extract_from_scanned_document(
         markdown_table_lines = len(re.findall(r"^\|.+\|", ocr_text, re.M))
         extraction_mode = "multi" if markdown_table_lines >= 6 else "single"
         logger.warning("SCAN planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
+
+    if extraction_mode == "single" and document_has_wide_data_grid(doc):
+        logger.info(
+            "SCAN pipeline - overriding single -> multi for %s (wide parsed table grid)",
+            doc.filename,
+        )
+        extraction_mode = "multi"
 
     if extraction_mode == "multi" and doc.page_count > _CHUNK_THRESHOLD_PAGES:
         logger.info("SCAN pipeline - chunked multi-record: %s", doc.filename)

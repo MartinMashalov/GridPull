@@ -28,6 +28,7 @@ from .core import (
     _single_quality_gate,
     _single_record_valid,
     LLMUsage,
+    document_has_wide_data_grid,
 )
 from .llm import (
     _cleanup_single_row_with_nano,
@@ -429,15 +430,32 @@ async def extract_multi_record_chunked(
 ) -> List[Dict[str, Any]]:
     field_names = [f["name"] for f in fields]
     fblock = _fields_block(fields)
+    inject_global_tables = document_has_wide_data_grid(doc)
     page_chunks = [doc.pages[i : i + _CHUNK_SIZE] for i in range(0, len(doc.pages), _CHUNK_SIZE)]
 
     async def _extract_chunk(chunk_pages: list) -> List[Dict[str, Any]]:
         page_nums = {p.page_num for p in chunk_pages}
         first_pg, last_pg = chunk_pages[0].page_num, chunk_pages[-1].page_num
         chunk_text = "\n\n".join(f"=== Page {p.page_num} ===\n{p.text}" for p in chunk_pages)[:22_000]
-        tables_md = "\n\n".join(
-            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}" for t in doc.tables if t.page_num in page_nums
-        )[:14_000]
+        if inject_global_tables and doc.tables:
+            table_parts: List[str] = []
+            tbudget = 20_000
+            for t in doc.tables:
+                if tbudget <= 0:
+                    break
+                entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+                clipped = entry[: min(10_000, tbudget)]
+                if clipped:
+                    table_parts.append(clipped)
+                    tbudget -= len(clipped)
+            tables_md = "\n\n".join(table_parts)[:20_000]
+            tables_scope = "all detected tables in this file (master schedule may be on another page range)"
+        else:
+            tables_md = "\n\n".join(
+                f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+                for t in doc.tables if t.page_num in page_nums
+            )[:14_000]
+            tables_scope = f"pages {first_pg}-{last_pg}"
         chunk_text = await _maybe_compress_with_bear(chunk_text, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} text")
         tables_md = await _maybe_compress_with_bear(tables_md, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} tables")
 
@@ -449,8 +467,18 @@ async def extract_multi_record_chunked(
         ]
         if instructions.strip():
             parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+        if inject_global_tables:
+            parts.append(
+                "\n--- Schedule priority ---\n"
+                "If Tables include a master schedule of values, property schedule, or location listing with monetary "
+                "columns (building, BPP/contents, business income, TIV), emit one output record per location row from "
+                "that schedule and copy every monetary value from that row. Use the Text on these pages only to fill "
+                "fields the schedule omits (e.g. construction class, occupancy, protection class). "
+                "Do not use replacement-cost component subtotals from a narrative appraisal page as the schedule "
+                "Building value when the master row already lists building/BPP/BI/TIV for that location.\n"
+            )
         if tables_md:
-            parts.append(f"\n--- Tables (pages {first_pg}-{last_pg}) ---\n{tables_md}")
+            parts.append(f"\n--- Tables ({tables_scope}) ---\n{tables_md}")
         parts.append(f"\n--- Text (pages {first_pg}-{last_pg}) ---\n{chunk_text}")
 
         prompt = (

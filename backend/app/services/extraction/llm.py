@@ -14,11 +14,13 @@ from .core import (
     _CLEANUP_MODEL,
     _METADATA_MODEL,
     _MULTI_SYSTEM,
+    _TEXT_MODEL,
     _VISION_MODEL,
     _empty,
     _error,
     _fields_block,
     _is_filled_value,
+    _maybe_compress_with_bear,
     _normalise_rows,
     _system_with_date,
     LLMUsage,
@@ -331,7 +333,7 @@ async def _review_multi_rows(
         f"Filename: {filename}\n"
         f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
         + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"Document context:\n{doc_context[:10_000]}\n\n"
+        + f"Document context:\n{doc_context}\n\n"
         + f"Extracted records to review:\n{json.dumps(rows, ensure_ascii=True)}\n\n"
         + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
     )
@@ -355,6 +357,112 @@ async def _review_multi_rows(
         seen.add(key)
         deduped.append(row)
     return deduped or rows
+
+
+async def backfill_missing_row_fields_from_document(
+    rows: List[Dict[str, Any]],
+    fields: List[Dict[str, str]],
+    doc_content_text: str,
+    page_count: int,
+    filename: str,
+    usage: LLMUsage,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    """One pass: fill still-empty fields using full document text (schedule + narrative)."""
+    field_names = [f["name"] for f in fields]
+    addr_fn = next(
+        (fn for fn in field_names if "address" in fn.lower() and "email" not in fn.lower()),
+        None,
+    )
+    items: List[Dict[str, Any]] = []
+    for i, row in enumerate(rows):
+        if row.get("_error"):
+            continue
+        missing = [fn for fn in field_names if not _is_filled_value(row.get(fn))]
+        if not missing:
+            continue
+        near_text = ""
+        if addr_fn and doc_content_text and _is_filled_value(row.get(addr_fn)):
+            frag = str(row.get(addr_fn) or "").split(",")[0].strip()
+            if len(frag) >= 6:
+                ix = doc_content_text.find(frag)
+                if ix >= 0:
+                    near_text = doc_content_text[max(0, ix - 300) : ix + 2_200]
+        item: Dict[str, Any] = {
+            "index": i,
+            "missing": missing,
+            "known": {fn: row.get(fn) for fn in field_names if _is_filled_value(row.get(fn))},
+        }
+        if near_text.strip():
+            item["near_text"] = near_text[:4_000]
+        items.append(item)
+    if not items:
+        return rows
+
+    ctx = await _maybe_compress_with_bear(
+        doc_content_text[:120_000],
+        page_count,
+        usage,
+        f"{filename} schedule backfill",
+    )
+    fblock = _fields_block(fields)
+    user_prompt = (
+        "Each item lists array index, fields still missing, and fields already extracted. "
+        "When 'near_text' is present, use it as the primary source for that item's missing fields "
+        "(it is anchored to the row's street address in the document).\n"
+        "For every item, fill ONLY the missing fields. "
+        "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
+        f"--- Fields ---\n{fblock}\n\n"
+        + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(items, ensure_ascii=True)[:72_000]}\n\n"
+        'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
+        "with one patch object per item; each patch uses the exact schema field names that were missing."
+    )
+    try:
+        resp = await _litellm_acompletion(
+            model=_TEXT_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": _system_with_date(
+                        "You patch incomplete tabular extractions. Return JSON only."
+                    ),
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=8_192,
+        )
+        if resp.usage:
+            usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+        record_llm_usage_cost(usage, resp)
+        raw = json.loads(resp.choices[0].message.content or "{}")
+    except Exception as exc:
+        logger.warning("Backfill pass failed for %s: %s", filename, exc)
+        return rows
+
+    patches = raw.get("patches")
+    if not isinstance(patches, list):
+        return rows
+    allowed_keys = {item["index"]: set(item["missing"]) for item in items}
+    for patch in patches:
+        if not isinstance(patch, dict):
+            continue
+        idx = patch.get("index")
+        if not isinstance(idx, int) or idx < 0 or idx >= len(rows):
+            continue
+        row = rows[idx]
+        allow = allowed_keys.get(idx) or set()
+        for fn in field_names:
+            if fn not in allow or fn not in patch:
+                continue
+            if _is_filled_value(row.get(fn)):
+                continue
+            val = patch.get(fn)
+            if val is not None and _is_filled_value(val):
+                row[fn] = val
+    return rows
 
 
 async def _extract_record_count_metadata(

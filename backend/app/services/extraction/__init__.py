@@ -17,10 +17,15 @@ from .core import (
     _fields_block,
     _maybe_compress_with_bear,
     LLMUsage,
+    document_has_wide_data_grid,
     property_schedule_row_cleanup_matches_schema,
     record_llm_usage_cost,
 )
-from .llm import _litellm_acompletion, finalize_property_schedule_rows
+from .llm import (
+    _litellm_acompletion,
+    backfill_missing_row_fields_from_document,
+    finalize_property_schedule_rows,
+)
 from .scan_pipeline import extract_from_scanned_document
 from .text_pipeline import (
     _should_extract_multi,
@@ -76,11 +81,14 @@ async def extract_from_document(
             "- multi_paged: the file is a compilation of independent documents/invoices/statements where each page "
             "(or small group of pages) is a separate record with its own values for the requested fields. "
             "Examples: a PDF of many invoices concatenated together, monthly statements batched into one file, "
-            "multiple insurance policies or customer accounts printed sequentially.\n\n"
+            "multiple unrelated policies or customer accounts printed sequentially with no shared master schedule.\n\n"
             "Rules:\n"
             "- Base the decision on the requested fields plus the document structure\n"
             "- A file can contain tables and still be single if the requested fields are document-level\n"
             "- A file can be multi even when repeated records are arranged across columns instead of rows\n"
+            "- Insurance: statement of values (SOV), property schedule, location listing, appraisal reports with a "
+            "summary schedule of values followed by per-location narrative sections -> ALWAYS multi (one row per "
+            "insured location from the schedule; narrative fills gaps). NEVER multi_paged for that pattern.\n"
             "- Use multi_paged ONLY when pages clearly belong to different independent records, not when a single record spans multiple pages\n"
             "- If unsure, reply single\n\n"
             f"Filename: {doc.filename}\n"
@@ -113,6 +121,13 @@ async def extract_from_document(
             extraction_mode = "multi" if _should_extract_multi(doc, fields) else "single"
             logger.warning("Routing planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
 
+        if extraction_mode == "multi_paged" and document_has_wide_data_grid(doc):
+            logger.info(
+                "Overriding multi_paged -> multi for %s (parsed wide table grid — avoid per-page split)",
+                doc.filename,
+            )
+            extraction_mode = "multi"
+
         if extraction_mode == "multi_paged":
             logger.info("TEXT per-page extraction: %s (%d pages)", doc.filename, doc.page_count)
             rows = await extract_per_page(doc, fields, usage, instructions)
@@ -142,6 +157,29 @@ async def extract_from_document(
     field_names = [f["name"] for f in fields]
     if rows and property_schedule_row_cleanup_matches_schema(field_names):
         rows = finalize_property_schedule_rows(rows, field_names)
+        text_for_backfill = (doc.content_text or "").strip()
+        for _ in range(3):
+            if not text_for_backfill:
+                break
+            if not any(
+                not rows[i].get("_error")
+                and any(
+                    rows[i].get(fn) is None
+                    or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
+                    for fn in field_names
+                )
+                for i in range(len(rows))
+            ):
+                break
+            rows = await backfill_missing_row_fields_from_document(
+                rows,
+                fields,
+                doc.content_text or "",
+                doc.page_count,
+                doc.filename,
+                usage,
+                instructions,
+            )
 
     if not rows:
         rows = _empty([doc.filename], field_names)
