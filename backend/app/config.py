@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     # Per-document extraction timeout (seconds); prevents one large doc from hanging the job
     extraction_timeout_seconds: float = 600.0
 
+    # Chunked multi-record extraction (text + scan): larger pages per chunk => fewer LLM calls
+    extraction_chunk_size: int = 12
+    extraction_chunk_threshold_pages: int = 8
+    # Parser table shape used to detect schedule-like grids (layout-only routing)
+    extraction_wide_grid_min_rows: int = 5
+    extraction_wide_grid_min_cols: int = 4
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

@@ -9,14 +9,9 @@ from app.config import settings
 from app.services.pdf_service import ParsedDocument
 
 from .core import (
-    _CHUNK_SIZE,
-    _CHUNK_THRESHOLD_PAGES,
     _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION,
-    _SCAN_FINAL_RETRY_TEXT_BUDGET_CHARS,
     _SCAN_MULTI_SYSTEM,
-    _SCAN_RETRY_TEXT_BUDGET_CHARS,
     _SCAN_SINGLE_SYSTEM,
-    _SCAN_TEXT_BUDGET_CHARS,
     _SINGLE_DOC_MIN_FFR,
     _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS,
     _SINGLE_RETRY_INSTRUCTION,
@@ -47,17 +42,11 @@ async def _extract_scanned_chunked(
     inject_global_tables = document_has_wide_data_grid(doc)
     table_prefix = ""
     if inject_global_tables and doc.tables:
-        table_parts: List[str] = []
-        tbudget = 14_000
-        for t in doc.tables:
-            if tbudget <= 0:
-                break
-            entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-            clipped = entry[: min(8_000, tbudget)]
-            if clipped:
-                table_parts.append(clipped)
-                tbudget -= len(clipped)
-        raw_tables = "\n\n".join(table_parts)[:14_000]
+        table_parts = [
+            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+            for t in doc.tables
+        ]
+        raw_tables = "\n\n".join(table_parts)
         if raw_tables.strip():
             table_prefix = await _maybe_compress_with_bear(
                 raw_tables, doc.page_count, usage, f"{doc.filename} OCR SOV tables",
@@ -72,11 +61,12 @@ async def _extract_scanned_chunked(
     if not pages:
         pages = [ocr_text]
 
-    chunks = [pages[i : i + _CHUNK_SIZE] for i in range(0, len(pages), _CHUNK_SIZE)]
+    cs = settings.extraction_chunk_size
+    chunks = [pages[i : i + cs] for i in range(0, len(pages), cs)]
 
     async def _chunk_task(chunk_pages: list) -> List[Dict]:
         chunk_text = await _maybe_compress_with_bear(
-            "\n\n".join(chunk_pages)[:20_000],
+            "\n\n".join(chunk_pages),
             doc.page_count,
             usage,
             f"{doc.filename} OCR chunk",
@@ -170,7 +160,7 @@ async def extract_from_scanned_document(
         f"Total pages: {doc.page_count}\n"
         f"Requested fields:\n{fblock}\n\n"
         + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text[:20_000], doc.page_count, usage, f'{doc.filename} OCR planner')}"
+        + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR planner')}"
     )
     try:
         planner_resp = await _litellm_extract(
@@ -195,7 +185,7 @@ async def extract_from_scanned_document(
         )
         extraction_mode = "multi"
 
-    if extraction_mode == "multi" and doc.page_count > _CHUNK_THRESHOLD_PAGES:
+    if extraction_mode == "multi" and doc.page_count > settings.extraction_chunk_threshold_pages:
         logger.info("SCAN pipeline - chunked multi-record: %s", doc.filename)
         return await _extract_scanned_chunked(ocr_text, doc, fields, field_names, fblock, usage, instructions)
 
@@ -218,7 +208,7 @@ async def extract_from_scanned_document(
         f"--- Document Info ---\n{ctx}\n\n"
         f"--- Fields to Extract ---\n{fblock}\n\n"
         + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text[:_SCAN_TEXT_BUDGET_CHARS], doc.page_count, usage, f'{doc.filename} OCR extract')}\n\n"
+        + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR extract')}\n\n"
         + instruction
     )
 
@@ -256,7 +246,7 @@ async def extract_from_scanned_document(
                     + "--- Retry Objective ---\n"
                     + "Fill only the listed missing fields using the OCR text. "
                     + "Do not rewrite fields that already have values.\n\n"
-                    + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text[:_SCAN_RETRY_TEXT_BUDGET_CHARS], doc.page_count, usage, f'{doc.filename} OCR missing-fields')}\n\n"
+                    + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR missing-fields')}\n\n"
                     + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
                 )
                 retry_rows = await _litellm_extract(
@@ -294,7 +284,7 @@ async def extract_from_scanned_document(
                             + _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION
                             + "\n--- OCR Text (Mistral OCR) ---\n"
                             + await _maybe_compress_with_bear(
-                                ocr_text[:_SCAN_FINAL_RETRY_TEXT_BUDGET_CHARS],
+                                ocr_text,
                                 doc.page_count,
                                 usage,
                                 f"{doc.filename} OCR final missing-fields",

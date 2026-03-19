@@ -12,7 +12,6 @@ from app.config import settings
 
 from .core import (
     _CLEANUP_MODEL,
-    _METADATA_MODEL,
     _MULTI_SYSTEM,
     _TEXT_MODEL,
     _VISION_MODEL,
@@ -394,13 +393,13 @@ async def backfill_missing_row_fields_from_document(
             "known": {fn: row.get(fn) for fn in field_names if _is_filled_value(row.get(fn))},
         }
         if near_text.strip():
-            item["near_text"] = near_text[:4_000]
+            item["near_text"] = near_text
         items.append(item)
     if not items:
         return rows
 
     ctx = await _maybe_compress_with_bear(
-        doc_content_text[:120_000],
+        doc_content_text,
         page_count,
         usage,
         f"{filename} schedule backfill",
@@ -414,7 +413,7 @@ async def backfill_missing_row_fields_from_document(
         "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
         f"--- Fields ---\n{fblock}\n\n"
         + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(items, ensure_ascii=True)[:72_000]}\n\n"
+        + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(items, ensure_ascii=True)}\n\n"
         'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
         "with one patch object per item; each patch uses the exact schema field names that were missing."
     )
@@ -472,7 +471,7 @@ async def _extract_record_count_metadata(
     usage: LLMUsage,
     instructions: str = "",
 ) -> Optional[int]:
-    """Ask gpt-5.4-mini (low reasoning) how many data records the document contains."""
+    """Ask the main text model how many data records the document contains (same accuracy target, lower $ vs a separate premium counter model)."""
     user_prompt = (
         "Count the total number of distinct data records in this document that match "
         "the requested fields schema. Count ONLY actual data rows — exclude headers, "
@@ -487,11 +486,11 @@ async def _extract_record_count_metadata(
     )
     try:
         resp = await _litellm_acompletion(
-            model=_METADATA_MODEL,
+            model=_TEXT_MODEL,
             messages=[{"role": "user", "content": user_prompt}],
             response_format={"type": "json_object"},
-            max_completion_tokens=256,
-            reasoning_effort="low",
+            temperature=0,
+            max_tokens=256,
         )
         if resp.usage:
             usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)

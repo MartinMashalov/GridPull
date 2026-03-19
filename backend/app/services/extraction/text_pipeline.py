@@ -2,22 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import Any, Dict, List
 
+from app.config import settings
 from app.services.pdf_service import ParsedDocument, ParsedPage
 
 from .core import (
-    _CHUNK_SIZE,
     _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION,
     _MULTI_SYSTEM,
     _SINGLE_DOC_MIN_FFR,
     _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS,
-    _SINGLE_FINAL_RETRY_TEXT_BUDGET_CHARS,
     _SINGLE_RETRY_INSTRUCTION,
     _SINGLE_SYSTEM,
-    _SINGLE_TABLE_BUDGET_CHARS,
-    _SINGLE_TEXT_BUDGET_CHARS,
     _TEXT_MODEL,
     _detect_reporting_unit,
     _doc_context_block,
@@ -49,201 +45,25 @@ async def extract_single_record(
     field_names = [f["name"] for f in fields]
     ctx = _doc_context_block(doc)
     fblock = _fields_block(fields)
-    single_text_budget = min(_SINGLE_TEXT_BUDGET_CHARS, max(36_000, doc.page_count * 4_500))
-    field_phrases: List[str] = []
-    for f in fields:
-        name = str(f["name"]).strip().lower()
-        desc = str(f.get("description", "") or "").strip().lower()
-        if name:
-            field_phrases.append(name)
-        if desc and desc != name:
-            field_phrases.append(desc)
-
-    ignored_terms = {
-        "best",
-        "context",
-        "description",
-        "document",
-        "field",
-        "fields",
-        "from",
-        "match",
-        "present",
-        "primary",
-        "report",
-        "reported",
-        "return",
-        "semantic",
-        "shown",
-        "this",
-        "that",
-        "use",
-        "value",
-        "values",
-        "with",
-    }
-    field_terms = {
-        term
-        for phrase in field_phrases
-        for term in re.findall(r"[a-z][a-z0-9]{3,}", phrase)
-        if term not in ignored_terms
-    }
-    priority_keywords = (
-        "balance sheet",
-        "statement of financial position",
-        "statement of operations",
-        "statement of income",
-        "income statement",
-        "statement of earnings",
-        "statement of comprehensive income",
-        "statement of stockholders",
-        "statement of shareholders",
-        "statement of equity",
-        "statement of cash flows",
-        "cash flow",
-        "assets",
-        "liabilities",
-        "equity",
-        "revenue",
-        "revenues",
-        "net income",
-        "net earnings",
-        "operating income",
-        "operating earnings",
-        "total assets",
-        "total equity",
+    raw_single_text = doc.content_text or "\n\n".join(
+        f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
     )
-    scored_pages = []
-    for p in doc.pages:
-        text_lower = p.text.lower()
-        keyword_hits = sum(1 for kw in priority_keywords if kw in text_lower)
-        phrase_hits = sum(1 for phrase in field_phrases if phrase and phrase in text_lower)
-        term_hits = sum(1 for term in field_terms if term in text_lower)
-        score = (
-            len(p.tables) * 450
-            + (160 if p.has_numbers else 0)
-            + (60 if p.has_dates else 0)
-            + keyword_hits * 180
-            + phrase_hits * 140
-            + min(term_hits, 10) * 40
-            + min(p.word_count, 1_200) * 0.1
-        )
-        if p.page_num <= 3:
-            score += 20
-        if p.page_num >= max(1, doc.page_count - 12):
-            score += 20
-        scored_pages.append((score, p))
-    scored_pages.sort(key=lambda item: (item[0], item[1].page_num), reverse=True)
-
-    priority_pages: List[Any] = []
-    priority_page_nums: set[int] = set()
-    for _, page in scored_pages[:18]:
-        for page_num in (page.page_num - 1, page.page_num, page.page_num + 1):
-            if page_num < 1 or page_num > doc.page_count or page_num in priority_page_nums:
-                continue
-            priority_pages.append(doc.pages[page_num - 1])
-            priority_page_nums.add(page_num)
-        if len(priority_pages) >= 24:
-            break
-
-    text_sections: List[str] = []
-    remaining_text_budget = single_text_budget
-    priority_text_parts: List[str] = []
-    for p in priority_pages:
-        if remaining_text_budget <= 0:
-            break
-        part = f"=== Page {p.page_num} ===\n{p.text}"
-        clipped = part[: min(4_500, remaining_text_budget)]
-        if not clipped:
-            break
-        priority_text_parts.append(clipped)
-        remaining_text_budget -= len(clipped)
-    if priority_text_parts:
-        text_sections.append("[Priority pages likely to contain the requested facts]\n" + "\n\n".join(priority_text_parts))
-
-    sampled_text = doc.content_text or ""
-    if sampled_text.strip() and remaining_text_budget > 0:
-        sampled_text_parts: List[str] = []
-        sampled_matches = list(re.finditer(r"=== Page (\d+) ===\n(.*?)(?=\n\n=== Page \d+ ===|\Z)", sampled_text, re.S))
-        if sampled_matches:
-            for match in sampled_matches:
-                page_num = int(match.group(1))
-                if page_num in priority_page_nums:
-                    continue
-                part = f"=== Page {page_num} ===\n{match.group(2).strip()}"
-                clipped = part[: min(1_600, remaining_text_budget)]
-                if not clipped:
-                    break
-                sampled_text_parts.append(clipped)
-                remaining_text_budget -= len(clipped)
-                if remaining_text_budget <= 0:
-                    break
-        else:
-            clipped = sampled_text[:remaining_text_budget]
-            if clipped:
-                sampled_text_parts.append(clipped)
-                remaining_text_budget -= len(clipped)
-        if sampled_text_parts:
-            text_sections.append("[Parser-selected document sample]\n" + "\n\n".join(sampled_text_parts))
-
-    if not text_sections:
-        fallback_text_parts: List[str] = []
-        for p in doc.pages:
-            if remaining_text_budget <= 0:
-                break
-            part = f"=== Page {p.page_num} ===\n{p.text}"
-            clipped = part[: min(3_500, remaining_text_budget)]
-            if not clipped:
-                break
-            fallback_text_parts.append(clipped)
-            remaining_text_budget -= len(clipped)
-        if fallback_text_parts:
-            text_sections.append("\n\n".join(fallback_text_parts))
-
-    raw_single_text = "\n\n".join(text_sections)[:_SINGLE_TEXT_BUDGET_CHARS] or doc.content_text
-    content_text = await _maybe_compress_with_bear(raw_single_text, doc.page_count, usage, f"{doc.filename} single text")
-
-    single_table_budget = min(_SINGLE_TABLE_BUDGET_CHARS, max(18_000, doc.page_count * 2_500))
-    table_candidates = []
-    for t in doc.tables:
-        page_text_lower = doc.pages[t.page_num - 1].text.lower() if 1 <= t.page_num <= len(doc.pages) else ""
-        keyword_hits = sum(1 for kw in priority_keywords if kw in page_text_lower)
-        phrase_hits = sum(1 for phrase in field_phrases if phrase and phrase in page_text_lower)
-        term_hits = sum(1 for term in field_terms if term in page_text_lower)
-        score = (
-            (600 if t.page_num in priority_page_nums else 0)
-            + keyword_hits * 200
-            + phrase_hits * 160
-            + min(term_hits, 10) * 50
-            + t.row_count * 25
-            + t.col_count * 15
-        )
-        table_candidates.append((score, t))
-    table_candidates.sort(
-        key=lambda item: (item[0], item[1].page_num, item[1].row_count * item[1].col_count),
-        reverse=True,
+    content_text = await _maybe_compress_with_bear(
+        raw_single_text, doc.page_count, usage, f"{doc.filename} single text",
     )
 
-    table_parts: List[str] = []
-    selected_table_pages: List[int] = []
-    for _, t in table_candidates:
-        if single_table_budget <= 0:
-            break
-        part = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-        clipped = part[: min(6_000, single_table_budget)]
-        if not clipped:
-            break
-        table_parts.append(clipped)
-        single_table_budget -= len(clipped)
-        if t.page_num not in selected_table_pages:
-            selected_table_pages.append(t.page_num)
-    raw_single_tables = "\n\n".join(table_parts)[:_SINGLE_TABLE_BUDGET_CHARS] or doc.tables_markdown
-    tables_markdown = await _maybe_compress_with_bear(raw_single_tables, doc.page_count, usage, f"{doc.filename} single tables")
+    table_parts = [
+        f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}" for t in doc.tables
+    ]
+    raw_single_tables = "\n\n".join(table_parts) if table_parts else (doc.tables_markdown or "")
+    tables_markdown = await _maybe_compress_with_bear(
+        raw_single_tables, doc.page_count, usage, f"{doc.filename} single tables",
+    )
     logger.info(
-        "Single-record context for %s: priority_pages=%s selected_table_pages=%s",
+        "Single-record full document for %s: %d chars text, %d tables",
         doc.filename,
-        sorted(priority_page_nums),
-        selected_table_pages,
+        len(raw_single_text),
+        len(doc.tables),
     )
     reporting_unit = _detect_reporting_unit(doc) if doc.has_tables else None
 
@@ -338,7 +158,7 @@ async def extract_single_record(
                         + _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION
                         + "\n--- Document Text ---\n"
                         + await _maybe_compress_with_bear(
-                            raw_single_text[:_SINGLE_FINAL_RETRY_TEXT_BUDGET_CHARS],
+                            raw_single_text,
                             doc.page_count,
                             usage,
                             f"{doc.filename} final missing-fields text",
@@ -386,16 +206,22 @@ async def extract_multi_record(
     field_names = [f["name"] for f in fields]
     ctx = _doc_context_block(doc)
     fblock = _fields_block(fields)
-    content_text = await _maybe_compress_with_bear(doc.content_text, doc.page_count, usage, f"{doc.filename} multi text")
+    raw_multi_text = doc.content_text or "\n\n".join(
+        f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
+    )
+    content_text = await _maybe_compress_with_bear(
+        raw_multi_text, doc.page_count, usage, f"{doc.filename} multi text",
+    )
 
-    table_parts, tbudget = [], 35_000
-    for t in doc.tables:
-        entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-        table_parts.append(entry[:3_000])
-        tbudget -= len(entry)
-        if tbudget <= 0:
-            break
-    full_tables_md = await _maybe_compress_with_bear("\n\n".join(table_parts), doc.page_count, usage, f"{doc.filename} multi tables")
+    table_parts = [
+        f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}" for t in doc.tables
+    ]
+    full_tables_md = await _maybe_compress_with_bear(
+        "\n\n".join(table_parts) if table_parts else (doc.tables_markdown or ""),
+        doc.page_count,
+        usage,
+        f"{doc.filename} multi tables",
+    )
 
     parts = [
         f"--- Document Info ---\n{ctx}",
@@ -431,30 +257,25 @@ async def extract_multi_record_chunked(
     field_names = [f["name"] for f in fields]
     fblock = _fields_block(fields)
     inject_global_tables = document_has_wide_data_grid(doc)
-    page_chunks = [doc.pages[i : i + _CHUNK_SIZE] for i in range(0, len(doc.pages), _CHUNK_SIZE)]
+    cs = settings.extraction_chunk_size
+    page_chunks = [doc.pages[i : i + cs] for i in range(0, len(doc.pages), cs)]
 
     async def _extract_chunk(chunk_pages: list) -> List[Dict[str, Any]]:
         page_nums = {p.page_num for p in chunk_pages}
         first_pg, last_pg = chunk_pages[0].page_num, chunk_pages[-1].page_num
-        chunk_text = "\n\n".join(f"=== Page {p.page_num} ===\n{p.text}" for p in chunk_pages)[:22_000]
+        chunk_text = "\n\n".join(f"=== Page {p.page_num} ===\n{p.text}" for p in chunk_pages)
         if inject_global_tables and doc.tables:
-            table_parts: List[str] = []
-            tbudget = 20_000
-            for t in doc.tables:
-                if tbudget <= 0:
-                    break
-                entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-                clipped = entry[: min(10_000, tbudget)]
-                if clipped:
-                    table_parts.append(clipped)
-                    tbudget -= len(clipped)
-            tables_md = "\n\n".join(table_parts)[:20_000]
+            table_parts = [
+                f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+                for t in doc.tables
+            ]
+            tables_md = "\n\n".join(table_parts)
             tables_scope = "all detected tables in this file (master schedule may be on another page range)"
         else:
             tables_md = "\n\n".join(
                 f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
                 for t in doc.tables if t.page_num in page_nums
-            )[:14_000]
+            )
             tables_scope = f"pages {first_pg}-{last_pg}"
         chunk_text = await _maybe_compress_with_bear(chunk_text, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} text")
         tables_md = await _maybe_compress_with_bear(tables_md, doc.page_count, usage, f"{doc.filename} chunk {first_pg}-{last_pg} tables")
@@ -506,18 +327,20 @@ async def _build_multi_doc_context(
     usage: LLMUsage,
     label: str = "multi",
 ) -> tuple[str, str]:
-    content_text = await _maybe_compress_with_bear(
-        doc.content_text, doc.page_count, usage, f"{doc.filename} {label} text",
+    raw_text = doc.content_text or "\n\n".join(
+        f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
     )
-    table_parts, tbudget = [], 35_000
-    for t in doc.tables:
-        entry = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-        table_parts.append(entry[:3_000])
-        tbudget -= len(entry)
-        if tbudget <= 0:
-            break
+    content_text = await _maybe_compress_with_bear(
+        raw_text, doc.page_count, usage, f"{doc.filename} {label} text",
+    )
+    table_parts = [
+        f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}" for t in doc.tables
+    ]
     full_tables_md = await _maybe_compress_with_bear(
-        "\n\n".join(table_parts), doc.page_count, usage, f"{doc.filename} {label} tables",
+        "\n\n".join(table_parts) if table_parts else (doc.tables_markdown or ""),
+        doc.page_count,
+        usage,
+        f"{doc.filename} {label} tables",
     )
     return content_text, full_tables_md
 
@@ -639,9 +462,9 @@ async def extract_multi_record_chunked_validated(
     field_names = [f["name"] for f in fields]
     fblock = _fields_block(fields)
 
-    metadata_context = doc.content_text[:20_000]
+    metadata_context = doc.content_text or ""
     if doc.tables_markdown:
-        metadata_context += "\n\n" + doc.tables_markdown[:10_000]
+        metadata_context += "\n\n" + doc.tables_markdown
     expected_count = await _extract_record_count_metadata(
         metadata_context, fblock, doc.filename, usage, instructions,
     )

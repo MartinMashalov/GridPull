@@ -7,11 +7,7 @@ from app.config import settings
 from app.services.pdf_service import ParsedDocument
 
 from .core import (
-    _CHUNK_SIZE,
-    _CHUNK_THRESHOLD_PAGES,
     _EMPTY_VALUES,
-    _PLANNER_TABLE_BUDGET_CHARS,
-    _PLANNER_TEXT_BUDGET_CHARS,
     _TEXT_MODEL,
     _empty,
     _fields_block,
@@ -53,25 +49,13 @@ async def extract_from_document(
         rows = await extract_from_scanned_document(doc, fields, usage, instructions)
     else:
         extraction_mode = "single"
-        planner_text_budget = min(_PLANNER_TEXT_BUDGET_CHARS, max(10_000, doc.page_count * 1_200))
-        planner_text_parts: List[str] = []
-        for p in doc.pages:
-            if planner_text_budget <= 0:
-                break
-            part = f"=== Page {p.page_num} ===\n{p.text}"
-            planner_text_parts.append(part[:1_600])
-            planner_text_budget -= len(part)
-        planner_text = "\n\n".join(planner_text_parts)[:_PLANNER_TEXT_BUDGET_CHARS] or doc.content_text[:_PLANNER_TEXT_BUDGET_CHARS]
-
-        planner_table_budget = min(_PLANNER_TABLE_BUDGET_CHARS, max(5_000, doc.page_count * 600))
-        planner_table_parts: List[str] = []
-        for t in doc.tables:
-            if planner_table_budget <= 0:
-                break
-            part = f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-            planner_table_parts.append(part[:2_000])
-            planner_table_budget -= len(part)
-        planner_tables = "\n\n".join(planner_table_parts)[:_PLANNER_TABLE_BUDGET_CHARS] or doc.tables_markdown[:_PLANNER_TABLE_BUDGET_CHARS]
+        planner_text = doc.content_text or "\n\n".join(
+            f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
+        )
+        planner_tables = doc.tables_markdown or "\n\n".join(
+            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+            for t in doc.tables
+        )
         planner_prompt = (
             "Decide whether this document should produce ONE output object or MANY output objects "
             "for the requested schema.\n\n"
@@ -132,8 +116,8 @@ async def extract_from_document(
             logger.info("TEXT per-page extraction: %s (%d pages)", doc.filename, doc.page_count)
             rows = await extract_per_page(doc, fields, usage, instructions)
         elif extraction_mode == "multi":
-            if doc.page_count > _CHUNK_THRESHOLD_PAGES:
-                n_chunks = -(-doc.page_count // _CHUNK_SIZE)
+            if doc.page_count > settings.extraction_chunk_threshold_pages:
+                n_chunks = -(-doc.page_count // settings.extraction_chunk_size)
                 logger.info("TEXT chunked multi-record (validated): %s (%d pages, %d chunks)", doc.filename, doc.page_count, n_chunks)
                 rows = await extract_multi_record_chunked_validated(doc, fields, usage, instructions)
             else:
@@ -161,15 +145,15 @@ async def extract_from_document(
         for _ in range(3):
             if not text_for_backfill:
                 break
-            if not any(
-                not rows[i].get("_error")
-                and any(
-                    rows[i].get(fn) is None
-                    or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
-                    for fn in field_names
-                )
+            missing_before = sum(
+                1
                 for i in range(len(rows))
-            ):
+                if not rows[i].get("_error")
+                for fn in field_names
+                if rows[i].get(fn) is None
+                or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
+            )
+            if missing_before == 0:
                 break
             rows = await backfill_missing_row_fields_from_document(
                 rows,
@@ -180,6 +164,16 @@ async def extract_from_document(
                 usage,
                 instructions,
             )
+            missing_after = sum(
+                1
+                for i in range(len(rows))
+                if not rows[i].get("_error")
+                for fn in field_names
+                if rows[i].get(fn) is None
+                or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
+            )
+            if missing_after >= missing_before:
+                break
 
     if not rows:
         rows = _empty([doc.filename], field_names)

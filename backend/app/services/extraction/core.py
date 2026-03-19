@@ -22,23 +22,12 @@ _TEXT_MODEL = "gpt-4.1-mini"
 _VISION_MODEL = "gpt-4.1-mini"
 # Post-extraction single-row polish (llm._cleanup_single_row_with_nano).
 _CLEANUP_MODEL = "openai/gpt-5.4-nano"
-_METADATA_MODEL = "openai/gpt-5.4-mini"
 _OCR_MODEL = "mistral-ocr-latest"
 
 _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
 _MARKUP = 1.20
 
 # Extraction routing constants
-_CHUNK_THRESHOLD_PAGES = 8
-_CHUNK_SIZE = 6
-_PLANNER_TEXT_BUDGET_CHARS = 18_000
-_PLANNER_TABLE_BUDGET_CHARS = 9_000
-_SINGLE_TEXT_BUDGET_CHARS = 100_000
-_SINGLE_TABLE_BUDGET_CHARS = 50_000
-_SCAN_TEXT_BUDGET_CHARS = 22_000
-_SCAN_RETRY_TEXT_BUDGET_CHARS = 26_000
-_SINGLE_FINAL_RETRY_TEXT_BUDGET_CHARS = 36_000
-_SCAN_FINAL_RETRY_TEXT_BUDGET_CHARS = 52_000
 _SINGLE_DOC_MIN_FFR = 0.75
 _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 
@@ -365,11 +354,12 @@ def document_has_wide_data_grid(doc: ParsedDocument) -> bool:
     """True when the PDF parser found a table shaped like a multi-entity schedule (rows x columns).
 
     Used to avoid per-page extraction that drops cross-page schedule context. Based on layout
-    only, not on requested field names.
+    only, not on requested field names. Thresholds come from settings (env-overridable).
     """
-
+    min_r = settings.extraction_wide_grid_min_rows
+    min_c = settings.extraction_wide_grid_min_cols
     for t in doc.tables:
-        if t.row_count >= 5 and t.col_count >= 4:
+        if t.row_count >= min_r and t.col_count >= min_c:
             return True
     return False
 
@@ -430,7 +420,7 @@ def _clean_monetary_value(value: str) -> str:
 
 
 def _detect_reporting_unit(doc: ParsedDocument) -> str | None:
-    search_text = " ".join(p.text for p in doc.pages[:5])[:12_000]
+    search_text = " ".join(p.text for p in doc.pages)
     match = _PAREN_UNIT_RE.search(search_text)
     if match:
         inner = match.group(1).strip() if match.lastindex and match.lastindex >= 1 else match.group(0)
