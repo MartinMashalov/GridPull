@@ -111,12 +111,25 @@ def _merge_rows_by_identifier(
     if len(rows) <= 1:
         return rows
 
-    id_candidates = [fn for fn in field_names if any(
-        kw in fn.lower() for kw in ("number", "no.", "id", "loc", "#")
-    )]
-    addr_candidates = [fn for fn in field_names if any(
-        kw in fn.lower() for kw in ("address", "street")
-    )]
+    id_candidates: List[str] = []
+    for fn in field_names:
+        fl = fn.lower()
+        if "allocation" in fl and "location" not in fl:
+            continue
+        if re.search(r"\bnumber\b", fl) and any(x in fl for x in ("stor", "story", "sq ft", "sqft", "area")):
+            continue
+        if re.search(r"\blocation\b", fl) or re.search(r"\bloc\s*#|\bloc\.", fl):
+            id_candidates.append(fn)
+        elif re.search(r"\bnumber\b", fl) or "no." in fl:
+            id_candidates.append(fn)
+        elif "#" in fn and "number" in fl:
+            id_candidates.append(fn)
+        elif re.search(r"\b(?:property|site|schedule|premises)\s+id\b", fl):
+            id_candidates.append(fn)
+    addr_candidates = [
+        fn for fn in field_names
+        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
+    ]
 
     if not id_candidates and not addr_candidates:
         return rows
@@ -134,14 +147,12 @@ def _merge_rows_by_identifier(
 
     def _merge_key(row: Dict[str, Any]) -> str | None:
         parts = []
-        if id_field:
+        if id_field and _is_filled_value(row.get(id_field)):
             v = _norm(row.get(id_field))
-            if v and v not in {"none", "null", "n/a", "-"}:
-                parts.append(_base_num(v))
-        if addr_field:
+            parts.append(_base_num(v))
+        if addr_field and _is_filled_value(row.get(addr_field)):
             v = _norm(row.get(addr_field))
-            if v and v not in {"none", "null", "n/a", "-"}:
-                parts.append(v[:40])
+            parts.append(v[:40])
         return "|".join(parts) if parts else None
 
     groups: dict[str, List[Dict[str, Any]]] = {}
@@ -191,6 +202,107 @@ def _merge_rows_by_identifier(
     return merged
 
 
+def finalize_property_schedule_rows(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+) -> List[Dict[str, Any]]:
+    """Drop blank/spacer rows, re-merge split location lines, remove exact duplicate records."""
+    if not rows:
+        return rows
+    loc_num_fn = next(
+        (fn for fn in field_names if "location" in fn.lower() and "number" in fn.lower()),
+        None,
+    )
+    addr_fns = [
+        fn for fn in field_names
+        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
+    ]
+    primary_addr = addr_fns[0] if addr_fns else None
+    city_fns = [
+        fn for fn in field_names
+        if ("city" in fn.lower() and "velocity" not in fn.lower())
+    ]
+    primary_city = city_fns[0] if city_fns else None
+    non_empty: List[Dict[str, Any]] = []
+    for row in rows:
+        if row.get("_error"):
+            non_empty.append(row)
+            continue
+        filled = sum(1 for fn in field_names if _is_filled_value(row.get(fn)))
+        if filled == 0:
+            continue
+        non_empty.append(row)
+    if not non_empty:
+        return rows
+    merged = _merge_rows_by_identifier(non_empty, field_names)
+    kept: List[Dict[str, Any]] = []
+    for row in merged:
+        if row.get("_error"):
+            kept.append(row)
+            continue
+        loc_filled = bool(loc_num_fn and _is_filled_value(row.get(loc_num_fn)))
+        addr_and_city = bool(
+            primary_addr
+            and primary_city
+            and _is_filled_value(row.get(primary_addr))
+            and _is_filled_value(row.get(primary_city))
+        )
+        if not (loc_filled or addr_and_city):
+            continue
+        kept.append(row)
+    if not kept:
+        return rows
+    bucket: dict[str, Dict[str, Any]] = {}
+    bucket_order: List[str] = []
+    for row in kept:
+        if row.get("_error"):
+            bucket[f"_err_{id(row)}"] = row
+            bucket_order.append(f"_err_{id(row)}")
+            continue
+        loc_part = ""
+        if loc_num_fn and _is_filled_value(row.get(loc_num_fn)):
+            raw_loc = str(row.get(loc_num_fn)).strip()
+            m = re.match(r"^(?:loc(?:ation)?\s*#?\s*)?(\d+)", raw_loc, re.I)
+            loc_part = (m.group(1) if m else raw_loc[:24]).lower()
+        addr_part = ""
+        if primary_addr and _is_filled_value(row.get(primary_addr)):
+            addr_part = re.sub(r"\s+", " ", str(row.get(primary_addr)).strip().lower()[:80])
+        ck = f"{loc_part}\x00{addr_part}"
+        if ck == "\x00":
+            ck = f"row_{id(row)}"
+        if ck not in bucket:
+            bucket[ck] = dict(row)
+            bucket_order.append(ck)
+            continue
+        base = dict(bucket[ck])
+        for fn in field_names:
+            if not _is_filled_value(base.get(fn)) and _is_filled_value(row.get(fn)):
+                base[fn] = row.get(fn)
+        bucket[ck] = base
+    merged2 = [bucket[k] for k in bucket_order]
+    seen: set[str] = set()
+    out: List[Dict[str, Any]] = []
+    for row in merged2:
+        if row.get("_error"):
+            out.append(row)
+            continue
+        norm_vals = {
+            fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower())
+            for fn in field_names
+        }
+        sig = json.dumps(norm_vals, sort_keys=True)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(row)
+    if len(out) < len(rows):
+        logger.info(
+            "Property schedule cleanup: %d rows -> %d (filename context: schedule dedupe)",
+            len(rows), len(out),
+        )
+    return out
+
+
 async def _review_multi_rows(
     rows: List[Dict[str, Any]],
     field_names: List[str],
@@ -214,6 +326,7 @@ async def _review_multi_rows(
         "non-null value from either row\n"
         "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
         "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
+        "- remove every completely empty record (all fields null, dash, or n/a) and duplicate rows for the same location\n"
         "- do not invent new values\n\n"
         f"Filename: {filename}\n"
         f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
@@ -230,7 +343,13 @@ async def _review_multi_rows(
     deduped: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for row in reviewed:
-        key = json.dumps({fn: row.get(fn, "") for fn in field_names}, sort_keys=True)
+        key = json.dumps(
+            {
+                fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower())
+                for fn in field_names
+            },
+            sort_keys=True,
+        )
         if key in seen:
             continue
         seen.add(key)

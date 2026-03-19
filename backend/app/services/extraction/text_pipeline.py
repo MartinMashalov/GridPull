@@ -408,7 +408,9 @@ async def extract_multi_record(
         "requested fields. If the schema repeats across table rows, emit one object per row. "
         "If the schema repeats across table columns, emit one object per column. If the "
         "document does not actually contain repeated records that match the requested fields, "
-        "return a single best record instead of inventing multiples."
+        "return a single best record instead of inventing multiples.\n"
+        "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
+        "exactly one object per insured location; merge fragmented lines for the same location."
     )
     if full_tables_md:
         parts.append(f"\n--- Detected Tables ---\n{full_tables_md}")
@@ -517,7 +519,9 @@ def _build_multi_cacheable_prefix(
         "requested fields. If the schema repeats across table rows, emit one object per row. "
         "If the schema repeats across table columns, emit one object per column. If the "
         "document does not actually contain repeated records that match the requested fields, "
-        "return a single best record instead of inventing multiples."
+        "return a single best record instead of inventing multiples.\n"
+        "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
+        "exactly one object per insured location; merge fragmented lines for the same location."
     )
     parts.append(f"\n--- Document Info ---\n{ctx}")
     if full_tables_md:

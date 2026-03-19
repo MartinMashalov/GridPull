@@ -216,6 +216,10 @@ _MULTI_SYSTEM = (
     "- Emit one object per natural repeated record that matches the requested fields\n"
     "- Repeated records may appear across table rows, table columns, repeated sections, or repeated line-item blocks\n"
     "- Skip pure headers and decorative content that are not actual records\n"
+    "- Never emit blank spacer records (objects where every field is null, empty, or a dash). "
+    "Each object must be one real schedule row (e.g. one insured location).\n"
+    "- For property schedules and appraisal reports: ONE row per location; merge summary and "
+    "detail lines for the same site into a single object\n"
     "- Use null for fields not present in a given record\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers - only include units literally in the cell\n"
@@ -265,6 +269,8 @@ _SCAN_MULTI_SYSTEM = (
     "- Emit one object per natural repeated record that matches the requested fields\n"
     "- Repeated records may appear across table rows, table columns, repeated sections, or repeated line-item blocks\n"
     "- Skip pure headers and decorative content that are not actual records\n"
+    "- Never emit blank spacer records (all fields empty). One row per real location in the schedule.\n"
+    "- For appraisal/property schedules merge summary and detail for the same site into one record.\n"
     "- Use null for fields not present in a given record\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
@@ -304,7 +310,10 @@ _EXPLANATION_MARKERS = (
     " because ",
     " equals ",
 )
-_EMPTY_VALUES = {"", "null", "none", "n/a", "na", "-", "unknown", "not found", "not available"}
+_EMPTY_VALUES = {
+    "", "null", "none", "n/a", "na", "-", "—", "\u2014", "\u2013",
+    "unknown", "not found", "not available",
+}
 
 
 def _is_formula_or_explanation(value: str) -> bool:
@@ -337,6 +346,15 @@ def _is_filled_value(value: Any) -> bool:
     if value is None:
         return False
     return str(value).strip().lower() not in _EMPTY_VALUES
+
+
+def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool:
+    """True when the field set is the multi-location property / SOV template (merge + spacer cleanup)."""
+    blob = " ".join(n.lower() for n in field_names)
+    return (
+        "location number" in blob
+        or ("address line" in blob and "zip code" in blob)
+    )
 
 
 def _single_fill_rate(row: Dict[str, Any], field_names: List[str]) -> float:

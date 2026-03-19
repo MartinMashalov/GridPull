@@ -17,9 +17,10 @@ from .core import (
     _fields_block,
     _maybe_compress_with_bear,
     LLMUsage,
+    property_schedule_row_cleanup_matches_schema,
     record_llm_usage_cost,
 )
-from .llm import _litellm_acompletion
+from .llm import _litellm_acompletion, finalize_property_schedule_rows
 from .scan_pipeline import extract_from_scanned_document
 from .text_pipeline import (
     _should_extract_multi,
@@ -138,8 +139,11 @@ async def extract_from_document(
             )
             rows = await extract_from_scanned_document(doc, fields, usage, instructions)
 
+    field_names = [f["name"] for f in fields]
+    if rows and property_schedule_row_cleanup_matches_schema(field_names):
+        rows = finalize_property_schedule_rows(rows, field_names)
+
     if not rows:
-        field_names = [f["name"] for f in fields]
         rows = _empty([doc.filename], field_names)
 
     logger.info(
