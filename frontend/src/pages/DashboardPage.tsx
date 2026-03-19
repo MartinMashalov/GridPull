@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -63,6 +63,7 @@ export interface JobState {
 const _ACTIVE_JOB_KEY = 'gridpull-active-job'
 const _ACCEPTED_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg'])
 const _SUPPORTED_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg'])
+const _SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'csv'])
 const _ZIP_MIME_TYPES = new Set(['application/zip', 'application/x-zip-compressed'])
 const _ZIP_MAX_SIZE_BYTES = 20 * 1024 * 1024
 
@@ -128,6 +129,8 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
 export default function DashboardPage() {
   const { user, updateBalance, updateSubscription } = useAuthStore()
   const [files, setFiles] = useState<File[]>([])
+  const [baselineSpreadsheet, setBaselineSpreadsheet] = useState<File | null>(null)
+  const [baselineHeaders, setBaselineHeaders] = useState<string[] | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [documentType, setDocumentType] = useState<DocumentType>('custom')
@@ -194,6 +197,9 @@ export default function DashboardPage() {
     }
   }, [event])
 
+  const documentTypeRef = useRef(documentType)
+  documentTypeRef.current = documentType
+
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const valid: File[] = []
     let unsupportedDirectCount = 0
@@ -201,11 +207,18 @@ export default function DashboardPage() {
     let unreadableZipCount = 0
     let ignoredZipEntryCount = 0
     let zipWithNoSupportedFilesCount = 0
+    let newSpreadsheet: File | null = null
 
     for (const droppedFile of acceptedFiles) {
       const fileName = droppedFile.name.toLowerCase()
       const ext = fileName.includes('.') ? fileName.split('.').pop() ?? '' : ''
       const isZip = _ZIP_MIME_TYPES.has(droppedFile.type) || ext === 'zip'
+
+      // In SOV mode, treat the first spreadsheet as the baseline
+      if (documentTypeRef.current === 'sov' && _SPREADSHEET_EXTENSIONS.has(ext)) {
+        if (!newSpreadsheet) newSpreadsheet = droppedFile
+        continue
+      }
 
       if (!isZip) {
         const isSupported = _ACCEPTED_TYPES.has(droppedFile.type) || _SUPPORTED_EXTENSIONS.has(ext)
@@ -249,6 +262,21 @@ export default function DashboardPage() {
       }
     }
 
+    // If a new baseline spreadsheet was found in SOV mode, parse its headers
+    if (newSpreadsheet) {
+      setBaselineSpreadsheet(newSpreadsheet)
+      setBaselineHeaders(null)
+      try {
+        const fd = new FormData()
+        fd.append('file', newSpreadsheet)
+        const res = await api.post('/documents/spreadsheet-headers', fd)
+        setBaselineHeaders(res.data.headers)
+      } catch {
+        setValidationMsg('Could not read spreadsheet headers — make sure the file is a valid .xlsx or .csv')
+        setBaselineSpreadsheet(null)
+      }
+    }
+
     const issues: string[] = []
     if (unsupportedDirectCount > 0) {
       issues.push(`${unsupportedDirectCount} unsupported file${unsupportedDirectCount > 1 ? 's' : ''} skipped`)
@@ -277,18 +305,36 @@ export default function DashboardPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'image/png': ['.png'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'application/zip': ['.zip'],
-      'application/x-zip-compressed': ['.zip'],
-    },
+    accept: documentType === 'sov'
+      ? {
+          'application/pdf': ['.pdf'],
+          'image/png': ['.png'],
+          'image/jpeg': ['.jpg', '.jpeg'],
+          'application/zip': ['.zip'],
+          'application/x-zip-compressed': ['.zip'],
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+          'text/csv': ['.csv'],
+        }
+      : {
+          'application/pdf': ['.pdf'],
+          'image/png': ['.png'],
+          'image/jpeg': ['.jpg', '.jpeg'],
+          'application/zip': ['.zip'],
+          'application/x-zip-compressed': ['.zip'],
+        },
     multiple: true,
     noKeyboard: true,
   })
 
   const handleProcess = () => {
+    if (!files.length && !baselineSpreadsheet) { setValidationMsg('Upload at least one supported file.'); return }
+    if (documentType === 'sov' && baselineHeaders && baselineHeaders.length > 0) {
+      if (!files.length) { setValidationMsg('Upload at least one PDF to extract data from.'); return }
+      setValidationMsg(null)
+      const fields: ExtractionField[] = baselineHeaders.map(h => ({ name: h, description: '' }))
+      handleExtract(fields, exportFormat, '')
+      return
+    }
     if (!files.length) { setValidationMsg('Upload at least one supported file.'); return }
     setValidationMsg(null)
     if (documentType === 'quickbooks') {
@@ -312,6 +358,8 @@ export default function DashboardPage() {
     try {
       const fd = new FormData()
       files.forEach((f) => fd.append('files', f))
+      // Include the baseline spreadsheet so the backend can skip it (it uses the extension to filter)
+      if (baselineSpreadsheet) fd.append('files', baselineSpreadsheet)
       fd.append('fields', JSON.stringify(fields))
       fd.append('instructions', instructions.trim())
       fd.append('format', format)
@@ -354,6 +402,8 @@ export default function DashboardPage() {
     setJob(null)
     setActiveJobId(null)
     setFiles([])
+    setBaselineSpreadsheet(null)
+    setBaselineHeaders(null)
   }
 
   const handleNew = () => {
@@ -361,6 +411,8 @@ export default function DashboardPage() {
     setJob(null)
     setActiveJobId(null)
     setFiles([])
+    setBaselineSpreadsheet(null)
+    setBaselineHeaders(null)
     setValidationMsg(null)
     setIsPaywalled(false)
   }
@@ -374,8 +426,6 @@ export default function DashboardPage() {
   filesLengthRef.current = files.length
   const isProcessingRef = useRef(isProcessing)
   isProcessingRef.current = isProcessing
-  const documentTypeRef = useRef(documentType)
-  documentTypeRef.current = documentType
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -516,6 +566,8 @@ export default function DashboardPage() {
                 if (documentType === dt.id) return
                 setDocumentType(dt.id)
                 setFiles([])
+                setBaselineSpreadsheet(null)
+                setBaselineHeaders(null)
                 setValidationMsg(null)
               }}
               className={cn(
@@ -579,7 +631,12 @@ export default function DashboardPage() {
           ) : (
             <div>
               <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
-              <p className="text-muted-foreground text-sm mt-1">Supports PDF, PNG, JPEG, and ZIP (max 20 MB ZIP) — upload multiple files at once</p>
+              <p className="text-muted-foreground text-sm mt-1">
+                {documentType === 'sov'
+                  ? 'Drop last year\'s spreadsheet (.xlsx or .csv) + new PDFs — headers will sync automatically'
+                  : 'Supports PDF, PNG, JPEG, and ZIP (max 20 MB ZIP) — upload multiple files at once'
+                }
+              </p>
             </div>
           )}
         </div>
@@ -598,6 +655,33 @@ export default function DashboardPage() {
         <p className="mt-2 text-xs text-red-500">{validationMsg}</p>
       )}
 
+      {/* Baseline spreadsheet indicator (SOV mode) */}
+      {documentType === 'sov' && baselineSpreadsheet && (
+        <div className="mt-3 bg-emerald-500/5 border border-emerald-500/25 rounded-xl px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileSpreadsheet size={14} className="text-emerald-500 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{baselineSpreadsheet.name}</p>
+                {baselineHeaders && baselineHeaders.length > 0 ? (
+                  <p className="text-[11px] text-emerald-600 mt-0.5">
+                    Baseline — {baselineHeaders.length} column{baselineHeaders.length !== 1 ? 's' : ''} detected: {baselineHeaders.slice(0, 4).join(', ')}{baselineHeaders.length > 4 ? ` +${baselineHeaders.length - 4} more` : ''}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Reading headers…</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => { setBaselineSpreadsheet(null); setBaselineHeaders(null) }}
+              className="text-xs text-muted-foreground hover:text-red-400 transition-colors ml-2 flex-shrink-0"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* File count */}
       {files.length > 0 && (
         <div className="mt-3 bg-card border border-border rounded-xl px-4 py-3 flex items-center justify-between">
@@ -614,7 +698,7 @@ export default function DashboardPage() {
       <Button
         ref={submitBtnRef}
         onClick={handleProcess}
-        disabled={!files.length || isProcessing}
+        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null)}
         size="lg"
         className="mt-4 w-full shadow-lg shadow-primary/25"
       >
@@ -623,6 +707,10 @@ export default function DashboardPage() {
             <Loader2 size={15} className="animate-spin" />
             Processing…
           </>
+        ) : documentType === 'sov' && baselineSpreadsheet && baselineHeaders ? (
+          files.length > 0
+            ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} using ${baselineSpreadsheet.name}`
+            : 'Upload PDFs to extract'
         ) : files.length > 0 ? (
           documentType === 'quickbooks'
             ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} for QuickBooks`

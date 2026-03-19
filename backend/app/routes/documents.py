@@ -33,7 +33,7 @@ from app.database import get_db
 from app.middleware.auth_middleware import get_current_user, get_current_user_sse
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
-from app.services.spreadsheet_service import generate_quickbooks_csv_bytes, generate_qbo_bytes
+from app.services.spreadsheet_service import generate_quickbooks_csv_bytes, generate_qbo_bytes, read_headers_from_bytes
 from app.services.subscription_tiers import get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
@@ -56,6 +56,32 @@ KEEPALIVE_INTERVAL = 20
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
+
+@router.post("/spreadsheet-headers")
+async def parse_spreadsheet_headers(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the header row from an uploaded xlsx or csv file."""
+    fname = (file.filename or "").lower()
+    if fname.endswith(".xlsx"):
+        fmt = "xlsx"
+    elif fname.endswith(".csv"):
+        fmt = "csv"
+    else:
+        raise HTTPException(status_code=400, detail="Only .xlsx or .csv files are supported")
+
+    content = await file.read()
+    try:
+        headers = read_headers_from_bytes(content, fmt)
+    except Exception as exc:
+        logger.error("Failed to read spreadsheet headers from %s: %s", file.filename, exc)
+        raise HTTPException(status_code=422, detail=f"Could not parse spreadsheet: {exc}")
+
+    # Strip empty/None headers and the leading "Source File" column if present
+    cleaned = [h for h in headers if h and h.strip() and h.strip().lower() != "source file"]
+    return {"headers": cleaned, "filename": file.filename}
+
 
 @router.post("/extract")
 async def start_extraction(
@@ -84,7 +110,8 @@ async def start_extraction(
 
     # ── Subscription-based usage enforcement ──────────────────────────────────
     tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
-    num_files = len(files)
+    _SPREADSHEET_EXTS = {".xlsx", ".csv"}
+    num_files = sum(1 for f in files if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS)
 
     # Reset usage if period rolled over
     from app.routes.payments import _maybe_reset_usage
@@ -154,10 +181,15 @@ async def start_extraction(
     saved_count = 0
 
     _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+    _SPREADSHEET_EXT = {".xlsx", ".csv"}
 
     for upload in files:
         fname = upload.filename or ""
         ext = os.path.splitext(fname.lower())[1]
+        if ext in _SPREADSHEET_EXT:
+            # Spreadsheet files are baseline references — skip them from extraction
+            logger.info("Skipping baseline spreadsheet %s in job %s", fname, job.id)
+            continue
         if ext not in _ALLOWED_EXT:
             logger.warning("Skipping unsupported file %s in job %s", fname, job.id)
             continue
