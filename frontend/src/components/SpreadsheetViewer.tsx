@@ -225,7 +225,7 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
       {/* Footer */}
       <div className="px-5 py-2.5 bg-secondary/50 border-t border-border flex items-center justify-between text-[11px] text-muted-foreground">
         <span>{fields.length} field{fields.length !== 1 ? 's' : ''} extracted</span>
-        <span>{results.length} document{results.length !== 1 ? 's' : ''} processed</span>
+        <span>{results.length} row{results.length !== 1 ? 's' : ''} in results</span>
       </div>
     </div>
   )
