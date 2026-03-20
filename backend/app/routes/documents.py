@@ -1,7 +1,11 @@
 """
 Document routes.
 
-POST /documents/extract          — upload PDFs, queue extraction job
+POST /documents/extract            — upload PDFs, queue extraction job (JWT)
+POST /documents/extract-service    — same, auth via X-GridPull-Service-Token / service_token (env secret + service user)
+GET  /documents/service/job/{id}   — poll job (service token only)
+GET  /documents/service/results/{id}
+GET  /documents/service/download/{id}
 GET  /documents/job/{id}         — poll job status (fallback for non-SSE clients)
 GET  /documents/progress/{id}    — SSE stream of real-time progress events
 GET  /documents/results/{id}     — fetch extracted data as JSON (for UI table)
@@ -13,7 +17,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import AsyncIterator, List
+import secrets
+from typing import AsyncIterator, List, Optional
 
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
@@ -53,6 +58,167 @@ _SSE_HEADERS = {
 }
 
 KEEPALIVE_INTERVAL = 20
+
+
+def _service_extraction_enabled() -> bool:
+    return bool((settings.service_extraction_secret or "").strip() and (settings.service_extraction_user_id or "").strip())
+
+
+def _service_token_from_request(request: Request, form_token: Optional[str] = None) -> str:
+    h = (request.headers.get("X-GridPull-Service-Token") or "").strip()
+    if h:
+        return h
+    if form_token:
+        return form_token.strip()
+    return (request.query_params.get("service_token") or "").strip()
+
+
+def _assert_valid_service_token(request: Request, form_token: Optional[str] = None) -> None:
+    if not _service_extraction_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    expected = (settings.service_extraction_secret or "").strip()
+    cand = _service_token_from_request(request, form_token)
+    if not cand or not secrets.compare_digest(cand, expected):
+        raise HTTPException(status_code=401, detail="Invalid service token")
+
+
+async def _load_service_account_user(db: AsyncSession) -> User:
+    uid = (settings.service_extraction_user_id or "").strip()
+    result = await db.execute(select(User).where(User.id == uid))
+    u = result.scalar_one_or_none()
+    if not u or not u.is_active:
+        raise HTTPException(status_code=503, detail="Service extraction user not available")
+    return u
+
+
+async def _enqueue_extraction_job(
+    db: AsyncSession,
+    user_id: str,
+    files: List[UploadFile],
+    fields_data: List,
+    instructions: str,
+    format: str,
+    client_ip: str,
+    *,
+    log_prefix: str = "Extract",
+) -> dict:
+    from app.routes.payments import _maybe_reset_usage
+
+    result_u = await db.execute(select(User).where(User.id == user_id))
+    db_user = result_u.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    tier = get_tier(getattr(db_user, "subscription_tier", "free") or "free")
+    _SPREADSHEET_EXTS = {".xlsx", ".csv"}
+    num_files = sum(1 for f in files if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS)
+
+    _maybe_reset_usage(db_user)
+    await db.commit()
+    await db.refresh(db_user)
+    used = db_user.files_used_this_period or 0
+
+    if tier.name == "free" and used + num_files > tier.files_per_month:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "type": "file_limit_reached",
+                "message": f"Free plan allows {tier.files_per_month} files/month. You've used {used}.",
+                "files_used": used,
+                "files_limit": tier.files_per_month,
+                "tier": tier.name,
+            },
+        )
+
+    overage_count = max(0, (used + num_files) - tier.files_per_month)
+
+    filenames = [f.filename for f in files]
+    logger.info(
+        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars ip=%s",
+        log_prefix,
+        user_id,
+        filenames,
+        [f["name"] for f in fields_data],
+        format,
+        len(instructions.strip()),
+        client_ip,
+    )
+
+    job = ExtractionJob(
+        user_id=user_id,
+        status="queued",
+        fields=fields_data,
+        instructions=instructions.strip() or None,
+        format=format,
+        file_count=len(files),
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    db_user.files_used_this_period = (db_user.files_used_this_period or 0) + num_files
+    if overage_count > 0:
+        db_user.overage_files_this_period = (db_user.overage_files_this_period or 0) + overage_count
+    await db.commit()
+
+    logger.info(
+        "Job created — job_id=%s user_id=%s files_used=%d",
+        job.id,
+        user_id,
+        db_user.files_used_this_period,
+    )
+
+    upload_dir = os.path.join(settings.upload_dir, job.id)
+    os.makedirs(upload_dir, exist_ok=True)
+    saved_count = 0
+
+    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+    _SPREADSHEET_EXT = {".xlsx", ".csv"}
+
+    for upload in files:
+        fname = upload.filename or ""
+        ext = os.path.splitext(fname.lower())[1]
+        if ext in _SPREADSHEET_EXT:
+            logger.info("Skipping baseline spreadsheet %s in job %s", fname, job.id)
+            continue
+        if ext not in _ALLOWED_EXT:
+            logger.warning("Skipping unsupported file %s in job %s", fname, job.id)
+            continue
+        path = os.path.join(upload_dir, fname)
+        content = await upload.read()
+        async with aiofiles.open(path, "wb") as fh:
+            await fh.write(content)
+        size_kb = len(content) / 1024
+        db.add(Document(job_id=job.id, filename=fname, file_path=path))
+        logger.info("Saved %s (%.1f KB) for job %s", fname, size_kb, job.id)
+        saved_count += 1
+
+    await db.commit()
+    logger.info("Saved %d file(s) for job %s — enqueuing…", saved_count, job.id)
+
+    await worker_pool.submit(process_job, job.id, worker_pool.broadcast)
+    queue_depth = worker_pool._job_queue.qsize()
+    logger.info(
+        "Job %s enqueued — queue depth: %d — user_id=%s",
+        job.id,
+        queue_depth,
+        user_id,
+    )
+
+    new_used = db_user.files_used_this_period
+    usage_pct = (new_used / tier.files_per_month * 100) if tier.files_per_month else 0
+
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "usage": {
+            "files_used": new_used,
+            "files_limit": tier.files_per_month,
+            "usage_percent": min(usage_pct, 100),
+            "overage_files": overage_count,
+            "tier": tier.name,
+        },
+    }
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -108,125 +274,186 @@ async def start_extraction(
         logger.warning("Extract request with no fields — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No extraction fields provided")
 
-    # ── Subscription-based usage enforcement ──────────────────────────────────
-    tier = get_tier(getattr(current_user, "subscription_tier", "free") or "free")
-    _SPREADSHEET_EXTS = {".xlsx", ".csv"}
-    num_files = sum(1 for f in files if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS)
-
-    # Reset usage if period rolled over
-    from app.routes.payments import _maybe_reset_usage
-    result_u = await db.execute(select(User).where(User.id == current_user.id))
-    db_user = result_u.scalar_one_or_none()
-    if db_user:
-        _maybe_reset_usage(db_user)
-        await db.commit()
-        await db.refresh(db_user)
-        used = db_user.files_used_this_period or 0
-    else:
-        used = current_user.files_used_this_period or 0
-
-    remaining = max(0, tier.files_per_month - used)
-
-    if tier.name == "free" and used + num_files > tier.files_per_month:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "type": "file_limit_reached",
-                "message": f"Free plan allows {tier.files_per_month} files/month. You've used {used}.",
-                "files_used": used,
-                "files_limit": tier.files_per_month,
-                "tier": tier.name,
-            },
-        )
-
-    # Paid tiers: allow overages
-    overage_count = max(0, (used + num_files) - tier.files_per_month)
-
-    filenames = [f.filename for f in files]
-    logger.info(
-        "Extract request — user_id=%s files=%s fields=%s format=%s instructions=%d chars ip=%s",
+    return await _enqueue_extraction_job(
+        db,
         current_user.id,
-        filenames,
-        [f["name"] for f in fields_data],
+        files,
+        fields_data,
+        instructions,
         format,
-        len(instructions.strip()),
         client_ip,
+        log_prefix="Extract",
     )
 
-    # Create job record
-    job = ExtractionJob(
-        user_id=current_user.id,
-        status="queued",
-        fields=fields_data,
-        instructions=instructions.strip() or None,
-        format=format,
-        file_count=len(files),
-    )
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
 
-    # Increment usage counters
-    if db_user:
-        db_user.files_used_this_period = (db_user.files_used_this_period or 0) + num_files
-        if overage_count > 0:
-            db_user.overage_files_this_period = (db_user.overage_files_this_period or 0) + overage_count
-        await db.commit()
+@router.post("/extract-service", include_in_schema=False)
+async def start_extraction_service(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    fields: str = Form(...),
+    instructions: str = Form(""),
+    format: str = Form("xlsx"),
+    service_token: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Same as /extract but auth via X-GridPull-Service-Token header or service_token form/query.
 
-    logger.info("Job created — job_id=%s user_id=%s files_used=%d", job.id, current_user.id, (db_user.files_used_this_period if db_user else 0))
+    Configure SERVICE_EXTRACTION_SECRET and SERVICE_EXTRACTION_USER_ID. Endpoint returns 404 when not configured.
+    Jobs are owned by the configured user (balance / subscription apply to that account).
+    """
+    _assert_valid_service_token(request, form_token=service_token)
+    svc_user = await _load_service_account_user(db)
 
-    # Persist uploaded files
-    upload_dir = os.path.join(settings.upload_dir, job.id)
-    os.makedirs(upload_dir, exist_ok=True)
-    saved_count = 0
+    client_ip = request.client.host if request.client else "-"
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    if format not in ("xlsx", "csv"):
+        format = "xlsx"
+    fields_data = json.loads(fields)
+    if not fields_data:
+        raise HTTPException(status_code=400, detail="No extraction fields provided")
 
-    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
-    _SPREADSHEET_EXT = {".xlsx", ".csv"}
-
-    for upload in files:
-        fname = upload.filename or ""
-        ext = os.path.splitext(fname.lower())[1]
-        if ext in _SPREADSHEET_EXT:
-            # Spreadsheet files are baseline references — skip them from extraction
-            logger.info("Skipping baseline spreadsheet %s in job %s", fname, job.id)
-            continue
-        if ext not in _ALLOWED_EXT:
-            logger.warning("Skipping unsupported file %s in job %s", fname, job.id)
-            continue
-        path = os.path.join(upload_dir, fname)
-        content = await upload.read()
-        async with aiofiles.open(path, "wb") as fh:
-            await fh.write(content)
-        size_kb = len(content) / 1024
-        db.add(Document(job_id=job.id, filename=fname, file_path=path))
-        logger.info("Saved %s (%.1f KB) for job %s", fname, size_kb, job.id)
-        saved_count += 1
-
-    await db.commit()
-    logger.info("Saved %d file(s) for job %s — enqueuing…", saved_count, job.id)
-
-    # Enqueue into the worker pool
-    await worker_pool.submit(process_job, job.id, worker_pool.broadcast)
-    queue_depth = worker_pool._job_queue.qsize()
-    logger.info(
-        "Job %s enqueued — queue depth: %d — user_id=%s",
-        job.id, queue_depth, current_user.id,
+    return await _enqueue_extraction_job(
+        db,
+        svc_user.id,
+        files,
+        fields_data,
+        instructions,
+        format,
+        client_ip,
+        log_prefix="Extract-service",
     )
 
-    new_used = (db_user.files_used_this_period if db_user else used + num_files)
-    usage_pct = (new_used / tier.files_per_month * 100) if tier.files_per_month else 0
 
-    return {
+@router.get("/service/job/{job_id}", include_in_schema=False)
+async def get_job_status_service(
+    request: Request,
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    _assert_valid_service_token(request)
+    uid = (settings.service_extraction_user_id or "").strip()
+
+    redis_hit = await cache_get_job_status(job_id, uid)
+    if redis_hit is not None:
+        return redis_hit
+
+    cache_key = f"{uid}:{job_id}"
+    if cache_key in _JOB_STATUS_CACHE:
+        return _JOB_STATUS_CACHE[cache_key]
+
+    result = await db.execute(
+        select(ExtractionJob).where(
+            ExtractionJob.id == job_id,
+            ExtractionJob.user_id == uid,
+        )
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    payload = {
         "job_id": job.id,
-        "status": "queued",
-        "usage": {
-            "files_used": new_used,
-            "files_limit": tier.files_per_month,
-            "usage_percent": min(usage_pct, 100),
-            "overage_files": overage_count,
-            "tier": tier.name,
-        },
+        "status": job.status,
+        "progress": job.progress,
+        "completed_docs": job.completed_docs,
+        "total_docs": job.file_count,
+        "error": job.error,
+        "format": job.format,
+        "file_count": job.file_count,
+        "cost": job.cost,
     }
+    if job.status in ("complete", "error"):
+        await cache_set_job_status(job_id, uid, payload)
+        _JOB_STATUS_CACHE[cache_key] = payload
+    return payload
+
+
+@router.get("/service/results/{job_id}", include_in_schema=False)
+async def get_results_service(
+    request: Request,
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    _assert_valid_service_token(request)
+    uid = (settings.service_extraction_user_id or "").strip()
+
+    redis_hit = await cache_get_results(job_id, uid)
+    if redis_hit is not None:
+        return redis_hit
+
+    if job_id in _RESULT_CACHE:
+        cached = _RESULT_CACHE[job_id]
+        if cached.get("_owner") == uid:
+            return {k: v for k, v in cached.items() if k != "_owner"}
+
+    result = await db.execute(
+        select(ExtractionJob)
+        .options(joinedload(ExtractionJob.documents))
+        .where(
+            ExtractionJob.id == job_id,
+            ExtractionJob.user_id == uid,
+        )
+    )
+    job = result.unique().scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "complete":
+        raise HTTPException(status_code=400, detail="Job not yet complete")
+
+    flat_results = []
+    for d in job.documents:
+        if d.extracted_data:
+            flat_results.extend(d.extracted_data if isinstance(d.extracted_data, list) else [d.extracted_data])
+    payload = {
+        "job_id": job.id,
+        "format": job.format,
+        "fields": (
+            [f["name"] if isinstance(f, dict) else str(f) for f in job.fields]
+            if isinstance(job.fields, list)
+            else []
+        ),
+        "results": flat_results,
+        "cost": job.cost,
+    }
+    await cache_set_results(job_id, uid, payload)
+    _RESULT_CACHE[job_id] = {**payload, "_owner": uid}
+    return payload
+
+
+@router.get("/service/download/{job_id}", include_in_schema=False)
+async def download_result_service(
+    request: Request,
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    _assert_valid_service_token(request)
+    uid = (settings.service_extraction_user_id or "").strip()
+
+    result = await db.execute(
+        select(ExtractionJob).where(
+            ExtractionJob.id == job_id,
+            ExtractionJob.user_id == uid,
+        )
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "complete":
+        raise HTTPException(status_code=400, detail="Job not complete")
+    if not job.output_path or not os.path.exists(job.output_path):
+        raise HTTPException(status_code=404, detail="Output file not found")
+
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if job.format == "xlsx"
+        else "text/csv"
+    )
+    return FileResponse(
+        path=job.output_path,
+        media_type=media_type,
+        filename=f"gridpull_export.{job.format}",
+    )
 
 
 @router.get("/job/{job_id}")

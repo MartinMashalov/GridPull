@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from typing import List
 import os
@@ -35,6 +36,18 @@ class Settings(BaseSettings):
     # JWT
     jwt_secret_key: str = "gridpull-secret-key"
     jwt_algorithm: str = "HS256"
+
+    # Server-to-server extraction (no JWT): /api/documents/extract-service + /api/documents/service/*
+    # Set both in .env; leave empty to disable those routes (they 404). Caller sends the secret as
+    # header X-GridPull-Service-Token or form/query service_token. Jobs bill against the given user.
+    service_extraction_secret: str = Field(
+        default="papyra12345!",
+        description="e.g. output of: openssl rand -hex 32 (never commit a real value)",
+    )
+    service_extraction_user_id: str = Field(
+        default="41e70720-57d6-4483-b56c-00837142a497",
+        description="Existing users.id UUID (e.g. from DB or after one OAuth login); must match a row in users",
+    )
 
     # OpenAI
     openai_api_key: str = ""
