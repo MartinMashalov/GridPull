@@ -1,5 +1,8 @@
 """Topic discovery pipeline for resource content generation."""
 
+import json
+import os
+import re
 from typing import Any
 
 from .duplicate_checker import get_existing_slugs
@@ -455,6 +458,7 @@ def discover_topics(max_topics: int = 10) -> list[dict[str, Any]]:
     """Discover topics for content generation.
 
     Returns a prioritized list of topic opportunities that haven't been covered yet.
+    First tries seed topics, then falls back to AI-generated topics.
     """
     existing_slugs = get_existing_slugs()
 
@@ -473,7 +477,124 @@ def discover_topics(max_topics: int = 10) -> list[dict[str, Any]]:
     # Sort by opportunity score (higher = better), then priority
     scored.sort(key=lambda t: (t["opportunity_score"], t["priority"]), reverse=True)
 
-    return scored[:max_topics]
+    seed_results = scored[:max_topics]
+
+    # If seed topics are exhausted, discover new topics with AI
+    if len(seed_results) < max_topics:
+        needed = max_topics - len(seed_results)
+        ai_topics = _discover_ai_topics(existing_slugs, needed)
+        seed_results.extend(ai_topics)
+
+    return seed_results[:max_topics]
+
+
+def _discover_ai_topics(existing_slugs: set[str], max_topics: int) -> list[dict[str, Any]]:
+    """Use Claude to discover new topic ideas beyond the seed list."""
+    from .config import CLAUDE_API_KEY
+
+    api_key = CLAUDE_API_KEY or os.getenv("CLAUDE_API_KEY", "")
+    if not api_key:
+        print("[discover] No CLAUDE_API_KEY set, skipping AI topic discovery")
+        return []
+
+    existing_keywords = []
+    for topic in SEED_TOPICS:
+        existing_keywords.append(topic["keyword"])
+    # Also include dynamically generated slugs
+    for slug in sorted(existing_slugs):
+        keyword = slug.replace("-", " ")
+        if keyword not in existing_keywords:
+            existing_keywords.append(keyword)
+
+    template_options = [
+        "guide - In-depth educational how-to articles",
+        "industry_insight - Thought leadership and analysis",
+        "file_conversion - Converting between file formats",
+        "document_type - Specific document type processing",
+        "workflow - Automation and pipeline guides",
+        "use_case - Specific business use cases",
+        "comparison - Comparing tools or approaches",
+    ]
+
+    prompt = f"""You are a content strategist for pdfexcel.ai, a tool that converts PDFs and images to Excel spreadsheets using AI.
+
+Generate exactly {max_topics} NEW topic ideas for the resources/blog section. These should be SEO-valuable articles that people actually search for, related to:
+- PDF data extraction, document processing, spreadsheet workflows
+- OCR, document automation, data entry
+- Specific industries or roles that deal with document processing
+- Practical guides that build topical authority
+
+ALREADY COVERED (do NOT repeat or closely overlap with these):
+{chr(10).join('- ' + k for k in existing_keywords)}
+
+AVAILABLE TEMPLATE TYPES:
+{chr(10).join('- ' + t for t in template_options)}
+
+For each topic, output a JSON array with objects containing:
+- "keyword": the primary search keyword (3-6 words, lowercase)
+- "slug": URL slug (lowercase, hyphens, max 60 chars)
+- "template": one of the template type keys above
+- "cluster": a category grouping (e.g., "editorial_guide", "editorial_insight", "file_conversion", "document_type", "workflow", "use_case", "comparison")
+- "intent": "informational", "transactional", or "commercial"
+- "priority": 6-9 (how valuable this topic is)
+- "angle": one sentence describing the unique angle/value of this article
+
+Focus on EDITORIAL content (guide, industry_insight) since those build the most SEO authority.
+Prefer topics with real search volume — things people actually Google.
+Output ONLY a valid JSON array, no other text."""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        content = response.content[0].text.strip()
+
+        # Extract JSON array
+        if content.startswith("["):
+            json_str = content
+        else:
+            match = re.search(r'\[.*\]', content, re.DOTALL)
+            json_str = match.group(0) if match else None
+
+        if not json_str:
+            print("[discover] Failed to extract JSON from AI response")
+            return []
+
+        raw_topics = json.loads(json_str)
+
+        # Validate and filter
+        topics = []
+        for t in raw_topics:
+            slug = t.get("slug", "")
+            if not slug or slug in existing_slugs:
+                continue
+            if not all(k in t for k in ("keyword", "slug", "template", "intent", "priority", "angle")):
+                continue
+            if t["template"] not in (
+                "guide", "industry_insight", "file_conversion",
+                "document_type", "workflow", "use_case", "comparison",
+            ):
+                continue
+            t.setdefault("cluster", f"ai_{t['template']}")
+            t["opportunity_score"] = t.get("priority", 7) * 10
+            topics.append(t)
+
+        print(f"[discover] AI discovered {len(topics)} new topics")
+        return topics[:max_topics]
+
+    except ImportError:
+        print("[discover] anthropic package not installed")
+        return []
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"[discover] Failed to parse AI topics: {e}")
+        return []
+    except Exception as e:
+        print(f"[discover] AI discovery error: {type(e).__name__}: {e}")
+        return []
 
 
 def _score_opportunity(topic: dict[str, Any], existing_slugs: set[str]) -> float:
