@@ -41,11 +41,11 @@ class Settings(BaseSettings):
     # Set both in .env; leave empty to disable those routes (they 404). Caller sends the secret as
     # header X-GridPull-Service-Token or form/query service_token. Jobs bill against the given user.
     service_extraction_secret: str = Field(
-        default="papyra12345!",
+        default="",
         description="e.g. output of: openssl rand -hex 32 (never commit a real value)",
     )
     service_extraction_user_id: str = Field(
-        default="41e70720-57d6-4483-b56c-00837142a497",
+        default="",
         description="Existing users.id UUID (e.g. from DB or after one OAuth login); must match a row in users",
     )
 
