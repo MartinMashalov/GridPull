@@ -81,7 +81,7 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
   const indeterminate = !isComplete && !isError && barPct === 0
 
   return (
-    <div className="mt-4 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
+    <div className="relative z-20 mt-4 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
       <div className="px-5 py-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold flex items-center gap-2">
@@ -92,8 +92,9 @@ function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void })
           <div className="flex items-center gap-3">
             {!isComplete && !isError && (
               <button
-                onClick={onCancel}
-                className="flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 transition-colors"
+                type="button"
+                onClick={() => onCancel()}
+                className="relative z-10 flex items-center gap-1 text-xs font-medium text-red-500 hover:text-red-600 transition-colors"
               >
                 <X size={11} /> Cancel
               </button>
@@ -140,7 +141,7 @@ export default function DashboardPage() {
   const [usageWarning, setUsageWarning] = useState<UsageWarning | null>(null)
   const [isPaywalled, setIsPaywalled] = useState(false)
 
-  const { event } = useJobProgress(activeJobId)
+  const { event, reset: resetJobProgress } = useJobProgress(activeJobId)
 
   useEffect(() => {
     api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
@@ -410,18 +411,20 @@ export default function DashboardPage() {
     }
   }
 
-  const handleCancel = async () => {
+  const handleCancel = () => {
+    const id = job?.jobId
     extractAbortRef.current?.abort()
     extractAbortRef.current = null
-    if (job?.jobId) {
-      try { await api.delete(`/documents/job/${job.jobId}`) } catch {}
-    }
+    resetJobProgress()
     localStorage.removeItem(_ACTIVE_JOB_KEY)
     setJob(null)
     setActiveJobId(null)
     setFiles([])
     setBaselineSpreadsheet(null)
     setBaselineHeaders(null)
+    if (id) {
+      void api.delete(`/documents/job/${id}`).catch(() => {})
+    }
   }
 
   const handleNew = () => {

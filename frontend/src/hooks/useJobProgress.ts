@@ -40,6 +40,9 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
   const [event, setEvent] = useState<ProgressEvent | null>(null)
   const [connected, setConnected] = useState(false)
 
+  const latestJobIdRef = useRef(jobId)
+  latestJobIdRef.current = jobId
+
   const esRef = useRef<EventSource | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const doneRef = useRef(false)
@@ -61,34 +64,43 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
   }
 
   useEffect(() => {
-    if (!jobId || !token) return
+    if (!jobId || !token) {
+      stopAll()
+      setEvent(null)
+      doneRef.current = false
+      resolvedRef.current = false
+      return
+    }
     doneRef.current = false
     resolvedRef.current = false
+    const subscribedId = jobId
 
     // ── PRIMARY: Polling every 2s ─────────────────────────────────────────────
     // Runs from the very start. Always reads from DB. Guaranteed delivery.
     const pollOnce = async () => {
       if (resolvedRef.current) return
       try {
-        const res = await fetch(`/api/documents/job/${jobId}`, {
+        const res = await fetch(`/api/documents/job/${subscribedId}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) return
         const data = await res.json()
+        if (latestJobIdRef.current !== subscribedId) return
 
         if (data.status === 'complete' && !resolvedRef.current) {
           resolvedRef.current = true
           // Fetch full results for the spreadsheet viewer
-          const rRes = await fetch(`/api/documents/results/${jobId}`, {
+          const rRes = await fetch(`/api/documents/results/${subscribedId}`, {
             headers: { Authorization: `Bearer ${token}` },
           })
           const rData = rRes.ok ? await rRes.json() : {}
+          if (latestJobIdRef.current !== subscribedId) return
           setEvent({
             type: 'complete',
             status: 'complete',
             progress: 100,
             message: 'Extraction complete!',
-            download_url: `/api/documents/download/${jobId}`,
+            download_url: `/api/documents/download/${subscribedId}`,
             results: rData.results ?? [],
             fields: rData.fields ?? [],
             cost: data.cost,
@@ -99,6 +111,7 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
 
         if (data.status === 'error' && !resolvedRef.current) {
           resolvedRef.current = true
+          if (latestJobIdRef.current !== subscribedId) return
           setEvent({ type: 'error', status: 'error', progress: 0, message: 'Extraction failed', error: data.error })
           stopAll()
           return
@@ -106,6 +119,7 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
 
         // While in progress, update from DB so the bar moves even if SSE lands on another worker.
         if (!resolvedRef.current) {
+          if (latestJobIdRef.current !== subscribedId) return
           setEvent((prev) => {
             const pollCount = data.completed_docs ?? 0
             const prevCount = prev?.completed_docs ?? 0
@@ -141,13 +155,14 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
 
     // ── SECONDARY: SSE for real-time per-doc events ───────────────────────────
     // Enhances progress display. If it fails, polling above handles everything.
-    const url = `/api/documents/progress/${jobId}?token=${encodeURIComponent(token)}`
+    const url = `/api/documents/progress/${subscribedId}?token=${encodeURIComponent(token)}`
     const es = new EventSource(url)
     esRef.current = es
     setConnected(true)
 
     es.onmessage = (e: MessageEvent) => {
       try {
+        if (latestJobIdRef.current !== subscribedId) return
         const data = JSON.parse(e.data) as ProgressEvent & { type: string }
         if ((data as { type: string }).type === 'keepalive') return  // ignore heartbeats
 

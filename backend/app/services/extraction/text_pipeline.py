@@ -236,6 +236,10 @@ async def extract_multi_record(
         "If the schema repeats across table columns, emit one object per column. If the "
         "document does not actually contain repeated records that match the requested fields, "
         "return a single best record instead of inventing multiples.\n"
+        "For comparative financial statements (income statements, balance sheets, etc.) that show "
+        "the same metrics across multiple fiscal years/periods as separate columns, emit one object "
+        "per fiscal year/period. Each object should have the date/year and corresponding metric "
+        "values from that column.\n"
         "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
         "exactly one object per insured location; merge fragmented lines for the same location."
     )
@@ -371,6 +375,10 @@ def _build_multi_cacheable_prefix(
         "If the schema repeats across table columns, emit one object per column. If the "
         "document does not actually contain repeated records that match the requested fields, "
         "return a single best record instead of inventing multiples.\n"
+        "For comparative financial statements (income statements, balance sheets, etc.) that show "
+        "the same metrics across multiple fiscal years/periods as separate columns, emit one object "
+        "per fiscal year/period. Each object should have the date/year and corresponding metric "
+        "values from that column.\n"
         "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
         "exactly one object per insured location; merge fragmented lines for the same location."
     )
