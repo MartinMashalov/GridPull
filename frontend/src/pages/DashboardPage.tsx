@@ -355,6 +355,10 @@ export default function DashboardPage() {
     setActiveJobId(null)
     setJob({ jobId: '', status: 'queued', progress: 0, message: 'Uploading files…', total_docs: files.length, completed_docs: 0 })
 
+    extractAbortRef.current?.abort()
+    const ac = new AbortController()
+    extractAbortRef.current = ac
+
     try {
       const fd = new FormData()
       files.forEach((f) => fd.append('files', f))
@@ -364,7 +368,8 @@ export default function DashboardPage() {
       fd.append('instructions', instructions.trim())
       fd.append('format', format)
 
-      const res = await api.post('/documents/extract', fd)
+      const res = await api.post('/documents/extract', fd, { signal: ac.signal })
+      extractAbortRef.current = null
 
       const jobId = res.data.job_id
       localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format: exportFormat }))
@@ -375,12 +380,22 @@ export default function DashboardPage() {
         updateSubscription({ files_used_this_period: res.data.usage.files_used })
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
       }
-    } catch (err: any) {
-      const detail = err.response?.data?.detail
-      const status = err.response?.status
+    } catch (err: unknown) {
+      extractAbortRef.current = null
+      const ae = err as { code?: string; name?: string }
+      if (ae?.code === 'ERR_CANCELED' || ae?.name === 'CanceledError') {
+        return
+      }
+      const e = err as { response?: { data?: { detail?: unknown }; status?: number } }
+      const detail = e.response?.data?.detail
+      const status = e.response?.status
+      const paywallDetail =
+        detail && typeof detail === 'object' && detail !== null && 'type' in detail
+          ? (detail as { type?: string; message?: string })
+          : null
 
-      if (status === 402 && typeof detail === 'object' && detail?.type === 'file_limit_reached') {
-        setJob((p) => p ? { ...p, status: 'error', message: 'File limit reached', error: detail.message } : null)
+      if (status === 402 && paywallDetail?.type === 'file_limit_reached') {
+        setJob((p) => p ? { ...p, status: 'error', message: 'File limit reached', error: paywallDetail.message } : null)
         setIsPaywalled(true)
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
         return
@@ -396,8 +411,11 @@ export default function DashboardPage() {
   }
 
   const handleCancel = async () => {
-    if (!job?.jobId) return
-    try { await api.delete(`/documents/job/${job.jobId}`) } catch {}
+    extractAbortRef.current?.abort()
+    extractAbortRef.current = null
+    if (job?.jobId) {
+      try { await api.delete(`/documents/job/${job.jobId}`) } catch {}
+    }
     localStorage.removeItem(_ACTIVE_JOB_KEY)
     setJob(null)
     setActiveJobId(null)
@@ -419,6 +437,7 @@ export default function DashboardPage() {
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
 
+  const extractAbortRef = useRef<AbortController | null>(null)
   const submitBtnRef = useRef<HTMLButtonElement>(null)
   const showModalRef = useRef(showModal)
   showModalRef.current = showModal
