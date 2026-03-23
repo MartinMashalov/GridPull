@@ -15,6 +15,7 @@ from .schema import validate_schema, save_resource, load_resource
 from .quality_scorer import score_resource, passes_quality_gates
 from .duplicate_checker import check_duplication
 from .sitemap_generator import generate_sitemap
+from .prerender import prerender_single
 
 
 def publish_pipeline(candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -125,9 +126,11 @@ def publish_pipeline(candidates: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _deploy_to_frontend(resource: dict[str, Any]) -> None:
-    """Copy resource JSON to the frontend public directory for serving."""
+    """Copy resource JSON to the frontend public directory and pre-render for SEO."""
     slug = resource["slug"]
     save_resource(resource, FRONTEND_PUBLIC / f"{slug}.json")
+    # Pre-render static HTML so crawlers get full content without JS
+    prerender_single(resource)
 
 
 def _remove_draft(slug: str) -> None:

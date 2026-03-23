@@ -7,6 +7,7 @@ Usage:
     python -m scripts.resources.cron --generate    # Generate only (requires CLAUDE_API_KEY)
     python -m scripts.resources.cron --publish     # Publish drafted candidates
     python -m scripts.resources.cron --sitemap     # Regenerate sitemap only
+    python -m scripts.resources.cron --prerender   # Re-generate all pre-rendered HTML pages
     python -m scripts.resources.cron --seed        # Generate and publish seed content
 """
 
@@ -26,6 +27,7 @@ from scripts.resources.discover import discover_topics
 from scripts.resources.generate import generate_resource
 from scripts.resources.publish import publish_pipeline, set_related_resources
 from scripts.resources.sitemap_generator import generate_sitemap
+from scripts.resources.prerender import prerender_all
 from scripts.resources.schema import load_resource
 
 
@@ -35,6 +37,7 @@ def main():
     parser.add_argument("--generate", action="store_true", help="Generate content only")
     parser.add_argument("--publish", action="store_true", help="Publish drafted candidates")
     parser.add_argument("--sitemap", action="store_true", help="Regenerate sitemap only")
+    parser.add_argument("--prerender", action="store_true", help="Re-generate all pre-rendered HTML pages")
     parser.add_argument("--seed", action="store_true", help="Generate and publish initial seed content")
     args = parser.parse_args()
 
@@ -89,6 +92,16 @@ def main():
             path = generate_sitemap()
             print(f"[cron] Sitemap generated: {path}")
             log["sitemap"] = path
+
+        elif args.prerender:
+            print("[cron] Pre-rendering all resource pages...")
+            results = prerender_all()
+            log["prerender_results"] = {
+                "hub": results.get("hub", False),
+                "pages": len(results.get("resources", [])),
+                "errors": results.get("errors", []),
+            }
+            print(f"[cron] Pre-rendered {len(results.get('resources', []))} resource pages")
 
         elif args.seed:
             print("[cron] Running seed content pipeline...")

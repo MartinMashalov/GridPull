@@ -6,7 +6,8 @@
   "scripts": {
     "start": "vite",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build && node scripts/prerender.mjs",
+    "build:typecheck": "tsc && vite build && node scripts/prerender.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
