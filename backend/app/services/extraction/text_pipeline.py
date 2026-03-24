@@ -23,6 +23,7 @@ from .core import (
     _maybe_compress_with_bear,
     _single_quality_gate,
     _single_record_valid,
+    build_table_column_hint,
     LLMUsage,
     document_has_wide_data_grid,
 )
@@ -223,12 +224,16 @@ async def extract_multi_record(
         f"{doc.filename} multi tables",
     )
 
+    col_hint = build_table_column_hint(doc.tables)
+
     parts = [
         f"--- Document Info ---\n{ctx}",
         f"\n--- Fields to Extract (one object per repeated record) ---\n{fblock}",
     ]
     if instructions.strip():
         parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    if col_hint:
+        parts.append(f"\n{col_hint}")
     parts.append(
         "\n--- Extraction Mode ---\n"
         "The output should contain one object per natural repeated record that matches the "
@@ -260,6 +265,7 @@ async def extract_multi_record_chunked(
 ) -> List[Dict[str, Any]]:
     field_names = [f["name"] for f in fields]
     fblock = _fields_block(fields)
+    col_hint = build_table_column_hint(doc.tables)
     inject_global_tables = document_has_wide_data_grid(doc)
     cs = settings.extraction_chunk_size
     page_chunks = [doc.pages[i : i + cs] for i in range(0, len(doc.pages), cs)]
@@ -292,6 +298,8 @@ async def extract_multi_record_chunked(
         ]
         if instructions.strip():
             parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+        if col_hint:
+            parts.append(f"\n{col_hint}")
         if inject_global_tables:
             parts.append(
                 "\n--- Schedule priority ---\n"
@@ -355,10 +363,11 @@ def _build_multi_cacheable_prefix(
     instructions: str,
     full_tables_md: str,
     content_text: str,
+    col_hint: str = "",
 ) -> str:
     """Build the prompt prefix with static content first for maximum cache hits.
 
-    Order: fields -> instructions -> mode -> doc info -> tables -> text
+    Order: fields -> instructions -> column hint -> mode -> doc info -> tables -> text
     The trailing action instruction is appended by the caller and is the only
     part that changes between the initial call and a validation retry, so the
     entire prefix is an exact match for OpenAI prompt caching.
@@ -368,6 +377,8 @@ def _build_multi_cacheable_prefix(
     ]
     if instructions.strip():
         parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    if col_hint:
+        parts.append(f"\n{col_hint}")
     parts.append(
         "\n--- Extraction Mode ---\n"
         "The output should contain one object per natural repeated record that matches the "
@@ -399,24 +410,27 @@ async def extract_multi_record_validated(
     ctx = _doc_context_block(doc)
     fblock = _fields_block(fields)
     content_text, full_tables_md = await _build_multi_doc_context(doc, usage)
+    col_hint = build_table_column_hint(doc.tables)
 
     cacheable_prefix = _build_multi_cacheable_prefix(
-        fblock, ctx, instructions, full_tables_md, content_text,
+        fblock, ctx, instructions, full_tables_md, content_text, col_hint,
     )
 
     metadata_context = f"{content_text}\n\n{full_tables_md}" if full_tables_md else content_text
-    expected_count = await _extract_record_count_metadata(
-        metadata_context, fblock, doc.filename, usage, instructions,
-    )
 
     user_prompt = (
         cacheable_prefix
         + '\n\nExtract ALL records. Return: {"records": [{"Field": "value"}, ...]}'
     )
-    rows = await _llm_extract(
+    count_task = _extract_record_count_metadata(
+        metadata_context, fblock, doc.filename, usage, instructions,
+    )
+    extract_task = _llm_extract(
         _MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage,
         _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
     )
+    expected_count, rows = await asyncio.gather(count_task, extract_task)
+
     rows = await _review_multi_rows(
         rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
     )
@@ -473,11 +487,11 @@ async def extract_multi_record_chunked_validated(
     metadata_context = doc.content_text or ""
     if doc.tables_markdown:
         metadata_context += "\n\n" + doc.tables_markdown
-    expected_count = await _extract_record_count_metadata(
+    count_task = _extract_record_count_metadata(
         metadata_context, fblock, doc.filename, usage, instructions,
     )
-
-    rows = await extract_multi_record_chunked(doc, fields, usage, instructions)
+    chunk_task = extract_multi_record_chunked(doc, fields, usage, instructions)
+    expected_count, rows = await asyncio.gather(count_task, chunk_task)
 
     if expected_count is not None and len(rows) != expected_count:
         logger.info(
@@ -486,9 +500,10 @@ async def extract_multi_record_chunked_validated(
         )
         ctx = _doc_context_block(doc)
         content_text, full_tables_md = await _build_multi_doc_context(doc, usage, "multi retry")
+        col_hint = build_table_column_hint(doc.tables)
 
         cacheable_prefix = _build_multi_cacheable_prefix(
-            fblock, ctx, instructions, full_tables_md, content_text,
+            fblock, ctx, instructions, full_tables_md, content_text, col_hint,
         )
         retry_prompt = (
             cacheable_prefix

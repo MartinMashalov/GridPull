@@ -22,6 +22,7 @@ from .core import (
     _maybe_compress_with_bear,
     _single_quality_gate,
     _single_record_valid,
+    build_table_column_hint,
     LLMUsage,
     document_has_wide_data_grid,
 )
@@ -86,6 +87,7 @@ async def _extract_scanned_chunked(
             f"Source: Scanned document (OCR by Mistral)\n\n"
             f"--- Fields (one object per repeated record) ---\n{fblock}\n\n"
             + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + (f"{build_table_column_hint(doc.tables)}\n\n" if doc.tables else "")
             + sov_note
             + (f"--- Parser-detected tables (full file) ---\n{table_prefix}\n\n" if table_prefix else "")
             + f"--- OCR Text (this chunk) ---\n{chunk_text}\n\n"
@@ -207,10 +209,12 @@ async def extract_from_scanned_document(
         system = _SCAN_SINGLE_SYSTEM
         instruction = 'Return: {"records": [{"Field Name": "value", ...}]}'
 
+    scan_col_hint = build_table_column_hint(doc.tables) if doc.tables and extraction_mode == "multi" else ""
     user_prompt = (
         f"--- Document Info ---\n{ctx}\n\n"
         f"--- Fields to Extract ---\n{fblock}\n\n"
         + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + (f"{scan_col_hint}\n\n" if scan_col_hint else "")
         + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR extract')}\n\n"
         + instruction
     )

@@ -226,6 +226,11 @@ _MULTI_SYSTEM = (
     "- Do not infer or hallucinate values\n"
     "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
     "- Treat each field description as the primary extraction intent when mapping values\n"
+    "- CRITICAL — column mapping: When extracting from tables, match each requested field to "
+    "exactly ONE source column by its header. Each source column maps to at most one output "
+    "field. If a requested field has no matching column header or document label, return null — "
+    "do NOT fill it from the nearest unrelated column. Two different requested fields must never "
+    "draw values from the same source column.\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
 
@@ -279,6 +284,11 @@ _SCAN_MULTI_SYSTEM = (
     "- Do not hallucinate values\n"
     "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
     "- Treat each field description as the primary extraction intent when mapping values\n"
+    "- CRITICAL — column mapping: When extracting from tables, match each requested field to "
+    "exactly ONE source column by its header. Each source column maps to at most one output "
+    "field. If a requested field has no matching column header or document label, return null — "
+    "do NOT fill it from the nearest unrelated column. Two different requested fields must never "
+    "draw values from the same source column.\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
 
@@ -354,6 +364,236 @@ def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool
         "location number" in blob
         or ("address line" in blob and "zip code" in blob)
     )
+
+
+def _extract_table_headers(tables: list) -> set[str]:
+    """Pull normalised header cell texts from parsed table markdown.
+
+    Handles multi-line cells by joining all lines before the separator row.
+    Filters out metadata cells (contain colons or are very long) that are
+    document-level labels rather than column headers.
+    """
+    headers: set[str] = set()
+    for t in tables:
+        if not t.markdown:
+            continue
+        lines = t.markdown.split("\n")
+        header_lines: list[str] = []
+        for line in lines:
+            if re.match(r"^\|\s*-", line):
+                break
+            header_lines.append(line)
+        header_text = " ".join(header_lines)
+        for cell in header_text.split("|"):
+            token = re.sub(r"\s+", " ", cell.strip()).lower()
+            if not token or token == "---":
+                continue
+            if ":" in token or len(token) > 40:
+                continue
+            headers.add(token)
+    return headers
+
+
+def build_table_column_hint(tables: list) -> str:
+    """Build a prompt section listing detected table column headers.
+
+    Giving the LLM an explicit list of available columns prevents it from
+    guessing or mapping fields to wrong columns. Fully general — reads
+    actual table structure with no domain knowledge.
+    """
+    headers = _extract_table_headers(tables)
+    if not headers:
+        return ""
+    sorted_headers = sorted(headers)
+    return (
+        "--- Detected Table Columns ---\n"
+        "The source table(s) contain these column headers (normalised):\n  "
+        + ", ".join(sorted_headers)
+        + "\nUse this list to map each requested field to its correct source column. "
+        "Column headers are commonly abbreviated (e.g. 'const' = Construction, "
+        "'spr' = Sprinklered, 'bi/ee' = Business Income / Extra Expense, "
+        "'yr' = Year, 'bpp' = Business Personal Property). Match by meaning, not exact text. "
+        "If a requested field has NO plausible column match above AND is not mentioned "
+        "elsewhere in the document, return null. "
+        "Never map two different requested fields to the same source column."
+    )
+
+
+_VOWELS = set("aeiou")
+
+
+def _is_consonant_abbrev(abbrev: str, word: str) -> bool:
+    """True if abbrev matches the leading consonants of word (e.g. 'yr'→'year', 'blt'→'built')."""
+    consonants = "".join(c for c in word if c not in _VOWELS)
+    return len(abbrev) >= 2 and consonants.startswith(abbrev)
+
+
+def _is_initialism_match(h_term: str, fn_terms: list[str]) -> bool:
+    """True if h_term equals the first-letter initials of a prefix of fn_terms.
+
+    E.g. 'bi' matches ['business', 'income', ...] because b+i = 'bi'.
+    """
+    if len(h_term) < 2 or len(fn_terms) < 2:
+        return False
+    for end in range(2, len(fn_terms) + 1):
+        initials = "".join(t[0] for t in fn_terms[:end])
+        if h_term == initials:
+            return True
+    return False
+
+
+def _field_name_matches_any_header(field_name: str, table_headers: set[str], doc_text_lower: str) -> bool:
+    """True if any significant term of the field name can be linked to a table header
+    or a label in the document text.
+
+    Matching strategies (all general, no field-specific knowledge):
+      1. Prefix: 'spr' matches 'sprinklered', 'loc' matches 'location'
+      2. Compact header: 's p r' → 'spr' then prefix-check against field terms
+      3. Substring (≥3 chars): 'spr' in 'sprinklered'
+      4. Consonant abbreviation: 'yr' matches 'year', 'blt' matches 'built'
+      5. Doc text label scan: term appears near a colon/pipe/comma
+    """
+    fn_terms = [t for t in re.findall(r"[a-z]{2,}", field_name.lower())]
+    if not fn_terms:
+        return True
+
+    for header in table_headers:
+        h_terms = set(re.findall(r"[a-z]{2,}", header))
+        h_compact = re.sub(r"[^a-z]", "", header)
+        if len(h_compact) >= 2:
+            h_terms.add(h_compact)
+        for ft in fn_terms:
+            for ht in h_terms:
+                if ft.startswith(ht) or ht.startswith(ft):
+                    return True
+                if min(len(ht), len(ft)) >= 3 and (ht in ft or ft in ht):
+                    return True
+                if _is_consonant_abbrev(ht, ft):
+                    return True
+        for ht in h_terms:
+            if _is_initialism_match(ht, fn_terms):
+                return True
+
+    check_terms = fn_terms if len(fn_terms) == 1 else [max(fn_terms, key=len)]
+    for term in check_terms:
+        if len(term) < 4:
+            continue
+        pos = doc_text_lower.find(term)
+        if pos >= 0:
+            window = doc_text_lower[max(0, pos - 40):pos + len(term) + 40]
+            if re.search(r"[:,|]", window):
+                return True
+    return False
+
+
+def sanitize_unmatched_field_values(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+    doc_text: str = "",
+    tables: list | None = None,
+) -> List[Dict[str, Any]]:
+    """General post-processing for multi-record extractions from tables.
+
+    Catches two patterns (no field-specific knowledge needed):
+
+    1. Uniform hallucination: all rows have the same value for a field that
+       has no matching column header or document label → null them.
+    2. Wrong-column mapping: a field has no matching header AND its values vary
+       across rows (3+ unique). Varying values in a table context can only come
+       from a table column — if the field name doesn't match any column header,
+       those values are from the wrong column → null them.
+
+    Fields whose names match a table header or appear as a label in the document
+    text are always left untouched.
+    """
+    if not doc_text or len(rows) < 3:
+        return rows
+
+    table_headers = _extract_table_headers(tables) if tables else set()
+    doc_text_lower = doc_text.lower()
+
+    for fn in field_names:
+        filled = [str(row[fn]).strip() for row in rows if row.get(fn) is not None and str(row[fn]).strip()]
+        if len(filled) < 3:
+            continue
+        if _field_name_matches_any_header(fn, table_headers, doc_text_lower):
+            continue
+
+        unique_count = len(set(filled))
+        if unique_count == 1:
+            logger.info(
+                "Nulled uniform value '%s' for field '%s' across %d rows "
+                "(field label not found in table headers or document)",
+                filled[0], fn, len(filled),
+            )
+            for row in rows:
+                row[fn] = None
+        elif unique_count >= 2:
+            logger.info(
+                "Nulled %d varying values for field '%s' (%d unique values, "
+                "field label not in any table header — likely wrong-column mapping)",
+                len(filled), fn, unique_count,
+            )
+            for row in rows:
+                row[fn] = None
+
+    return rows
+
+
+def sanitize_duplicate_column_values(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+    tables: list | None = None,
+) -> List[Dict[str, Any]]:
+    """General post-processing: when two output fields have highly overlapping values
+    across rows (>=80% match), the model likely mapped the same source column to both.
+    Null out the field whose name is LESS likely to match a table header."""
+    if len(rows) < 2 or not tables:
+        return rows
+
+    table_headers = _extract_table_headers(tables)
+
+    val_vectors: Dict[str, list] = {}
+    for fn in field_names:
+        vec = [str(row.get(fn) or "").strip().lower() for row in rows]
+        if all(v == "" for v in vec):
+            continue
+        val_vectors[fn] = vec
+
+    checked: set[tuple[str, str]] = set()
+    for fn_a, vec_a in val_vectors.items():
+        for fn_b, vec_b in val_vectors.items():
+            if fn_a >= fn_b:
+                continue
+            pair = (fn_a, fn_b)
+            if pair in checked:
+                continue
+            checked.add(pair)
+            filled_pairs = [(a, b) for a, b in zip(vec_a, vec_b) if a and b]
+            if len(filled_pairs) < 2:
+                continue
+            matching = sum(1 for a, b in filled_pairs if a == b)
+            if matching / len(filled_pairs) < 0.8:
+                continue
+            a_match = _field_name_matches_any_header(fn_a, table_headers, "")
+            b_match = _field_name_matches_any_header(fn_b, table_headers, "")
+            if a_match and not b_match:
+                victim = fn_b
+            elif b_match and not a_match:
+                victim = fn_a
+            elif not a_match and not b_match:
+                victim = fn_b
+            else:
+                continue
+            logger.info(
+                "Nulled field '%s' (%d/%d values duplicate '%s' which matches a table header)",
+                victim, matching, len(filled_pairs),
+                fn_a if victim == fn_b else fn_b,
+            )
+            for row in rows:
+                row[victim] = None
+
+    return rows
 
 
 def document_has_wide_data_grid(doc: ParsedDocument) -> bool:
