@@ -211,10 +211,10 @@ _MULTI_SYSTEM = (
     "- Skip pure headers and decorative content that are not actual records\n"
     "- Never emit blank spacer records (objects where every field is null, empty, or a dash). "
     "Each object must be one real schedule row (e.g. one insured location).\n"
-    "- When the same real-world entity appears as both a compact schedule row and a separate detail block, "
-    "emit one merged object for that entity\n"
-    "- Prefer monetary figures from the primary repeating totals row for that entity when both it and "
-    "a supporting breakdown exist for the same entity\n"
+    "- For property schedules and appraisal reports: ONE row per location; merge summary and "
+    "detail lines for the same site into a single object\n"
+    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
+    "narrative appraisal subtotals exist for the same site\n"
     "- Use null for fields not present in a given record\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers - only include units literally in the cell\n"
@@ -226,10 +226,11 @@ _MULTI_SYSTEM = (
     "- Do not infer or hallucinate values\n"
     "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
     "- Treat each field description as the primary extraction intent when mapping values\n"
-    "- Source binding: In grid tables, map each requested field to exactly ONE column (one cell per row) using the header. "
-    "In label:value blocks (table rows like \"Label: value\") or narrative, map using the label text and the value on that same row. "
-    "Each distinct source (one grid column, or one label+value pair) supplies at most one requested field. "
-    "If nothing plausible exists, return null — do not borrow unrelated columns or unrelated labels.\n"
+    "- CRITICAL — column mapping: When extracting from tables, match each requested field to "
+    "exactly ONE source column by its header. Each source column maps to at most one output "
+    "field. If a requested field has no matching column header or document label, return null — "
+    "do NOT fill it from the nearest unrelated column. Two different requested fields must never "
+    "draw values from the same source column.\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
 
@@ -271,8 +272,9 @@ _SCAN_MULTI_SYSTEM = (
     "years/periods as separate columns: emit one object per fiscal year/period column\n"
     "- Skip pure headers and decorative content that are not actual records\n"
     "- Never emit blank spacer records (all fields empty). One row per real location in the schedule.\n"
-    "- Merge compact schedule rows with detail blocks for the same entity into one record.\n"
-    "- Prefer figures from the main repeating schedule row when it and a breakdown both exist for the same entity\n"
+    "- For appraisal/property schedules merge summary and detail for the same site into one record.\n"
+    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
+    "narrative appraisal subtotals exist for the same site\n"
     "- Use null for fields not present in a given record\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
@@ -282,8 +284,11 @@ _SCAN_MULTI_SYSTEM = (
     "- Do not hallucinate values\n"
     "- Return spreadsheet-ready values only. Do not include explanations, equations, citations, or reasoning text inside field values\n"
     "- Treat each field description as the primary extraction intent when mapping values\n"
-    "- Source binding: In grid tables use one column per field by header; in label:value rows use the label and adjacent cell. "
-    "One source per field; return null if absent; do not guess from unrelated cells.\n"
+    "- CRITICAL — column mapping: When extracting from tables, match each requested field to "
+    "exactly ONE source column by its header. Each source column maps to at most one output "
+    "field. If a requested field has no matching column header or document label, return null — "
+    "do NOT fill it from the nearest unrelated column. Two different requested fields must never "
+    "draw values from the same source column.\n"
     "- Response format: {\"records\": [{\"Field\": \"value\"}, ...]}"
 )
 
@@ -352,6 +357,15 @@ def _is_filled_value(value: Any) -> bool:
     return str(value).strip().lower() not in _EMPTY_VALUES
 
 
+def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool:
+    """True when the field set is the multi-location property / SOV template (merge + spacer cleanup)."""
+    blob = " ".join(n.lower() for n in field_names)
+    return (
+        "location number" in blob
+        or ("address line" in blob and "zip code" in blob)
+    )
+
+
 def _extract_table_headers(tables: list) -> set[str]:
     """Pull normalised header cell texts from parsed table markdown.
 
@@ -380,40 +394,28 @@ def _extract_table_headers(tables: list) -> set[str]:
     return headers
 
 
-def _extract_table_structure_terms(tables: list) -> set[str]:
-    """Union of grid column headers and label-value row labels from table markdown."""
-    terms = set(_extract_table_headers(tables))
-    for t in tables or []:
-        if not t.markdown:
-            continue
-        for line in t.markdown.split("\n"):
-            if "|" not in line or re.match(r"^\|\s*-", line):
-                continue
-            for cell in line.split("|"):
-                raw = re.sub(r"\s+", " ", cell.strip()).lower()
-                if not raw or raw == "---":
-                    continue
-                if ":" in raw:
-                    left = raw.split(":", 1)[0].strip()
-                    if 2 <= len(left) <= 80:
-                        terms.add(left)
-    return terms
-
-
 def build_table_column_hint(tables: list) -> str:
-    """Prompt section: detected table column headers and label:value style row labels."""
-    structure = _extract_table_structure_terms(tables)
-    if not structure:
+    """Build a prompt section listing detected table column headers.
+
+    Giving the LLM an explicit list of available columns prevents it from
+    guessing or mapping fields to wrong columns. Fully general — reads
+    actual table structure with no domain knowledge.
+    """
+    headers = _extract_table_headers(tables)
+    if not headers:
         return ""
-    sorted_terms = sorted(structure)
+    sorted_headers = sorted(headers)
     return (
-        "--- Detected table structure ---\n"
-        "These tokens appear as column headers and/or as left-hand labels in label:value table rows:\n  "
-        + ", ".join(sorted_terms)
-        + "\nMap requested fields using these tokens plus full document text. "
-        "For grid tables, use one source column per field. For label:value blocks, use the label row and adjacent value. "
-        "Abbreviations often align by meaning, not exact spelling. "
-        "If no plausible source exists, return null. Never map two requested fields to the same source column/cell pair."
+        "--- Detected Table Columns ---\n"
+        "The source table(s) contain these column headers (normalised):\n  "
+        + ", ".join(sorted_headers)
+        + "\nUse this list to map each requested field to its correct source column. "
+        "Column headers are commonly abbreviated (e.g. 'const' = Construction, "
+        "'spr' = Sprinklered, 'bi/ee' = Business Income / Extra Expense, "
+        "'yr' = Year, 'bpp' = Business Personal Property). Match by meaning, not exact text. "
+        "If a requested field has NO plausible column match above AND is not mentioned "
+        "elsewhere in the document, return null. "
+        "Never map two different requested fields to the same source column."
     )
 
 
@@ -440,19 +442,22 @@ def _is_initialism_match(h_term: str, fn_terms: list[str]) -> bool:
     return False
 
 
-def _field_schema_matches_structure(
-    field: Dict[str, str],
-    structure_terms: set[str],
-    doc_text_lower: str,
-) -> bool:
-    """True when field name + user description terms align with parsed table structure or doc text."""
-    name = (field.get("name") or "").lower()
-    desc = (field.get("description") or "").lower()
-    fn_terms = [t for t in re.findall(r"[a-z]{2,}", f"{name} {desc}")]
+def _field_name_matches_any_header(field_name: str, table_headers: set[str], doc_text_lower: str) -> bool:
+    """True if any significant term of the field name can be linked to a table header
+    or a label in the document text.
+
+    Matching strategies (all general, no field-specific knowledge):
+      1. Prefix: 'spr' matches 'sprinklered', 'loc' matches 'location'
+      2. Compact header: 's p r' → 'spr' then prefix-check against field terms
+      3. Substring (≥3 chars): 'spr' in 'sprinklered'
+      4. Consonant abbreviation: 'yr' matches 'year', 'blt' matches 'built'
+      5. Doc text label scan: term appears near a colon/pipe/comma
+    """
+    fn_terms = [t for t in re.findall(r"[a-z]{2,}", field_name.lower())]
     if not fn_terms:
         return True
 
-    for header in structure_terms:
+    for header in table_headers:
         h_terms = set(re.findall(r"[a-z]{2,}", header))
         h_compact = re.sub(r"[^a-z]", "", header)
         if len(h_compact) >= 2:
@@ -469,25 +474,21 @@ def _field_schema_matches_structure(
             if _is_initialism_match(ht, fn_terms):
                 return True
 
-    name_lower = (field.get("name") or "").lower()
-    name_terms = [t for t in re.findall(r"[a-z]{2,}", name_lower)]
-    for term in name_terms:
+    check_terms = fn_terms if len(fn_terms) == 1 else [max(fn_terms, key=len)]
+    for term in check_terms:
         if len(term) < 4:
             continue
         pos = doc_text_lower.find(term)
-        if pos < 0:
-            continue
-        if len(term) >= 7:
-            return True
-        window = doc_text_lower[max(0, pos - 50):pos + len(term) + 50]
-        if re.search(r"[:,|]", window):
-            return True
+        if pos >= 0:
+            window = doc_text_lower[max(0, pos - 40):pos + len(term) + 40]
+            if re.search(r"[:,|]", window):
+                return True
     return False
 
 
 def sanitize_unmatched_field_values(
     rows: List[Dict[str, Any]],
-    fields: List[Dict[str, str]],
+    field_names: List[str],
     doc_text: str = "",
     tables: list | None = None,
 ) -> List[Dict[str, Any]]:
@@ -508,22 +509,17 @@ def sanitize_unmatched_field_values(
     if not doc_text or len(rows) < 3:
         return rows
 
-    structure_terms = _extract_table_structure_terms(tables) if tables else set()
+    table_headers = _extract_table_headers(tables) if tables else set()
     doc_text_lower = doc_text.lower()
 
-    for field in fields:
-        fn = field["name"]
+    for fn in field_names:
         filled = [str(row[fn]).strip() for row in rows if row.get(fn) is not None and str(row[fn]).strip()]
         if len(filled) < 3:
             continue
-        if _field_schema_matches_structure(field, structure_terms, doc_text_lower):
+        if _field_name_matches_any_header(fn, table_headers, doc_text_lower):
             continue
 
         unique_count = len(set(filled))
-        distinct = list(set(str(v).strip().lower() for v in filled if str(v).strip()))
-        in_doc_hits = sum(1 for v in distinct if len(v) >= 2 and v in doc_text_lower)
-        if len(distinct) and in_doc_hits >= max(1, int(0.2 * len(distinct))):
-            continue
         if unique_count == 1:
             logger.info(
                 "Nulled uniform value '%s' for field '%s' across %d rows "
@@ -533,10 +529,6 @@ def sanitize_unmatched_field_values(
             for row in rows:
                 row[fn] = None
         elif unique_count >= 2:
-            any_long_in_doc = any(len(v) >= 3 and v in doc_text_lower for v in distinct)
-            all_short = all(len(v) < 3 for v in distinct)
-            if any_long_in_doc or all_short:
-                continue
             logger.info(
                 "Nulled %d varying values for field '%s' (%d unique values, "
                 "field label not in any table header — likely wrong-column mapping)",
@@ -550,7 +542,7 @@ def sanitize_unmatched_field_values(
 
 def sanitize_duplicate_column_values(
     rows: List[Dict[str, Any]],
-    fields: List[Dict[str, str]],
+    field_names: List[str],
     tables: list | None = None,
 ) -> List[Dict[str, Any]]:
     """General post-processing: when two output fields have highly overlapping values
@@ -559,9 +551,7 @@ def sanitize_duplicate_column_values(
     if len(rows) < 2 or not tables:
         return rows
 
-    structure_terms = _extract_table_structure_terms(tables)
-    field_by_name = {f["name"]: f for f in fields}
-    field_names = [f["name"] for f in fields]
+    table_headers = _extract_table_headers(tables)
 
     val_vectors: Dict[str, list] = {}
     for fn in field_names:
@@ -585,10 +575,8 @@ def sanitize_duplicate_column_values(
             matching = sum(1 for a, b in filled_pairs if a == b)
             if matching / len(filled_pairs) < 0.8:
                 continue
-            fa = field_by_name.get(fn_a, {"name": fn_a, "description": ""})
-            fb = field_by_name.get(fn_b, {"name": fn_b, "description": ""})
-            a_match = _field_schema_matches_structure(fa, structure_terms, "")
-            b_match = _field_schema_matches_structure(fb, structure_terms, "")
+            a_match = _field_name_matches_any_header(fn_a, table_headers, "")
+            b_match = _field_name_matches_any_header(fn_b, table_headers, "")
             if a_match and not b_match:
                 victim = fn_b
             elif b_match and not a_match:

@@ -26,14 +26,9 @@ from .core import (
     record_llm_usage_cost,
 )
 
-def _review_max_tokens(n_fields: int) -> int:
-    return min(65_536, max(16_384, n_fields * 400))
+_REVIEW_MAX_TOKENS = 16_384
 
 logger = logging.getLogger(__name__)
-
-_MONEYISH_RE = re.compile(r"^[\(\-]?\$?\d[\d,]*(?:\.\d+)?\)?$")
-_PERCENTISH_RE = re.compile(r"^[\(\-]?\d[\d,]*(?:\.\d+)?%$")
-_COLLAPSE_WS_RE = re.compile(r"\s+")
 
 
 async def _litellm_acompletion(**kwargs: Any) -> Any:
@@ -100,177 +95,96 @@ async def _litellm_extract(
     )
 
 
-def _normalise_cell_value(value: Any) -> str:
-    return _COLLAPSE_WS_RE.sub(" ", str(value or "").strip().lower())
-
-
-def _value_merge_score(value: str, occurrences: int) -> float:
-    if not value or len(value) > 120:
-        return -10.0
-    score = 0.0
-    if any(c.isalpha() for c in value):
-        score += 2.0
-    if any(c.isdigit() for c in value):
-        score += 1.0
-    if len(value) >= 6:
-        score += 1.0
-    if re.fullmatch(r"[a-z]{1,3}", value):
-        score -= 2.0
-    if _MONEYISH_RE.fullmatch(value) and any(ch in value for ch in "$,"):
-        score -= 4.0
-    if _PERCENTISH_RE.fullmatch(value):
-        score -= 3.0
-    if re.fullmatch(r"\d{4}", value):
-        score -= 1.5
-    elif re.fullmatch(r"\d+(?:\.\d+)?", value):
-        score -= 0.5
-    if occurrences == 2:
-        score += 3.0
-    elif occurrences == 3:
-        score += 2.0
-    elif occurrences == 4:
-        score += 1.0
-    elif occurrences > 4:
-        score -= min(4.0, float(occurrences - 4))
-    return score
-
-
-def _row_pair_relation(
-    row_a: Dict[str, Any],
-    row_b: Dict[str, Any],
-    field_names: List[str],
-) -> tuple[int, int, int]:
-    shared_equal = 0
-    conflicts = 0
-    complement = 0
-    for fn in field_names:
-        a_filled = _is_filled_value(row_a.get(fn))
-        b_filled = _is_filled_value(row_b.get(fn))
-        if a_filled and b_filled:
-            if _normalise_cell_value(row_a.get(fn)) == _normalise_cell_value(row_b.get(fn)):
-                shared_equal += 1
-            else:
-                conflicts += 1
-        elif a_filled != b_filled:
-            complement += 1
-    return shared_equal, conflicts, complement
-
-
-def _candidate_merge_groups(
-    rows: List[Dict[str, Any]],
-    field_name: str,
-) -> tuple[Dict[str, List[int]], float, int]:
-    raw_groups: Dict[str, List[int]] = {}
-    for idx, row in enumerate(rows):
-        if row.get("_error") or not _is_filled_value(row.get(field_name)):
-            continue
-        norm = _normalise_cell_value(row.get(field_name))
-        if not norm:
-            continue
-        raw_groups.setdefault(norm, []).append(idx)
-
-    non_empty_count = sum(len(idxs) for idxs in raw_groups.values())
-    unique_ratio = (len(raw_groups) / non_empty_count) if non_empty_count else 0.0
-    groups = {
-        value: idxs
-        for value, idxs in raw_groups.items()
-        if 2 <= len(idxs) <= 4 and _value_merge_score(value, len(idxs)) >= 3.0
-    }
-    duplicated_rows = sum(len(idxs) for idxs in groups.values())
-    return groups, unique_ratio, duplicated_rows
-
-
-def _infer_merge_fields(
-    rows: List[Dict[str, Any]],
-    field_names: List[str],
-) -> List[tuple[str, Dict[str, List[int]]]]:
-    candidates: List[tuple[float, str, Dict[str, List[int]]]] = []
-    for fn in field_names:
-        groups, unique_ratio, duplicated_rows = _candidate_merge_groups(rows, fn)
-        if not groups or unique_ratio < 0.35:
-            continue
-        shared_total = 0
-        conflicts_total = 0
-        complement_total = 0
-        pair_count = 0
-        for idxs in groups.values():
-            for pos, idx_a in enumerate(idxs):
-                for idx_b in idxs[pos + 1 :]:
-                    shared, conflicts, complement = _row_pair_relation(rows[idx_a], rows[idx_b], field_names)
-                    shared_total += shared
-                    conflicts_total += conflicts
-                    complement_total += complement
-                    pair_count += 1
-        if pair_count == 0:
-            continue
-        score = (
-            duplicated_rows * (1.0 + unique_ratio)
-            + shared_total * 2.0
-            + complement_total * 0.25
-            - conflicts_total * 1.5
-        )
-        if score > 0 and conflicts_total <= shared_total + 1:
-            candidates.append((score, fn, groups))
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return [(fn, groups) for _, fn, groups in candidates[:3]]
-
-
 def _merge_rows_by_identifier(
     rows: List[Dict[str, Any]],
     field_names: List[str],
 ) -> List[Dict[str, Any]]:
+    """Merge rows that share the same location identifier, combining non-null fields.
+
+    Documents like appraisal reports emit both a summary row (with financial values) and a
+    detail row (with construction attributes) for the same location. This merges them into
+    a single complete row per location.
+
+    Merging strategy (in order of priority):
+    1. Primary key: base numeric ID (e.g. "1" from "1 - Building 1") + address (first 40 chars)
+    2. Address-only key when no ID field found
+    """
     if len(rows) <= 1:
         return rows
 
-    merge_fields = _infer_merge_fields(rows, field_names)
-    if not merge_fields:
+    id_candidates: List[str] = []
+    for fn in field_names:
+        fl = fn.lower()
+        if "allocation" in fl and "location" not in fl:
+            continue
+        if re.search(r"\bnumber\b", fl) and any(x in fl for x in ("stor", "story", "sq ft", "sqft", "area")):
+            continue
+        if re.search(r"\blocation\b", fl) or re.search(r"\bloc\s*#|\bloc\.", fl):
+            id_candidates.append(fn)
+        elif re.search(r"\bnumber\b", fl) or "no." in fl:
+            id_candidates.append(fn)
+        elif "#" in fn and "number" in fl:
+            id_candidates.append(fn)
+        elif re.search(r"\b(?:property|site|schedule|premises)\s+id\b", fl):
+            id_candidates.append(fn)
+    addr_candidates = [
+        fn for fn in field_names
+        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
+    ]
+
+    if not id_candidates and not addr_candidates:
         return rows
 
-    parent = list(range(len(rows)))
+    id_field = id_candidates[0] if id_candidates else None
+    addr_field = addr_candidates[0] if addr_candidates else None
 
-    def find(idx: int) -> int:
-        while parent[idx] != idx:
-            parent[idx] = parent[parent[idx]]
-            idx = parent[idx]
-        return idx
+    def _norm(v: Any) -> str:
+        return str(v or "").strip().lower()
 
-    def union(left: int, right: int) -> None:
-        root_left = find(left)
-        root_right = find(right)
-        if root_left != root_right:
-            parent[root_right] = root_left
+    def _base_num(v: str) -> str:
+        """Extract leading numeric portion: '1 - Building 1' -> '1', 'Loc 0012' -> '0012'"""
+        m = re.match(r"^(?:loc(?:ation)?\s*#?\s*)?(\d+)", v.strip(), re.I)
+        return m.group(1) if m else v[:20]
 
-    for _, groups in merge_fields:
-        for idxs in groups.values():
-            for pos, idx_a in enumerate(idxs):
-                for idx_b in idxs[pos + 1 :]:
-                    shared, conflicts, complement = _row_pair_relation(rows[idx_a], rows[idx_b], field_names)
-                    if conflicts == 0 and complement >= 1:
-                        union(idx_a, idx_b)
-                    elif conflicts <= 1 and shared >= 2 and complement >= 3:
-                        union(idx_a, idx_b)
+    def _merge_key(row: Dict[str, Any]) -> str | None:
+        parts = []
+        if id_field and _is_filled_value(row.get(id_field)):
+            v = _norm(row.get(id_field))
+            parts.append(_base_num(v))
+        if addr_field and _is_filled_value(row.get(addr_field)):
+            v = _norm(row.get(addr_field))
+            parts.append(v[:40])
+        return "|".join(parts) if parts else None
 
-    buckets: Dict[int, List[Dict[str, Any]]] = {}
-    order: List[int] = []
-    for idx, row in enumerate(rows):
-        root = find(idx)
-        if root not in buckets:
-            buckets[root] = []
-            order.append(root)
-        buckets[root].append(row)
+    groups: dict[str, List[Dict[str, Any]]] = {}
+    order: List[str] = []
+    no_key_rows: List[Dict[str, Any]] = []
 
-    if all(len(group) == 1 for group in buckets.values()):
+    for row in rows:
+        key = _merge_key(row)
+        if key is None:
+            no_key_rows.append(row)
+            continue
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    if all(len(g) == 1 for g in groups.values()):
         return rows
 
     merged: List[Dict[str, Any]] = []
-    for root in order:
-        group = buckets[root]
+    any_merged = False
+    for key in order:
+        group = groups[key]
         if len(group) == 1:
             merged.append(group[0])
             continue
+        any_merged = True
+        # Use the row with the most filled fields as the base
         group_sorted = sorted(
             group,
-            key=lambda row: sum(1 for fn in field_names if _is_filled_value(row.get(fn))),
+            key=lambda r: sum(1 for fn in field_names if _is_filled_value(r.get(fn))),
             reverse=True,
         )
         base = dict(group_sorted[0])
@@ -280,54 +194,112 @@ def _merge_rows_by_identifier(
                     base[fn] = other.get(fn)
         merged.append(base)
 
-    logger.info(
-        "Row merge: %d rows -> %d rows (merge_fields=%s)",
-        len(rows),
-        len(merged),
-        ", ".join(fn for fn, _ in merge_fields),
-    )
+    merged.extend(no_key_rows)
+    if any_merged:
+        logger.info(
+            "Row merge: %d rows -> %d rows (id_field=%s, addr_field=%s)",
+            len(rows), len(merged), id_field, addr_field,
+        )
     return merged
 
 
-def finalize_repeated_record_rows(
+def finalize_property_schedule_rows(
     rows: List[Dict[str, Any]],
     field_names: List[str],
 ) -> List[Dict[str, Any]]:
-    """Drop completely empty rows, merge split records using repeated anchor values, and dedupe."""
+    """Drop blank/spacer rows, re-merge split location lines, remove exact duplicate records."""
     if not rows:
         return rows
-
+    loc_num_fn = next(
+        (fn for fn in field_names if "location" in fn.lower() and "number" in fn.lower()),
+        None,
+    )
+    addr_fns = [
+        fn for fn in field_names
+        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
+    ]
+    primary_addr = addr_fns[0] if addr_fns else None
+    city_fns = [
+        fn for fn in field_names
+        if ("city" in fn.lower() and "velocity" not in fn.lower())
+    ]
+    primary_city = city_fns[0] if city_fns else None
     non_empty: List[Dict[str, Any]] = []
     for row in rows:
         if row.get("_error"):
             non_empty.append(row)
             continue
-        if any(_is_filled_value(row.get(fn)) for fn in field_names):
-            non_empty.append(row)
+        filled = sum(1 for fn in field_names if _is_filled_value(row.get(fn)))
+        if filled == 0:
+            continue
+        non_empty.append(row)
     if not non_empty:
         return rows
-
     merged = _merge_rows_by_identifier(non_empty, field_names)
+    kept: List[Dict[str, Any]] = []
+    for row in merged:
+        if row.get("_error"):
+            kept.append(row)
+            continue
+        loc_filled = bool(loc_num_fn and _is_filled_value(row.get(loc_num_fn)))
+        addr_and_city = bool(
+            primary_addr
+            and primary_city
+            and _is_filled_value(row.get(primary_addr))
+            and _is_filled_value(row.get(primary_city))
+        )
+        if not (loc_filled or addr_and_city):
+            continue
+        kept.append(row)
+    if not kept:
+        return rows
+    bucket: dict[str, Dict[str, Any]] = {}
+    bucket_order: List[str] = []
+    for row in kept:
+        if row.get("_error"):
+            bucket[f"_err_{id(row)}"] = row
+            bucket_order.append(f"_err_{id(row)}")
+            continue
+        loc_part = ""
+        if loc_num_fn and _is_filled_value(row.get(loc_num_fn)):
+            raw_loc = str(row.get(loc_num_fn)).strip()
+            m = re.match(r"^(?:loc(?:ation)?\s*#?\s*)?(\d+)", raw_loc, re.I)
+            loc_part = (m.group(1) if m else raw_loc[:24]).lower()
+        addr_part = ""
+        if primary_addr and _is_filled_value(row.get(primary_addr)):
+            addr_part = re.sub(r"\s+", " ", str(row.get(primary_addr)).strip().lower()[:80])
+        ck = f"{loc_part}\x00{addr_part}"
+        if ck == "\x00":
+            ck = f"row_{id(row)}"
+        if ck not in bucket:
+            bucket[ck] = dict(row)
+            bucket_order.append(ck)
+            continue
+        base = dict(bucket[ck])
+        for fn in field_names:
+            if not _is_filled_value(base.get(fn)) and _is_filled_value(row.get(fn)):
+                base[fn] = row.get(fn)
+        bucket[ck] = base
+    merged2 = [bucket[k] for k in bucket_order]
     seen: set[str] = set()
     out: List[Dict[str, Any]] = []
-    for row in merged:
+    for row in merged2:
         if row.get("_error"):
             out.append(row)
             continue
-        sig = json.dumps(
-            {fn: _normalise_cell_value(row.get(fn)) for fn in field_names},
-            sort_keys=True,
-        )
+        norm_vals = {
+            fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower())
+            for fn in field_names
+        }
+        sig = json.dumps(norm_vals, sort_keys=True)
         if sig in seen:
             continue
         seen.add(sig)
         out.append(row)
-
     if len(out) < len(rows):
         logger.info(
-            "Repeated-record cleanup: %d rows -> %d",
-            len(rows),
-            len(out),
+            "Property schedule cleanup: %d rows -> %d (filename context: schedule dedupe)",
+            len(rows), len(out),
         )
     return out
 
@@ -344,117 +316,46 @@ async def _review_multi_rows(
     if len(rows) <= 1:
         return rows
 
-    def _code_dedup(source: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        merged = _merge_rows_by_identifier(source, field_names)
-        deduped: List[Dict[str, Any]] = []
-        seen: set[str] = set()
-        for row in merged:
-            key = json.dumps(
-                {fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower()) for fn in field_names},
-                sort_keys=True,
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(row)
-        return deduped or source
+    review_prompt = (
+        "Review these extracted records and return a cleaned records array.\n\n"
+        "Goals:\n"
+        "- keep only records that match the same natural row unit\n"
+        "- remove duplicates and near-duplicates\n"
+        "- if the same location or entity appears in multiple records (for example: one summary "
+        "row with financial values and one detail row with construction attributes for the same "
+        "address), MERGE them into one record by combining all non-null fields — do NOT drop any "
+        "non-null value from either row\n"
+        "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
+        "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
+        "- remove every completely empty record (all fields null, dash, or n/a) and duplicate rows for the same location\n"
+        "- do not invent new values\n\n"
+        f"Filename: {filename}\n"
+        f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
+        + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"Document context:\n{doc_context}\n\n"
+        + f"Extracted records to review:\n{json.dumps(rows, ensure_ascii=True)}\n\n"
+        + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
+    )
+    reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage, text_model, max_tokens=_REVIEW_MAX_TOKENS)
 
-    async def _review_chunk(chunk: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        review_prompt = (
-            "Review these extracted records and return a cleaned records array.\n\n"
-            "Goals:\n"
-            "- keep only records that match the same natural row unit\n"
-            "- remove duplicates and near-duplicates\n"
-            "- if the same entity appears in multiple records (for example: one summary "
-            "row with financial values and one detail row with other attributes for the same "
-            "identifier), MERGE them into one record by combining all non-null fields — do NOT drop any "
-            "non-null value from either row\n"
-            "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
-            "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
-            "- remove every completely empty record (all fields null, dash, or n/a) and duplicate rows for the same entity\n"
-            "- do not invent new values\n\n"
-            f"Filename: {filename}\n"
-            f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
-            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-            + f"Document context:\n{doc_context}\n\n"
-            + f"Extracted records to review:\n{json.dumps(chunk, ensure_ascii=True)}\n\n"
-            + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
+    # Post-merge: catch any remaining duplicates the LLM review didn't consolidate
+    reviewed = _merge_rows_by_identifier(reviewed, field_names)
+
+    deduped: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in reviewed:
+        key = json.dumps(
+            {
+                fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower())
+                for fn in field_names
+            },
+            sort_keys=True,
         )
-        return await _llm_extract(
-            _MULTI_SYSTEM, review_prompt, field_names, filename, usage,
-            text_model, max_tokens=_review_max_tokens(len(field_names)),
-        )
-
-    _CHUNK_SIZE = 15
-
-    if len(rows) <= _CHUNK_SIZE:
-        reviewed = await _review_chunk(rows)
-    else:
-        logger.info(
-            "Chunked LLM review for %s: %d rows in %d chunks of ~%d",
-            filename, len(rows), -(-len(rows) // _CHUNK_SIZE), _CHUNK_SIZE,
-        )
-        chunks = [rows[i:i + _CHUNK_SIZE] for i in range(0, len(rows), _CHUNK_SIZE)]
-        reviewed = []
-        for chunk in chunks:
-            reviewed.extend(await _review_chunk(chunk))
-
-    return _code_dedup(reviewed)
-
-
-def _build_row_value_frequencies(
-    rows: List[Dict[str, Any]],
-    field_names: List[str],
-) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for row in rows:
-        if row.get("_error"):
+        if key in seen:
             continue
-        seen_in_row: set[str] = set()
-        for fn in field_names:
-            if not _is_filled_value(row.get(fn)):
-                continue
-            norm = _normalise_cell_value(row.get(fn))
-            if not norm or norm in seen_in_row:
-                continue
-            counts[norm] = counts.get(norm, 0) + 1
-            seen_in_row.add(norm)
-    return counts
-
-
-def _select_row_anchor_text(
-    row: Dict[str, Any],
-    field_names: List[str],
-    value_frequencies: Dict[str, int],
-    flat_doc_text_lower: str,
-) -> tuple[Optional[int], str]:
-    best_score: float | None = None
-    best_ix: Optional[int] = None
-    best_text = ""
-
-    for fn in field_names:
-        if not _is_filled_value(row.get(fn)):
-            continue
-        raw = _COLLAPSE_WS_RE.sub(" ", str(row.get(fn)).strip())
-        if not raw:
-            continue
-        norm = raw.lower()
-        score = _value_merge_score(norm, value_frequencies.get(norm, 1))
-        if score < 2.0:
-            continue
-        ix = flat_doc_text_lower.find(norm)
-        if ix < 0 and len(norm) >= 10:
-            words = norm.split()
-            if len(words) >= 2:
-                ix = flat_doc_text_lower.find(" ".join(words[:2]))
-        if ix < 0:
-            continue
-        if best_score is None or score > best_score or (score == best_score and len(raw) > len(best_text)):
-            best_score = score
-            best_ix = ix
-            best_text = raw
-
-    return best_ix, best_text
+        seen.add(key)
+        deduped.append(row)
+    return deduped or rows
 
 
 async def backfill_missing_row_fields_from_document(
@@ -468,9 +369,10 @@ async def backfill_missing_row_fields_from_document(
 ) -> List[Dict[str, Any]]:
     """One pass: fill still-empty fields using full document text (schedule + narrative)."""
     field_names = [f["name"] for f in fields]
-    flat_doc_text = _COLLAPSE_WS_RE.sub(" ", doc_content_text)
-    flat_doc_text_lower = flat_doc_text.lower()
-    value_frequencies = _build_row_value_frequencies(rows, field_names)
+    addr_fn = next(
+        (fn for fn in field_names if "address" in fn.lower() and "email" not in fn.lower()),
+        None,
+    )
     items: List[Dict[str, Any]] = []
     for i, row in enumerate(rows):
         if row.get("_error"):
@@ -479,24 +381,12 @@ async def backfill_missing_row_fields_from_document(
         if not missing:
             continue
         near_text = ""
-        ix, anchor_text = _select_row_anchor_text(row, field_names, value_frequencies, flat_doc_text_lower)
-        if ix is not None and anchor_text:
-            win_after = min(8_000, max(2_800, 400 * len(missing) + len(anchor_text) + 400))
-            anchor_lower = anchor_text.lower()
-            best_ix = ix
-            best_colons = flat_doc_text[max(0, ix - 450) : ix + win_after].count(":")
-            search_start = ix + 1
-            while True:
-                next_ix = flat_doc_text_lower.find(anchor_lower, search_start)
-                if next_ix < 0:
-                    break
-                window = flat_doc_text[max(0, next_ix - 450) : next_ix + win_after]
-                colons = window.count(":")
-                if colons > best_colons:
-                    best_colons = colons
-                    best_ix = next_ix
-                search_start = next_ix + 1
-            near_text = flat_doc_text[max(0, best_ix - 450) : best_ix + win_after]
+        if addr_fn and doc_content_text and _is_filled_value(row.get(addr_fn)):
+            frag = str(row.get(addr_fn) or "").split(",")[0].strip()
+            if len(frag) >= 6:
+                ix = doc_content_text.find(frag)
+                if ix >= 0:
+                    near_text = doc_content_text[max(0, ix - 300) : ix + 2_200]
         item: Dict[str, Any] = {
             "index": i,
             "missing": missing,
@@ -515,61 +405,47 @@ async def backfill_missing_row_fields_from_document(
         f"{filename} schedule backfill",
     )
     fblock = _fields_block(fields)
-
-    _BACKFILL_CHUNK = 15
-    item_chunks = [items[i:i + _BACKFILL_CHUNK] for i in range(0, len(items), _BACKFILL_CHUNK)]
-    if len(item_chunks) > 1:
-        logger.info(
-            "Chunked backfill for %s: %d items in %d chunks of ~%d",
-            filename, len(items), len(item_chunks), _BACKFILL_CHUNK,
+    user_prompt = (
+        "Each item lists array index, fields still missing, and fields already extracted. "
+        "When 'near_text' is present, use it as the primary source for that item's missing fields "
+        "(it is anchored to the row's street address in the document).\n"
+        "For every item, fill ONLY the missing fields. "
+        "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
+        f"--- Fields ---\n{fblock}\n\n"
+        + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+        + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(items, ensure_ascii=True)}\n\n"
+        'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
+        "with one patch object per item; each patch uses the exact schema field names that were missing."
+    )
+    try:
+        resp = await _litellm_acompletion(
+            model=_TEXT_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": _system_with_date(
+                        "You patch incomplete tabular extractions. Return JSON only."
+                    ),
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=8_192,
         )
+        if resp.usage:
+            usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+        record_llm_usage_cost(usage, resp)
+        raw = json.loads(resp.choices[0].message.content or "{}")
+    except Exception as exc:
+        logger.warning("Backfill pass failed for %s: %s", filename, exc)
+        return rows
 
-    all_patches: List[dict] = []
-    for chunk in item_chunks:
-        user_prompt = (
-            "Each item lists array index, fields still missing, and fields already extracted. "
-            "When 'near_text' is present, use it as the primary source for that item's missing fields "
-            "(it is anchored to a distinctive value already present in that row).\n"
-            "For every item, fill ONLY the missing fields. "
-            "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
-            f"--- Fields ---\n{fblock}\n\n"
-            + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-            + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(chunk, ensure_ascii=True)}\n\n"
-            'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
-            "with one patch object per item; each patch uses the exact schema field names that were missing."
-        )
-        try:
-            resp = await _litellm_acompletion(
-                model=_TEXT_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": _system_with_date(
-                            "You patch incomplete tabular extractions. Return JSON only."
-                        ),
-                    },
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0,
-                response_format={"type": "json_object"},
-                max_tokens=min(16_384, 5_000 + 220 * len(chunk)),
-            )
-            if resp.usage:
-                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-            record_llm_usage_cost(usage, resp)
-            raw = json.loads(resp.choices[0].message.content or "{}")
-        except Exception as exc:
-            logger.warning("Backfill chunk failed for %s: %s", filename, exc)
-            continue
-
-        chunk_patches = raw.get("patches")
-        if isinstance(chunk_patches, list):
-            all_patches.extend(chunk_patches)
-
-    if not all_patches:
+    patches = raw.get("patches")
+    if not isinstance(patches, list):
         return rows
     allowed_keys = {item["index"]: set(item["missing"]) for item in items}
-    for patch in all_patches:
+    for patch in patches:
         if not isinstance(patch, dict):
             continue
         idx = patch.get("index")

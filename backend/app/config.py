@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     bear_timeout_seconds: float = 20.0
 
     # Per-document extraction timeout (seconds); prevents one large doc from hanging the job
-    extraction_timeout_seconds: float = 1200.0
+    extraction_timeout_seconds: float = 600.0
 
     # Chunked multi-record extraction (text + scan): larger pages per chunk => fewer LLM calls
     extraction_chunk_size: int = 12

@@ -14,6 +14,7 @@ from .core import (
     _maybe_compress_with_bear,
     LLMUsage,
     document_has_wide_data_grid,
+    property_schedule_row_cleanup_matches_schema,
     record_llm_usage_cost,
     sanitize_duplicate_column_values,
     sanitize_unmatched_field_values,
@@ -21,7 +22,7 @@ from .core import (
 from .llm import (
     _litellm_acompletion,
     backfill_missing_row_fields_from_document,
-    finalize_repeated_record_rows,
+    finalize_property_schedule_rows,
 )
 from .scan_pipeline import extract_from_scanned_document
 from .text_pipeline import (
@@ -41,7 +42,6 @@ async def extract_from_document(
     usage: LLMUsage,
     instructions: str = "",
 ) -> List[Dict[str, Any]]:
-    has_wide_grid = document_has_wide_data_grid(doc)
     if doc.is_scanned:
         logger.info(
             "Routing %s -> SCAN pipeline (avg_chars_per_page=%.0f)",
@@ -52,10 +52,12 @@ async def extract_from_document(
     else:
         extraction_mode = "single"
 
-        if has_wide_grid:
+        is_sov_schema = property_schedule_row_cleanup_matches_schema([f["name"] for f in fields])
+        has_wide_grid = document_has_wide_data_grid(doc)
+        if is_sov_schema and has_wide_grid:
             extraction_mode = "multi"
             logger.info(
-                "Routing %s -> TEXT pipeline (multi, fast-path: wide data grid, hint=%s)",
+                "Routing %s -> TEXT pipeline (multi, fast-path: SOV schema + wide grid, hint=%s)",
                 doc.filename, doc.doc_type_hint,
             )
         else:
@@ -85,8 +87,9 @@ async def extract_from_document(
                 "classify as multi — these documents contain comparative financial statements with the same metrics "
                 "repeated for multiple fiscal years (e.g. 2023, 2022, 2021 as separate columns). "
                 "Emit one row per fiscal year/period found in the comparative statements.\n"
-                "- When a document has a repeating master list of entities and later per-entity detail for the same "
-                "identifiers -> ALWAYS multi (one merged row per entity; detail fills gaps). Never multi_paged for that pattern.\n"
+                "- Insurance: statement of values (SOV), property schedule, location listing, appraisal reports with a "
+                "summary schedule of values followed by per-location narrative sections -> ALWAYS multi (one row per "
+                "insured location from the schedule; narrative fills gaps). NEVER multi_paged for that pattern.\n"
                 "- Use multi_paged ONLY when pages clearly belong to different independent records, not when a single record spans multiple pages\n"
                 "- If unsure, reply single\n\n"
                 f"Filename: {doc.filename}\n"
@@ -154,16 +157,13 @@ async def extract_from_document(
 
     field_names = [f["name"] for f in fields]
     doc_full_text = doc.content_text or ""
+    rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
+    rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
 
-    if rows and has_wide_grid:
-        rows = finalize_repeated_record_rows(rows, field_names)
-
-    rows = sanitize_duplicate_column_values(rows, fields, doc.tables)
-    rows = sanitize_unmatched_field_values(rows, fields, doc_full_text, doc.tables)
-
-    if rows and has_wide_grid:
+    if rows and property_schedule_row_cleanup_matches_schema(field_names):
+        rows = finalize_property_schedule_rows(rows, field_names)
         text_for_backfill = doc_full_text.strip()
-        for _ in range(3):
+        for _ in range(2):
             if not text_for_backfill:
                 break
             missing_before = sum(
@@ -185,7 +185,8 @@ async def extract_from_document(
                 usage,
                 instructions,
             )
-            rows = sanitize_duplicate_column_values(rows, fields, doc.tables)
+            rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
+            rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
             missing_after = sum(
                 1
                 for i in range(len(rows))
@@ -194,8 +195,7 @@ async def extract_from_document(
                 if rows[i].get(fn) is None
                 or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
             )
-            improvement = missing_before - missing_after
-            if missing_after >= missing_before or improvement < max(3, int(0.05 * missing_before)):
+            if missing_after >= missing_before:
                 break
 
     if not rows:
