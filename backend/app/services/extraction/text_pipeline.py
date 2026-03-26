@@ -331,7 +331,7 @@ async def extract_multi_record_chunked(
     return await _review_multi_rows(all_rows, field_names, doc.filename, usage, doc.content_text, instructions, _TEXT_MODEL)
 
 
-_MULTI_MAX_TOKENS = 16_384
+_MULTI_MAX_TOKENS = 32_768
 
 
 async def _build_multi_doc_context(

@@ -26,7 +26,7 @@ from .core import (
     record_llm_usage_cost,
 )
 
-_REVIEW_MAX_TOKENS = 16_384
+_REVIEW_MAX_TOKENS = 32_768
 
 logger = logging.getLogger(__name__)
 
