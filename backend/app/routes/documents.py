@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import secrets
+from datetime import datetime, timedelta
 from typing import AsyncIterator, List, Optional
 
 import aiofiles
@@ -111,12 +112,30 @@ async def _enqueue_extraction_job(
 
     tier = get_tier(getattr(db_user, "subscription_tier", "free") or "free")
     _SPREADSHEET_EXTS = {".xlsx", ".csv"}
-    num_files = sum(1 for f in files if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS)
 
     _maybe_reset_usage(db_user)
     await db.commit()
     await db.refresh(db_user)
     used = db_user.files_used_this_period or 0
+
+    incoming_filenames = {
+        (f.filename or "").strip().lower()
+        for f in files
+        if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS
+        and (f.filename or "").strip()
+    }
+    if used > 0 and incoming_filenames:
+        cutoff = datetime.utcnow() - timedelta(days=35)
+        already_q = await db.execute(
+            select(func.lower(Document.filename))
+            .join(ExtractionJob, Document.job_id == ExtractionJob.id)
+            .where(ExtractionJob.user_id == user_id, ExtractionJob.created_at >= cutoff)
+            .distinct()
+        )
+        already_used = {row[0].strip() for row in already_q.all()}
+        num_files = len(incoming_filenames - already_used)
+    else:
+        num_files = len(incoming_filenames)
 
     if tier.name == "free" and used + num_files > tier.files_per_month:
         raise HTTPException(
