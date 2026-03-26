@@ -344,10 +344,6 @@ async def _review_multi_rows(
     if len(rows) <= 1:
         return rows
 
-    # For large result sets the LLM review prompt (full doc context + all rows as JSON)
-    # becomes enormous and takes minutes.  Use fast in-code merge/dedup instead.
-    _REVIEW_ROW_LIMIT = 20
-
     def _code_dedup(source: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         merged = _merge_rows_by_identifier(source, field_names)
         deduped: List[Dict[str, Any]] = []
@@ -363,36 +359,46 @@ async def _review_multi_rows(
             deduped.append(row)
         return deduped or source
 
-    if len(rows) >= _REVIEW_ROW_LIMIT:
-        logger.info(
-            "Skipping LLM review for %s (%d rows >= %d threshold) — using in-code dedup only",
-            filename, len(rows), _REVIEW_ROW_LIMIT,
+    async def _review_chunk(chunk: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        review_prompt = (
+            "Review these extracted records and return a cleaned records array.\n\n"
+            "Goals:\n"
+            "- keep only records that match the same natural row unit\n"
+            "- remove duplicates and near-duplicates\n"
+            "- if the same entity appears in multiple records (for example: one summary "
+            "row with financial values and one detail row with other attributes for the same "
+            "identifier), MERGE them into one record by combining all non-null fields — do NOT drop any "
+            "non-null value from either row\n"
+            "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
+            "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
+            "- remove every completely empty record (all fields null, dash, or n/a) and duplicate rows for the same entity\n"
+            "- do not invent new values\n\n"
+            f"Filename: {filename}\n"
+            f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
+            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"Document context:\n{doc_context}\n\n"
+            + f"Extracted records to review:\n{json.dumps(chunk, ensure_ascii=True)}\n\n"
+            + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
         )
-        return _code_dedup(rows)
+        return await _llm_extract(
+            _MULTI_SYSTEM, review_prompt, field_names, filename, usage,
+            text_model, max_tokens=_review_max_tokens(len(field_names)),
+        )
 
-    review_prompt = (
-        "Review these extracted records and return a cleaned records array.\n\n"
-        "Goals:\n"
-        "- keep only records that match the same natural row unit\n"
-        "- remove duplicates and near-duplicates\n"
-        "- if the same entity appears in multiple records (for example: one summary "
-        "row with financial values and one detail row with other attributes for the same "
-        "identifier), MERGE them into one record by combining all non-null fields — do NOT drop any "
-        "non-null value from either row\n"
-        "- if the same fact appears in multiple formats, keep the most document-faithful spreadsheet-ready value\n"
-        "- remove subtotal, segment, regional, subcategory, or alternate-view rows unless the requested fields clearly ask for them\n"
-        "- remove every completely empty record (all fields null, dash, or n/a) and duplicate rows for the same entity\n"
-        "- do not invent new values\n\n"
-        f"Filename: {filename}\n"
-        f"Requested fields:\n" + "\n".join(f"- {name}" for name in field_names) + "\n\n"
-        + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"Document context:\n{doc_context}\n\n"
-        + f"Extracted records to review:\n{json.dumps(rows, ensure_ascii=True)}\n\n"
-        + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
-    )
-    reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage, text_model, max_tokens=_review_max_tokens(len(field_names)))
+    _CHUNK_SIZE = 15
 
-    # Post-merge: catch any remaining duplicates the LLM review didn't consolidate
+    if len(rows) <= _CHUNK_SIZE:
+        reviewed = await _review_chunk(rows)
+    else:
+        logger.info(
+            "Chunked LLM review for %s: %d rows in %d chunks of ~%d",
+            filename, len(rows), -(-len(rows) // _CHUNK_SIZE), _CHUNK_SIZE,
+        )
+        chunks = [rows[i:i + _CHUNK_SIZE] for i in range(0, len(rows), _CHUNK_SIZE)]
+        reviewed = []
+        for chunk in chunks:
+            reviewed.extend(await _review_chunk(chunk))
+
     return _code_dedup(reviewed)
 
 
@@ -509,47 +515,61 @@ async def backfill_missing_row_fields_from_document(
         f"{filename} schedule backfill",
     )
     fblock = _fields_block(fields)
-    user_prompt = (
-        "Each item lists array index, fields still missing, and fields already extracted. "
-        "When 'near_text' is present, use it as the primary source for that item's missing fields "
-        "(it is anchored to a distinctive value already present in that row).\n"
-        "For every item, fill ONLY the missing fields. "
-        "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
-        f"--- Fields ---\n{fblock}\n\n"
-        + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(items, ensure_ascii=True)}\n\n"
-        'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
-        "with one patch object per item; each patch uses the exact schema field names that were missing."
-    )
-    try:
-        resp = await _litellm_acompletion(
-            model=_TEXT_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": _system_with_date(
-                        "You patch incomplete tabular extractions. Return JSON only."
-                    ),
-                },
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0,
-            response_format={"type": "json_object"},
-            max_tokens=min(16_384, 5_000 + 220 * len(items)),
-        )
-        if resp.usage:
-            usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-        record_llm_usage_cost(usage, resp)
-        raw = json.loads(resp.choices[0].message.content or "{}")
-    except Exception as exc:
-        logger.warning("Backfill pass failed for %s: %s", filename, exc)
-        return rows
 
-    patches = raw.get("patches")
-    if not isinstance(patches, list):
+    _BACKFILL_CHUNK = 15
+    item_chunks = [items[i:i + _BACKFILL_CHUNK] for i in range(0, len(items), _BACKFILL_CHUNK)]
+    if len(item_chunks) > 1:
+        logger.info(
+            "Chunked backfill for %s: %d items in %d chunks of ~%d",
+            filename, len(items), len(item_chunks), _BACKFILL_CHUNK,
+        )
+
+    all_patches: List[dict] = []
+    for chunk in item_chunks:
+        user_prompt = (
+            "Each item lists array index, fields still missing, and fields already extracted. "
+            "When 'near_text' is present, use it as the primary source for that item's missing fields "
+            "(it is anchored to a distinctive value already present in that row).\n"
+            "For every item, fill ONLY the missing fields. "
+            "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
+            f"--- Fields ---\n{fblock}\n\n"
+            + (f"--- User instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"--- Document ---\n{ctx}\n\n--- Items ---\n{json.dumps(chunk, ensure_ascii=True)}\n\n"
+            'Return exactly: {"patches": [{"index": <int>, "<Field Name>": "<value or null>"}]} '
+            "with one patch object per item; each patch uses the exact schema field names that were missing."
+        )
+        try:
+            resp = await _litellm_acompletion(
+                model=_TEXT_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": _system_with_date(
+                            "You patch incomplete tabular extractions. Return JSON only."
+                        ),
+                    },
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+                max_tokens=min(16_384, 5_000 + 220 * len(chunk)),
+            )
+            if resp.usage:
+                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+            record_llm_usage_cost(usage, resp)
+            raw = json.loads(resp.choices[0].message.content or "{}")
+        except Exception as exc:
+            logger.warning("Backfill chunk failed for %s: %s", filename, exc)
+            continue
+
+        chunk_patches = raw.get("patches")
+        if isinstance(chunk_patches, list):
+            all_patches.extend(chunk_patches)
+
+    if not all_patches:
         return rows
     allowed_keys = {item["index"]: set(item["missing"]) for item in items}
-    for patch in patches:
+    for patch in all_patches:
         if not isinstance(patch, dict):
             continue
         idx = patch.get("index")

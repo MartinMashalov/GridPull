@@ -163,10 +163,7 @@ async def extract_from_document(
 
     if rows and has_wide_grid:
         text_for_backfill = doc_full_text.strip()
-        # For large row sets (≥20 rows) the backfill prompt is very large; cap at 1 pass
-        # to avoid multi-minute runtimes.  Small sets get up to 3 passes as before.
-        max_backfill_passes = 1 if len(rows) >= 20 else 3
-        for _ in range(max_backfill_passes):
+        for _ in range(3):
             if not text_for_backfill:
                 break
             missing_before = sum(
