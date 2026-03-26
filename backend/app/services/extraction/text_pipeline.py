@@ -253,7 +253,7 @@ async def extract_multi_record(
     parts.append(f"\n--- Document Text ---\n{content_text}")
 
     user_prompt = "\n".join(parts) + '\n\nReturn: {"records": [{"Field": "value"}, ...]}'
-    rows = await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage, _TEXT_MODEL)
+    rows = await _llm_extract(_MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage, _TEXT_MODEL, max_tokens=_multi_max_tokens(len(field_names)))
     return await _review_multi_rows(rows, field_names, doc.filename, usage, "\n".join(parts), instructions, _TEXT_MODEL)
 
 
@@ -319,7 +319,7 @@ async def extract_multi_record_chunked(
             + "\n\nExtract ALL repeated records on these pages only. "
             + 'Return: {"records": [...]}. No records here -> {"records": []}.'
         )
-        return await _llm_extract(_MULTI_SYSTEM, prompt, field_names, doc.filename, usage, _TEXT_MODEL)
+        return await _llm_extract(_MULTI_SYSTEM, prompt, field_names, doc.filename, usage, _TEXT_MODEL, max_tokens=_multi_max_tokens(len(field_names)))
 
     chunk_results = await asyncio.gather(*[_extract_chunk(c) for c in page_chunks])
     all_rows: List[Dict[str, Any]] = []
@@ -331,7 +331,8 @@ async def extract_multi_record_chunked(
     return await _review_multi_rows(all_rows, field_names, doc.filename, usage, doc.content_text, instructions, _TEXT_MODEL)
 
 
-_MULTI_MAX_TOKENS = 16_384
+def _multi_max_tokens(n_fields: int) -> int:
+    return min(65_536, max(16_384, n_fields * 400))
 
 
 async def _build_multi_doc_context(
@@ -425,15 +426,23 @@ async def extract_multi_record_validated(
     count_task = _extract_record_count_metadata(
         metadata_context, fblock, doc.filename, usage, instructions,
     )
+    mt = _multi_max_tokens(len(field_names))
     extract_task = _llm_extract(
         _MULTI_SYSTEM, user_prompt, field_names, doc.filename, usage,
-        _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+        _TEXT_MODEL, max_tokens=mt,
     )
     expected_count, rows = await asyncio.gather(count_task, extract_task)
 
     rows = await _review_multi_rows(
         rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
     )
+
+    if expected_count is not None and len(rows) < expected_count * 0.5 and expected_count > 10:
+        logger.info(
+            "Row count severely short for %s: extracted=%d expected=%d; falling back to chunked extraction",
+            doc.filename, len(rows), expected_count,
+        )
+        return await extract_multi_record_chunked(doc, fields, usage, instructions)
 
     if expected_count is not None and len(rows) != expected_count:
         logger.info(
@@ -449,7 +458,7 @@ async def extract_multi_record_validated(
         )
         retry_rows = await _llm_extract(
             _MULTI_SYSTEM, retry_prompt, field_names, doc.filename, usage,
-            _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+            _TEXT_MODEL, max_tokens=mt,
         )
         retry_rows = await _review_multi_rows(
             retry_rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,
@@ -514,7 +523,7 @@ async def extract_multi_record_chunked_validated(
         )
         retry_rows = await _llm_extract(
             _MULTI_SYSTEM, retry_prompt, field_names, doc.filename, usage,
-            _TEXT_MODEL, max_tokens=_MULTI_MAX_TOKENS,
+            _TEXT_MODEL, max_tokens=_multi_max_tokens(len(field_names)),
         )
         retry_rows = await _review_multi_rows(
             retry_rows, field_names, doc.filename, usage, cacheable_prefix, instructions, _TEXT_MODEL,

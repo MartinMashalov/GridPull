@@ -26,7 +26,8 @@ from .core import (
     record_llm_usage_cost,
 )
 
-_REVIEW_MAX_TOKENS = 16_384
+def _review_max_tokens(n_fields: int) -> int:
+    return min(65_536, max(16_384, n_fields * 400))
 
 logger = logging.getLogger(__name__)
 
@@ -363,7 +364,7 @@ async def _review_multi_rows(
         + f"Extracted records to review:\n{json.dumps(rows, ensure_ascii=True)}\n\n"
         + 'Return exactly: {"records": [{"Field": "value"}, ...]}'
     )
-    reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage, text_model, max_tokens=_REVIEW_MAX_TOKENS)
+    reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage, text_model, max_tokens=_review_max_tokens(len(field_names)))
 
     # Post-merge: catch any remaining duplicates the LLM review didn't consolidate
     reviewed = _merge_rows_by_identifier(reviewed, field_names)
@@ -465,7 +466,21 @@ async def backfill_missing_row_fields_from_document(
         ix, anchor_text = _select_row_anchor_text(row, field_names, value_frequencies, flat_doc_text_lower)
         if ix is not None and anchor_text:
             win_after = min(8_000, max(2_800, 400 * len(missing) + len(anchor_text) + 400))
-            near_text = flat_doc_text[max(0, ix - 450) : ix + win_after]
+            anchor_lower = anchor_text.lower()
+            best_ix = ix
+            best_colons = flat_doc_text[max(0, ix - 450) : ix + win_after].count(":")
+            search_start = ix + 1
+            while True:
+                next_ix = flat_doc_text_lower.find(anchor_lower, search_start)
+                if next_ix < 0:
+                    break
+                window = flat_doc_text[max(0, next_ix - 450) : next_ix + win_after]
+                colons = window.count(":")
+                if colons > best_colons:
+                    best_colons = colons
+                    best_ix = next_ix
+                search_start = next_ix + 1
+            near_text = flat_doc_text[max(0, best_ix - 450) : best_ix + win_after]
         item: Dict[str, Any] = {
             "index": i,
             "missing": missing,

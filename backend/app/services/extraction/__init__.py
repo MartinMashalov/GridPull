@@ -186,7 +186,6 @@ async def extract_from_document(
                 instructions,
             )
             rows = sanitize_duplicate_column_values(rows, fields, doc.tables)
-            rows = sanitize_unmatched_field_values(rows, fields, doc_full_text, doc.tables)
             missing_after = sum(
                 1
                 for i in range(len(rows))
@@ -195,7 +194,8 @@ async def extract_from_document(
                 if rows[i].get(fn) is None
                 or str(rows[i].get(fn, "")).strip().lower() in _EMPTY_VALUES
             )
-            if missing_after >= missing_before:
+            improvement = missing_before - missing_after
+            if missing_after >= missing_before or improvement < max(3, int(0.05 * missing_before)):
                 break
 
     if not rows:

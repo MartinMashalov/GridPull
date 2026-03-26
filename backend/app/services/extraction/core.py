@@ -469,15 +469,19 @@ def _field_schema_matches_structure(
             if _is_initialism_match(ht, fn_terms):
                 return True
 
-    check_terms = fn_terms if len(fn_terms) == 1 else [max(fn_terms, key=len)]
-    for term in check_terms:
+    name_lower = (field.get("name") or "").lower()
+    name_terms = [t for t in re.findall(r"[a-z]{2,}", name_lower)]
+    for term in name_terms:
         if len(term) < 4:
             continue
         pos = doc_text_lower.find(term)
-        if pos >= 0:
-            window = doc_text_lower[max(0, pos - 40):pos + len(term) + 40]
-            if re.search(r"[:,|]", window):
-                return True
+        if pos < 0:
+            continue
+        if len(term) >= 7:
+            return True
+        window = doc_text_lower[max(0, pos - 50):pos + len(term) + 50]
+        if re.search(r"[:,|]", window):
+            return True
     return False
 
 
@@ -518,7 +522,7 @@ def sanitize_unmatched_field_values(
         unique_count = len(set(filled))
         distinct = list(set(str(v).strip().lower() for v in filled if str(v).strip()))
         in_doc_hits = sum(1 for v in distinct if len(v) >= 2 and v in doc_text_lower)
-        if len(distinct) and in_doc_hits >= min(len(distinct), max(2, int(0.35 * len(distinct)))):
+        if len(distinct) and in_doc_hits >= max(1, int(0.2 * len(distinct))):
             continue
         if unique_count == 1:
             logger.info(
@@ -529,6 +533,10 @@ def sanitize_unmatched_field_values(
             for row in rows:
                 row[fn] = None
         elif unique_count >= 2:
+            any_long_in_doc = any(len(v) >= 3 and v in doc_text_lower for v in distinct)
+            all_short = all(len(v) < 3 for v in distinct)
+            if any_long_in_doc or all_short:
+                continue
             logger.info(
                 "Nulled %d varying values for field '%s' (%d unique values, "
                 "field label not in any table header — likely wrong-column mapping)",
