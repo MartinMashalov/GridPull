@@ -69,12 +69,14 @@ jobs:
             docker compose build --no-cache
             docker compose up -d --remove-orphans
 
-            # Request/renew a trusted certificate from Let's Encrypt using webroot.
+            # Stop the long-running certbot container so its lock doesn't block the one-off run.
+            docker compose stop certbot || true
             docker compose run --rm --entrypoint "" certbot certbot certonly \
               --webroot -w /var/www/certbot \
               --email admin@pdfexcel.ai \
               --agree-tos --no-eff-email --non-interactive --keep-until-expiring \
               -d pdfexcel.ai -d www.pdfexcel.ai
+            docker compose start certbot || true
             docker compose exec -T nginx nginx -s reload
 
             # Prune old images
