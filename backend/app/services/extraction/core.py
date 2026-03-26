@@ -358,12 +358,23 @@ def _is_filled_value(value: Any) -> bool:
 
 
 def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool:
-    """True when the field set is the multi-location property / SOV template (merge + spacer cleanup)."""
+    """True when the field set looks like a multi-location property / SOV template."""
     blob = " ".join(n.lower() for n in field_names)
-    return (
-        "location number" in blob
-        or ("address line" in blob and "zip code" in blob)
-    )
+    has_location_id = any(kw in blob for kw in (
+        "location number", "loc #", "loc#", "location #", "location#",
+        "loc no", "site #", "site no", "premises",
+    ))
+    has_address = any(kw in blob for kw in (
+        "address line", "street address", "address", "street",
+    ))
+    has_geo = any(kw in blob for kw in (
+        "zip code", "zip", "postal", "city", "state",
+    ))
+    has_values = any(kw in blob for kw in (
+        "tiv", "insurable value", "building value", "bpp", "contents",
+        "business income", "replacement cost",
+    ))
+    return (has_location_id and has_address) or (has_address and has_geo and has_values)
 
 
 def _extract_table_headers(tables: list) -> set[str]:

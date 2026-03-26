@@ -160,10 +160,13 @@ async def extract_from_document(
     rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
     rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
 
-    if rows and property_schedule_row_cleanup_matches_schema(field_names):
+    run_schedule_cleanup = property_schedule_row_cleanup_matches_schema(field_names)
+    if rows and run_schedule_cleanup:
         rows = finalize_property_schedule_rows(rows, field_names)
+
+    if rows and (run_schedule_cleanup or has_wide_grid) and len(rows) > 1:
         text_for_backfill = doc_full_text.strip()
-        for _ in range(2):
+        for _ in range(3):
             if not text_for_backfill:
                 break
             missing_before = sum(
