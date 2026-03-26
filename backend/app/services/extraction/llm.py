@@ -344,6 +344,32 @@ async def _review_multi_rows(
     if len(rows) <= 1:
         return rows
 
+    # For large result sets the LLM review prompt (full doc context + all rows as JSON)
+    # becomes enormous and takes minutes.  Use fast in-code merge/dedup instead.
+    _REVIEW_ROW_LIMIT = 20
+
+    def _code_dedup(source: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        merged = _merge_rows_by_identifier(source, field_names)
+        deduped: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in merged:
+            key = json.dumps(
+                {fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower()) for fn in field_names},
+                sort_keys=True,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+        return deduped or source
+
+    if len(rows) >= _REVIEW_ROW_LIMIT:
+        logger.info(
+            "Skipping LLM review for %s (%d rows >= %d threshold) — using in-code dedup only",
+            filename, len(rows), _REVIEW_ROW_LIMIT,
+        )
+        return _code_dedup(rows)
+
     review_prompt = (
         "Review these extracted records and return a cleaned records array.\n\n"
         "Goals:\n"
@@ -367,23 +393,7 @@ async def _review_multi_rows(
     reviewed = await _llm_extract(_MULTI_SYSTEM, review_prompt, field_names, filename, usage, text_model, max_tokens=_review_max_tokens(len(field_names)))
 
     # Post-merge: catch any remaining duplicates the LLM review didn't consolidate
-    reviewed = _merge_rows_by_identifier(reviewed, field_names)
-
-    deduped: List[Dict[str, Any]] = []
-    seen: set[str] = set()
-    for row in reviewed:
-        key = json.dumps(
-            {
-                fn: re.sub(r"\s+", " ", str(row.get(fn, "") or "").strip().lower())
-                for fn in field_names
-            },
-            sort_keys=True,
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(row)
-    return deduped or rows
+    return _code_dedup(reviewed)
 
 
 def _build_row_value_frequencies(
