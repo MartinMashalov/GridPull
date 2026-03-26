@@ -27,6 +27,34 @@ STRIPE_PRICE_MAP = {
     "business": settings.stripe_price_business,
 }
 
+# Reverse map: price_id → tier name.  Built at startup from the same env vars so
+# it stays in sync without any manual maintenance.
+_PRICE_ID_TO_TIER: dict[str, str] = {
+    v: k for k, v in STRIPE_PRICE_MAP.items() if v
+}
+
+
+def _resolve_tier(stripe_obj: dict, fallback: str | None = None) -> str | None:
+    """Return the tier name for a Stripe subscription or checkout-session object.
+
+    Resolution order (most → least authoritative):
+    1. Price ID on the first subscription item  →  authoritative, no metadata needed
+    2. ``metadata.tier`` on the object itself
+    3. ``fallback`` argument (caller-supplied, e.g. the current DB value)
+    4. None  →  caller should NOT overwrite the existing DB value
+    """
+    items = stripe_obj.get("items", {}).get("data", []) if isinstance(stripe_obj, dict) else []
+    for item in items:
+        price_id = item.get("price", {}).get("id") or item.get("price")
+        if price_id and price_id in _PRICE_ID_TO_TIER:
+            return _PRICE_ID_TO_TIER[price_id]
+
+    meta_tier = (stripe_obj.get("metadata") or {}).get("tier") if isinstance(stripe_obj, dict) else None
+    if meta_tier and meta_tier in TIERS:
+        return meta_tier
+
+    return fallback
+
 
 async def _create_stripe_customer(email: str, name: str, user_id: str) -> str:
     customer = await asyncio.to_thread(
@@ -405,7 +433,6 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         elif mode == "subscription":
             customer_id = session.get("customer")
             sub_id = session.get("subscription")
-            tier = session.get("metadata", {}).get("tier", "starter")
 
             user = None
             if user_id:
@@ -428,6 +455,15 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id)
                 except Exception as e:
                     logger.warning("Could not retrieve Stripe subscription %s: %s", sub_id, e)
+
+            # Resolve tier: price ID on the subscription beats session metadata
+            tier = _resolve_tier(sub or {}, fallback=_resolve_tier(session, fallback=None))
+            if not tier:
+                logger.warning(
+                    "checkout.session.completed: could not resolve tier for sub=%s session_meta=%s — keeping existing tier",
+                    sub_id, (session.get("metadata") or {}),
+                )
+                tier = user.subscription_tier  # keep whatever is already in DB
 
             user.stripe_customer_id = customer_id or user.stripe_customer_id
             user.stripe_subscription_id = sub_id or user.stripe_subscription_id
@@ -455,7 +491,13 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 async def _handle_subscription_created(sub: dict, db: AsyncSession):
     customer_id = sub.get("customer")
-    tier = sub.get("metadata", {}).get("tier", "starter")
+    tier = _resolve_tier(sub, fallback=None)
+    if not tier:
+        logger.warning(
+            "subscription.created: could not resolve tier for customer=%s sub=%s meta=%s — defaulting to free",
+            customer_id, sub.get("id"), (sub.get("metadata") or {}),
+        )
+        tier = "free"
     result = await db.execute(select(User).where(User.stripe_customer_id == customer_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -484,7 +526,8 @@ async def _handle_subscription_updated(sub: dict, db: AsyncSession):
         logger.warning("Subscription updated for unknown sub %s", sub_id)
         return
 
-    tier = sub.get("metadata", {}).get("tier", user.subscription_tier)
+    # Prefer price ID → metadata → keep existing DB value (never blindly default)
+    tier = _resolve_tier(sub, fallback=user.subscription_tier)
     user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     if sub.get("current_period_end"):
@@ -564,3 +607,58 @@ async def _handle_invoice_failed(invoice: dict, db: AsyncSession):
     user.subscription_status = "past_due"
     await db.commit()
     logger.warning("Invoice payment failed — user %s set to past_due", user.id)
+
+
+@router.post("/admin/audit-tiers")
+async def audit_tiers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Check every user with an active Stripe subscription and verify their DB tier
+    matches what Stripe reports via price ID.  Pass ``fix=true`` as a query param
+    to apply corrections.  Admin-only (raises 403 for non-admin callers).
+    """
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(403, "Admin only")
+
+    result = await db.execute(
+        select(User).where(User.stripe_subscription_id.isnot(None))
+    )
+    users = result.scalars().all()
+
+    mismatches = []
+    fixed = []
+
+    for user in users:
+        try:
+            sub = await asyncio.to_thread(stripe.Subscription.retrieve, user.stripe_subscription_id)
+        except Exception as e:
+            logger.warning("audit: could not fetch sub %s for user %s: %s", user.stripe_subscription_id, user.id, e)
+            continue
+
+        correct_tier = _resolve_tier(sub, fallback=None)
+        if correct_tier is None:
+            logger.warning(
+                "audit: cannot determine tier for user=%s sub=%s price_ids=%s meta=%s",
+                user.id, user.stripe_subscription_id,
+                [i.get("price", {}).get("id") for i in sub.get("items", {}).get("data", [])],
+                sub.get("metadata"),
+            )
+            continue
+
+        if user.subscription_tier != correct_tier:
+            mismatches.append({
+                "user_id": user.id,
+                "email": user.email,
+                "db_tier": user.subscription_tier,
+                "correct_tier": correct_tier,
+                "sub_id": user.stripe_subscription_id,
+            })
+            user.subscription_tier = correct_tier
+            fixed.append(user.id)
+
+    if fixed:
+        await db.commit()
+        logger.info("audit-tiers: fixed %d accounts: %s", len(fixed), fixed)
+
+    return {"mismatches_found": len(mismatches), "fixed": fixed, "details": mismatches}
