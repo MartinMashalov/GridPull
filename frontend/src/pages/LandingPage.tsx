@@ -6,8 +6,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileSpreadsheet, ArrowRight,
   Building2, GitBranch, Lock, Mail,
-  Receipt, BarChart3, FileText, ShoppingCart, TrendingUp, ClipboardList,
-  CheckCircle2, ChevronRight, ChevronDown,
+  Receipt, FileText,
+  CheckCircle2, ChevronDown,
   Upload, MousePointerClick, Download, Eye,
   ShieldCheck, Trash2, ServerCrash, KeyRound,
   HelpCircle, Star, DollarSign, Brain, Cpu, Target, FlaskConical,
@@ -18,7 +18,6 @@ import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
 
 const msalInstance = new PublicClientApplication({
   auth: {
@@ -133,60 +132,6 @@ const PRICING_TIERS = [
   },
 ]
 
-/* ─── Live demo samples ────────────────────────────────────────────────────── */
-const DEMO_SAMPLES = [
-  {
-    id: 'scanned',
-    label: 'Scanned Receipts (OCR)',
-    desc: 'Low-quality scanned receipts and invoices — handwritten notes, poor scan quality, foreign languages.',
-    tag: 'Scanned / OCR',
-    files: [
-      '/samples/sample_scanned_receipt.pdf',
-      '/samples/sample_scanned_invoice.pdf',
-      '/samples/sample_scanned_receipt_2.pdf',
-    ],
-    fields: ['Vendor', 'Company #', 'Doc #', 'Date', 'Cashier', 'Address', 'Subtotal', 'Tax', 'Total', 'Currency'],
-    rows: [
-      ['Morganfield\'s', '1174703-K', '000039121', '2018-03-23', 'Mizan Genting', 'Lot 50, Floor T2, Sky Avenue Genting Highlands', 'RM 559.53', 'RM 33.57', 'RM 593.10', 'MYR'],
-      ['Gin Kee Trading', '001188498-D', 'CS00011955', '2017-12-02', 'CASHIER4', '15, Jalan Desa Bakti, Taman Desa', 'RM 7.00', 'RM 0.42', 'RM 7.42', 'MYR'],
-      ['Book Talk Sdn Bhd', '659437-H', 'TD01167104', '2018-12-25', 'Pn. Yati', 'No. 12, Jalan SS 2/64, Petaling Jaya', 'RM 9.00', 'RM 0.00', 'RM 9.00', 'MYR'],
-    ],
-  },
-  {
-    id: 'invoices',
-    label: 'Invoice Batch (5 invoices)',
-    desc: 'Mixed digital invoices — different vendors, formats, and line items extracted into one spreadsheet.',
-    tag: 'Digital PDFs',
-    files: [
-      '/samples/sample_invoice.pdf',
-      '/samples/sample_invoice_2.pdf',
-      '/samples/sample_invoice_3.pdf',
-    ],
-    fields: ['Invoice #', 'Date', 'Bill To', 'Ship To', 'Region', 'Items', 'Subtotal', 'Discount', 'Shipping', 'Total'],
-    rows: [
-      ['36258', 'Mar 06 2012', 'Aaron Bergman', '6 Elm St, New York', 'East', '3', '$45.62', '$9.74', '$14.22', '$50.10'],
-      ['36651', 'May 12 2012', 'Aaron Hawkins', '820 Oak Ave, Seattle', 'West', '7', '$1,512.43', '$335.35', '$176.00', '$1,353.08'],
-      ['15978', 'Mar 31 2012', 'Aaron Smayling', '44 Pine Rd, Houston', 'Central', '5', '$2,890.15', '$1,191.80', '$212.00', '$1,910.35'],
-    ],
-  },
-  {
-    id: 'annual-report',
-    label: 'Berkshire Hathaway Annual Report',
-    desc: '100+ page SEC annual report — complex multi-page financial tables, dense layouts, footnotes.',
-    tag: '100+ pages',
-    files: [],
-    fields: ['Metric', '2023', '2022', '2021', '2020', '2019'],
-    rows: [
-      ['Total Revenues', '$364,482M', '$302,089M', '$276,094M', '$245,510M', '$254,616M'],
-      ['Net Earnings', '$96,223M', '$(22,819)M', '$89,795M', '$42,521M', '$81,417M'],
-      ['Operating Expenses', '$268,259M', '$280,908M', '$243,299M', '$232,989M', '$231,199M'],
-      ['Total Assets', '$1,069,846M', '$948,452M', '$958,784M', '$873,729M', '$817,729M'],
-      ['Shareholders\' Equity', '$561,199M', '$472,381M', '$500,140M', '$443,164M', '$424,791M'],
-      ['Book Value / Share', '$393,194', '$328,078', '$343,890', '$287,237', '$261,417'],
-    ],
-  },
-]
-
 /* ─── How it works steps ────────────────────────────────────────────────────── */
 const HOW_IT_WORKS = [
   {
@@ -206,52 +151,6 @@ const HOW_IT_WORKS = [
     step: '3',
     title: 'Get Your Spreadsheet',
     desc: 'In seconds, your data is extracted and delivered as a clean Excel or CSV file. One row per document, one column per field. Download it instantly.',
-  },
-]
-
-/* ─── Use cases ──────────────────────────────────────────────────────────────── */
-const USE_CASES = [
-  {
-    icon: Receipt,
-    label: 'Invoices & Bills',
-    color: 'bg-blue-500/10 text-blue-600',
-    example: 'Stop manually copying invoice details into spreadsheets. Upload a stack of invoices and extract vendor names, invoice numbers, line items, totals, tax amounts, and due dates — all at once, from any format.',
-    fields: ['Invoice Number', 'Vendor Name', 'Total Amount', 'Tax Amount', 'Due Date', 'Line Items'],
-  },
-  {
-    icon: BarChart3,
-    label: 'Financial Reports',
-    color: 'bg-violet-500/10 text-violet-600',
-    example: 'Pull key financial metrics from annual reports, 10-Ks, and quarterly filings. Compare revenue, net income, total assets, and equity across multiple companies — without reading hundreds of pages.',
-    fields: ['Total Revenue', 'Net Income', 'Total Assets', 'Shareholders Equity', 'Report Period'],
-  },
-  {
-    icon: FileText,
-    label: 'Insurance EOBs',
-    color: 'bg-emerald-500/10 text-emerald-600',
-    example: 'Turn Explanation of Benefits forms into structured data. Extract patient info, service dates, billed amounts, plan payments, and patient responsibility from any insurance provider format.',
-    fields: ['Patient Name', 'Service Date', 'Billed Amount', 'Plan Paid', 'Patient Responsibility'],
-  },
-  {
-    icon: ShoppingCart,
-    label: 'Purchase Orders',
-    color: 'bg-orange-500/10 text-orange-600',
-    example: 'Digitize purchase orders from any supplier. Capture PO numbers, supplier details, item descriptions, quantities, unit prices, and order totals into one organized spreadsheet.',
-    fields: ['PO Number', 'Supplier Name', 'Item Description', 'Quantity', 'Unit Price', 'Order Total'],
-  },
-  {
-    icon: TrendingUp,
-    label: 'Annual Reports',
-    color: 'bg-pink-500/10 text-pink-600',
-    example: 'Benchmark across companies by extracting consistent metrics from annual reports. Build comparison spreadsheets with operating income, equity, headcount, and more — from any report layout.',
-    fields: ['Company Name', 'Report Year', 'Operating Income', 'Total Equity', 'Employees'],
-  },
-  {
-    icon: ClipboardList,
-    label: 'Contracts & Legal',
-    color: 'bg-teal-500/10 text-teal-600',
-    example: 'Extract key terms from contracts, agreements, and legal forms. Pull party names, effective dates, contract values, renewal terms, and expiry dates into a single spreadsheet for easy review.',
-    fields: ['Party Names', 'Effective Date', 'Contract Value', 'Renewal Terms', 'Expiry Date'],
   },
 ]
 
@@ -366,10 +265,7 @@ export default function LandingPage() {
   const { setUser, user } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [activeCase, setActiveCase] = useState(0)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
-  const [activeSample, setActiveSample] = useState(0)
-  const [activePdfFile, setActivePdfFile] = useState(0)
   const [showProviderDialog, setShowProviderDialog] = useState(false)
 
   useEffect(() => {
@@ -460,8 +356,6 @@ export default function LandingPage() {
     return null
   }
 
-  const active = USE_CASES[activeCase]
-
   const GoogleIcon = () => (
     <svg className="w-4 h-4" viewBox="0 0 24 24">
       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -504,20 +398,17 @@ export default function LandingPage() {
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <FileSpreadsheet size={14} className="text-white" />
             </div>
-            <span className="font-semibold text-sm tracking-tight">PDF to Excel</span>
+            <span className="font-semibold text-sm tracking-tight">GridPull</span>
           </div>
           <div className="flex items-center gap-4">
             <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              From Document to Data
-            </a>
-            <a href="#pipelines" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Automation
-            </a>
-            <a href="#demo" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Demo
+              How It Works
             </a>
             <a href="#use-cases" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Use Cases
+            </a>
+            <a href="#pipelines" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
+              Automation
             </a>
             <a href="#pricing" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Pricing
@@ -728,137 +619,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Try Sample PDFs (Live Demo) ────────────────────────────────── */}
-      <section id="demo" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
-        <div className="max-w-6xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            See it in action
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Real documents. Real results.
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            These aren't mock-ups — this is actual output from our extraction engine.
-            Scanned receipts, digital invoices, 100-page SEC filings. Same tool, same accuracy.
-          </p>
-
-          {/* Sample selector tabs */}
-          <div className="flex flex-wrap justify-center gap-2 mb-8">
-            {DEMO_SAMPLES.map((s, i) => (
-              <button
-                key={s.id}
-                onClick={() => { setActiveSample(i); setActivePdfFile(0); trackEvent('demo_sample_select', { sample: s.id }) }}
-                className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
-                  activeSample === i
-                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                    : 'bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                }`}
-              >
-                {s.label}
-                <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${
-                  activeSample === i ? 'bg-white/20' : 'bg-secondary'
-                }`}>
-                  {s.tag}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* Demo card */}
-          {(() => {
-            const sample = DEMO_SAMPLES[activeSample]
-            return (
-              <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-lg">
-                {/* Header */}
-                <div className="bg-muted/30 border-b border-border/50 px-5 py-4">
-                  <h3 className="font-semibold text-sm">{sample.label}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
-                </div>
-
-                {/* Stacked: Source PDF on top, Extracted Data below */}
-                <div className="flex flex-col">
-                  {/* Source PDF panel */}
-                  {sample.files.length > 0 && (
-                    <div className="border-b border-border/50 flex flex-col">
-                      <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
-                        <FileText size={13} className="text-muted-foreground" />
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Source PDF</span>
-                        {sample.files.length > 1 && (
-                          <div className="flex items-center gap-1 ml-auto">
-                            {sample.files.map((_file, fi) => (
-                              <button
-                                key={fi}
-                                onClick={() => setActivePdfFile(fi)}
-                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
-                                  activePdfFile === fi
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-secondary text-muted-foreground hover:text-foreground'
-                                }`}
-                              >
-                                Doc {fi + 1}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="h-[300px] sm:h-[400px]">
-                        <iframe
-                          key={`${sample.id}-${activePdfFile}`}
-                          src={sample.files[activePdfFile]}
-                          title={`Source PDF ${activePdfFile + 1}: ${sample.label}`}
-                          className="w-full h-full bg-white"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Extracted data panel */}
-                  <div className="flex flex-col">
-                    <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
-                      <ArrowRight size={13} className="text-emerald-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Extracted Data</span>
-                      <CheckCircle2 size={12} className="text-emerald-500 ml-auto" />
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-[11px] min-w-[600px]">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/10">
-                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground w-6">#</th>
-                            {sample.fields.map((f) => (
-                              <th key={f} className="px-2 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sample.rows.map((row, ri) => (
-                            <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
-                              <td className="px-2 py-2 text-muted-foreground font-mono">{ri + 1}</td>
-                              {row.map((cell, ci) => (
-                                <td key={ci} className="px-2 py-2 whitespace-nowrap" title={cell}>{cell}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-5 py-3 bg-muted/10 border-t border-border/50 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    <CheckCircle2 size={12} className="text-emerald-500 inline mr-1" />
-                    Extracted in &lt;10 seconds · Fields chosen by you · Download as .xlsx or .csv
-                  </p>
-                  <SignInButton size="sm" label="Try free with your own PDFs" className="shadow-none" />
-                </div>
-              </div>
-            )
-          })()}
-        </div>
-      </section>
-
-      {/* ── Use Cases ─────────────────────────────────────────────────────── */}
+      {/* ── Use Case Categories ─────────────────────────────────────────── */}
       <section id="use-cases" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
         <div className="max-w-5xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
@@ -868,70 +629,79 @@ export default function LandingPage() {
             Built for the documents you actually work with
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            Whether you're processing 5 invoices or 500 annual reports, the tool adapts to your document type
-            and extracts exactly the fields you need.
+            Whether you work in insurance, accounting, or any industry with document-heavy workflows — GridPull extracts exactly the fields you need.
           </p>
 
-          <div className="grid lg:grid-cols-2 gap-6 items-start">
-            {/* Left: case selector */}
-            <div className="space-y-2">
-              {USE_CASES.map((c, i) => (
-                <button
-                  key={c.label}
-                  onClick={() => { setActiveCase(i); trackEvent('use_case_select', { case: c.label }) }}
-                  className={`w-full text-left rounded-xl p-4 border transition-all flex items-center gap-3 ${
-                    activeCase === i
-                      ? 'border-primary/40 bg-primary/5 shadow-sm'
-                      : 'border-border/50 hover:border-border hover:bg-card/50'
-                  }`}
-                >
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c.color}`}>
-                    <c.icon size={17} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm">{c.label}</div>
-                    <div className="text-xs text-muted-foreground line-clamp-2">{c.example}</div>
-                  </div>
-                  {activeCase === i && <ChevronRight size={14} className="text-primary flex-shrink-0" />}
-                </button>
-              ))}
-            </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {/* Insurance Card */}
+            <a href="/use-cases/insurance" onClick={() => trackEvent('use_case_category_click', { category: 'insurance' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
+              <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center mb-4">
+                <ShieldCheck size={20} className="text-blue-600" />
+              </div>
+              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Insurance</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
+                Commercial submissions, carrier intake forms, schedules, supplemental applications, loss runs, and EOBs — built for agencies, brokerages, and MGAs.
+              </p>
+              <ul className="space-y-1.5 mb-4">
+                {['Commercial submissions', 'Carrier intake forms', 'Supplemental applications', 'Schedules & SOVs', 'Loss runs & EOBs'].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
+                View insurance use cases <ArrowRight size={12} />
+              </span>
+            </a>
 
-            {/* Right: preview card */}
-            <div className="sticky top-20">
-              <Card className="overflow-hidden border-border/60 shadow-lg">
-                <div className="bg-muted/30 border-b border-border/50 px-5 py-3 flex items-center gap-2">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${active.color}`}>
-                    <active.icon size={14} />
-                  </div>
-                  <span className="text-sm font-semibold">{active.label}</span>
-                  <Badge variant="outline" className="ml-auto text-[10px] px-2 py-0">Excel output preview</Badge>
-                </div>
-                <CardContent className="p-5">
-                  <p className="text-sm text-muted-foreground mb-5 leading-relaxed">{active.example}</p>
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Fields you can extract</p>
-                    {active.fields.map((f) => (
-                      <div key={f} className="flex items-center gap-2.5 text-sm">
-                        <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
-                        <span>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-5 pt-4 border-t border-border/50">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">+ any custom fields you define</span>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-primary" onClick={() => { trackEvent('cta_click', { label: 'try_it_use_case', location: 'use_cases' }); openSignIn() }}>
-                        Try it <ArrowRight size={11} />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            {/* Accounting & Finance Card */}
+            <a href="/use-cases/accounting-finance" onClick={() => trackEvent('use_case_category_click', { category: 'accounting' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
+              <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4">
+                <Receipt size={20} className="text-emerald-600" />
+              </div>
+              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Accounting & Finance</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
+                Invoices, bank statements, tax documents, expense reports, financial statements, and audit workpapers — built for CPAs, AP/AR teams, and finance professionals.
+              </p>
+              <ul className="space-y-1.5 mb-4">
+                {['AP invoice processing', 'Bank statements to Excel', 'Tax documents & 1099s', 'Expense reports & receipts', 'Financial reports & SEC filings'].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
+                View accounting use cases <ArrowRight size={12} />
+              </span>
+            </a>
+
+            {/* Other Use Cases Card */}
+            <a href="/use-cases/other" onClick={() => trackEvent('use_case_category_click', { category: 'other' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
+              <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center mb-4">
+                <FileText size={20} className="text-violet-600" />
+              </div>
+              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Other Industries</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
+                Purchase orders, contracts, medical forms, real estate documents, government filings — if it's a PDF, GridPull can extract the data you need.
+              </p>
+              <ul className="space-y-1.5 mb-4">
+                {['Purchase orders', 'Contracts & legal docs', 'Medical & healthcare forms', 'Real estate documents', 'Government & compliance'].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
+                View more use cases <ArrowRight size={12} />
+              </span>
+            </a>
           </div>
         </div>
       </section>
+
 
       {/* ── Why This Tool / Purpose-Built AI ─────────────────────────────── */}
       <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
@@ -1191,12 +961,11 @@ export default function LandingPage() {
             <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
               <FileSpreadsheet size={11} className="text-white" />
             </div>
-            PDF to Excel
+            GridPull
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
             <a href="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</a>
-            <a href="/resources" className="hover:text-foreground transition-colors">Resources</a>
             <a href="#security" className="hover:text-foreground transition-colors">Security</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>

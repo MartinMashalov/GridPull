@@ -11,7 +11,7 @@ export default function PrivacyPage() {
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <FileSpreadsheet size={14} className="text-white" />
             </div>
-            <span className="font-semibold text-sm tracking-tight">PDF to Excel</span>
+            <span className="font-semibold text-sm tracking-tight">GridPull</span>
           </Link>
         </div>
       </header>
@@ -273,7 +273,7 @@ export default function PrivacyPage() {
             <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
               <FileSpreadsheet size={11} className="text-white" />
             </div>
-            PDF to Excel
+            GridPull
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
