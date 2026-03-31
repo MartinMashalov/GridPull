@@ -42,6 +42,7 @@ async def extract_single_record(
     fields: List[Dict[str, str]],
     usage: LLMUsage,
     instructions: str = "",
+    enable_retry: bool = True,
 ) -> List[Dict[str, Any]]:
     field_names = [f["name"] for f in fields]
     ctx = _doc_context_block(doc)
@@ -87,7 +88,7 @@ async def extract_single_record(
 
     user_prompt = "\n".join(parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
     rows = await _llm_extract(_SINGLE_SYSTEM, user_prompt, field_names, doc.filename, usage, _TEXT_MODEL)
-    if len(rows) == 1:
+    if enable_retry and len(rows) == 1:
         valid, reason = _single_record_valid(rows[0], field_names)
         if not valid:
             logger.info(
@@ -101,7 +102,7 @@ async def extract_single_record(
                 valid2, _ = _single_record_valid(rows[0], field_names)
                 if not valid2:
                     logger.warning("Single-record retry still invalid for %s", doc.filename)
-    if len(rows) == 1:
+    if enable_retry and len(rows) == 1:
         gate_ok, fill_rate, missing_fields = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
         if not gate_ok and len(missing_fields) >= _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS:
             logger.info(

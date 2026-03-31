@@ -31,7 +31,21 @@ from .llm import _cleanup_single_row_with_nano, _litellm_extract, _review_multi_
 logger = logging.getLogger(__name__)
 
 
+def _ocr_page_text(page: Any) -> str:
+    parts = [f"=== Page {page.page_num} ==="]
+    if getattr(page, "header", None):
+        parts.append(f"--- Header ---\n{page.header}")
+    if getattr(page, "markdown", None):
+        parts.append(page.markdown)
+    if getattr(page, "tables_markdown", None):
+        parts.append(f"--- Tables ---\n{page.tables_markdown}")
+    if getattr(page, "footer", None):
+        parts.append(f"--- Footer ---\n{page.footer}")
+    return "\n".join(parts)
+
+
 async def _extract_scanned_chunked(
+    ocr_pages: List[Any],
     ocr_text: str,
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
@@ -53,14 +67,7 @@ async def _extract_scanned_chunked(
                 raw_tables, doc.page_count, usage, f"{doc.filename} OCR SOV tables",
             )
 
-    parts = re.split(r"(=== Page \d+ ===)", ocr_text)
-    pages: List[str] = []
-    i = 1
-    while i < len(parts) - 1:
-        pages.append(parts[i] + "\n" + parts[i + 1])
-        i += 2
-    if not pages:
-        pages = [ocr_text]
+    pages = [_ocr_page_text(page) for page in ocr_pages] or [ocr_text]
 
     cs = settings.extraction_chunk_size
     chunks = [pages[i : i + cs] for i in range(0, len(pages), cs)]
@@ -106,11 +113,65 @@ async def _extract_scanned_chunked(
     return await _review_multi_rows(all_rows, field_names, doc.filename, usage, ocr_text, instructions)
 
 
+async def _extract_scanned_per_page(
+    ocr_pages: List[Any],
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    usage: LLMUsage,
+    instructions: str = "",
+) -> List[Dict[str, Any]]:
+    field_names = [f["name"] for f in fields]
+    fblock = _fields_block(fields)
+    semaphore = asyncio.Semaphore(4)
+
+    async def _extract_page(page: Any) -> List[Dict[str, Any]]:
+        async with semaphore:
+            prompt_parts = [
+                "--- Document Info ---\n"
+                f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
+                f"Extracting from: page {page.page_num}",
+                f"\n--- Fields to Extract ---\n{fblock}",
+            ]
+            if instructions.strip():
+                prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+            prompt_parts.append(f"\n--- OCR Page ---\n{_ocr_page_text(page)}")
+            prompt_parts.append(
+                "\n--- Extraction Mode ---\n"
+                "This page is one of many independent records in a compiled document. "
+                'Extract the single record on this page. If the page has no relevant data, return {"records": []}.'
+            )
+            prompt = "\n".join(prompt_parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
+            return await _litellm_extract(_SCAN_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage)
+
+    page_results = await asyncio.gather(*[_extract_page(page) for page in ocr_pages])
+    all_rows: List[Dict[str, Any]] = []
+    empty_markers = {"", "n/a", "na", "none", "null", "-", "—"}
+    for rows in page_results:
+        for row in rows:
+            filled = sum(
+                1
+                for fn in field_names
+                if row.get(fn) is not None and str(row[fn]).strip().lower() not in empty_markers
+            )
+            if filled > 0:
+                all_rows.append(row)
+
+    logger.info(
+        "SCAN per-page extraction for %s: %d OCR pages -> %d non-empty records",
+        doc.filename,
+        len(ocr_pages),
+        len(all_rows),
+    )
+    return all_rows if all_rows else _empty([doc.filename], field_names)
+
+
 async def extract_from_scanned_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
     usage: LLMUsage,
     instructions: str = "",
+    forced_mode: str | None = None,
+    enable_retry: bool = True,
 ) -> List[Dict[str, Any]]:
     from app.services.ocr_service import run_mistral_ocr
 
@@ -127,14 +188,15 @@ async def extract_from_scanned_document(
     logger.info("SCAN pipeline - Mistral OCR starting: %s (%d pages)", doc.filename, doc.page_count)
 
     try:
-        ocr_text, ocr_page_count, ocr_cost_usd = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
-        usage.add_ocr_cost(ocr_cost_usd)
+        ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+        ocr_text = ocr_result.text
+        usage.add_ocr_cost(ocr_result.cost_usd)
         logger.info(
             "SCAN pipeline - OCR complete: %s - %d pages, %d chars, $%.4f",
             doc.filename,
-            ocr_page_count,
+            ocr_result.page_count,
             len(ocr_text),
-            ocr_cost_usd,
+            ocr_result.cost_usd,
         )
     except Exception as exc:
         msg = f"Scanned OCR failed: {exc}"
@@ -148,51 +210,58 @@ async def extract_from_scanned_document(
 
     fblock = _fields_block(fields)
     extraction_mode = "single"
-    planner_prompt = (
-        "Decide whether this OCR document should produce ONE output object or MANY output objects "
-        "for the requested schema.\n\n"
-        "Reply with exactly one word:\n"
-        "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
-        "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
-        "Rules:\n"
-        "- Base the decision on the requested fields plus the OCR structure\n"
-        "- Repeated records may appear across rows, columns, repeated sections, or repeated line items\n"
-        "- Financial reports / annual reports / 10-K filings: when the requested fields include a "
-        "date, year, or period field alongside financial metrics, classify as multi — comparative "
-        "financial statements show the same metrics for multiple fiscal years.\n"
-        "- If unsure, reply single\n\n"
-        f"Filename: {doc.filename}\n"
-        f"Total pages: {doc.page_count}\n"
-        f"Requested fields:\n{fblock}\n\n"
-        + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR planner')}"
-    )
-    try:
-        planner_resp = await _litellm_extract(
-            _SCAN_SINGLE_SYSTEM,
-            planner_prompt + '\n\nReturn: {"records": [{"mode": "single"}]}',
-            ["mode"],
-            doc.filename,
-            usage,
+    if forced_mode in {"single", "multi", "per_page"}:
+        extraction_mode = forced_mode
+        logger.info("SCAN pipeline - forced %s extraction: %s", extraction_mode, doc.filename)
+    else:
+        planner_prompt = (
+            "Decide whether this OCR document should produce ONE output object or MANY output objects "
+            "for the requested schema.\n\n"
+            "Reply with exactly one word:\n"
+            "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
+            "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
+            "Rules:\n"
+            "- Base the decision on the requested fields plus the OCR structure\n"
+            "- Repeated records may appear across rows, columns, repeated sections, or repeated line items\n"
+            "- Financial reports / annual reports / 10-K filings: when the requested fields include a "
+            "date, year, or period field alongside financial metrics, classify as multi — comparative "
+            "financial statements show the same metrics for multiple fiscal years.\n"
+            "- If unsure, reply single\n\n"
+            f"Filename: {doc.filename}\n"
+            f"Total pages: {doc.page_count}\n"
+            f"Requested fields:\n{fblock}\n\n"
+            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR planner')}"
         )
-        planner_mode = (planner_resp[0].get("mode", "") if planner_resp else "").strip().lower()
-        extraction_mode = "multi" if planner_mode == "multi" else "single"
-        logger.info("SCAN pipeline - planned %s extraction: %s", extraction_mode, doc.filename)
-    except Exception as exc:
-        markdown_table_lines = len(re.findall(r"^\|.+\|", ocr_text, re.M))
-        extraction_mode = "multi" if markdown_table_lines >= 6 else "single"
-        logger.warning("SCAN planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
+        try:
+            planner_resp = await _litellm_extract(
+                _SCAN_SINGLE_SYSTEM,
+                planner_prompt + '\n\nReturn: {"records": [{"mode": "single"}]}',
+                ["mode"],
+                doc.filename,
+                usage,
+            )
+            planner_mode = (planner_resp[0].get("mode", "") if planner_resp else "").strip().lower()
+            extraction_mode = "multi" if planner_mode == "multi" else "single"
+            logger.info("SCAN pipeline - planned %s extraction: %s", extraction_mode, doc.filename)
+        except Exception as exc:
+            markdown_table_lines = len(re.findall(r"^\|.+\|", ocr_text, re.M))
+            extraction_mode = "multi" if markdown_table_lines >= 6 else "single"
+            logger.warning("SCAN planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
 
-    if extraction_mode == "single" and document_has_wide_data_grid(doc):
+    if forced_mode is None and extraction_mode == "single" and document_has_wide_data_grid(doc):
         logger.info(
             "SCAN pipeline - overriding single -> multi for %s (wide parsed table grid)",
             doc.filename,
         )
         extraction_mode = "multi"
 
+    if extraction_mode == "per_page":
+        return await _extract_scanned_per_page(ocr_result.pages, doc, fields, usage, instructions)
+
     if extraction_mode == "multi" and doc.page_count > settings.extraction_chunk_threshold_pages:
         logger.info("SCAN pipeline - chunked multi-record: %s", doc.filename)
-        return await _extract_scanned_chunked(ocr_text, doc, fields, field_names, fblock, usage, instructions)
+        return await _extract_scanned_chunked(ocr_result.pages, ocr_text, doc, fields, field_names, fblock, usage, instructions)
 
     ctx = (
         f"Filename: {doc.filename}\n"
@@ -221,7 +290,7 @@ async def extract_from_scanned_document(
 
     rows = await _litellm_extract(system, user_prompt, field_names, doc.filename, usage)
     if extraction_mode != "multi":
-        if len(rows) == 1:
+        if enable_retry and len(rows) == 1:
             valid, reason = _single_record_valid(rows[0], field_names)
             if not valid:
                 logger.info(
@@ -235,7 +304,7 @@ async def extract_from_scanned_document(
                     valid2, _ = _single_record_valid(rows[0], field_names)
                     if not valid2:
                         logger.warning("SCAN single-record retry still invalid for %s", doc.filename)
-        if len(rows) == 1:
+        if enable_retry and len(rows) == 1:
             gate_ok, fill_rate, missing_fields = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
             if not gate_ok and len(missing_fields) >= _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS:
                 logger.info(

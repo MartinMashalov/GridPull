@@ -161,7 +161,13 @@ async def process_job(
 
                             doc_usage = LLMUsage()
                             rows = await asyncio.wait_for(
-                                extract_from_document(parsed_doc, fields, doc_usage, instructions),
+                                extract_from_document(
+                                    parsed_doc,
+                                    fields,
+                                    doc_usage,
+                                    instructions,
+                                    batch_document_count=total_docs,
+                                ),
                                 timeout=settings.extraction_timeout_seconds,
                             )
                             job_usage.litellm_cost_usd += doc_usage.litellm_cost_usd

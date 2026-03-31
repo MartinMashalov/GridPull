@@ -9,16 +9,18 @@ When a PDF exceeds either limit this service automatically splits it into
 chunks using PyMuPDF, OCRs each chunk concurrently, and stitches the results
 back together with correctly-offset page numbers.
 
-Returns: (ocr_text: str, page_count: int, ocr_cost_usd: float)
-  ocr_text    — full document text with "=== Page N ===" markers and markdown tables
-  page_count  — number of pages actually processed (used for billing)
-  ocr_cost_usd — OCR cost reported by LiteLLM
+Returns OCRResult:
+  text       — full document text with page markers plus extracted headers/footers/tables
+  page_count — number of pages actually processed (used for billing)
+  cost_usd   — OCR cost reported by LiteLLM
+  pages      — structured per-page OCR output
 """
 
 import asyncio
 import logging
 import os
 import tempfile
+from dataclasses import dataclass
 
 import fitz  # PyMuPDF — already a project dependency
 from mistralai import DocumentURLChunk, File, Mistral
@@ -29,6 +31,23 @@ logger = logging.getLogger(__name__)
 _MAX_PAGES_PER_CALL = 950     # hard limit: 1,000   — we stay at 950
 _MAX_FILE_MB        = 45.0    # hard limit: 50 MB   — we stay at 45 MB
 _MISTRAL_OCR_PAGE_PRICE_USD = 0.001
+
+
+@dataclass
+class OCRPage:
+    page_num: int
+    markdown: str
+    header: str | None
+    footer: str | None
+    tables_markdown: str
+
+
+@dataclass
+class OCRResult:
+    text: str
+    page_count: int
+    cost_usd: float
+    pages: list[OCRPage]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,10 +88,47 @@ def _extract_chunk_to_tempfile(file_path: str, start_page: int, end_page: int) -
     return tmp_path
 
 
-async def _ocr_file(file_path: str, api_key: str) -> tuple[list[str], float]:
+def _table_to_markdown(table: object) -> str:
+    if isinstance(table, str):
+        return table
+    if isinstance(table, dict):
+        return str(table.get("markdown") or table.get("content") or "").strip()
+    return str(getattr(table, "markdown", "") or getattr(table, "content", "") or "").strip()
+
+
+def _offset_pages(pages: list[OCRPage], page_offset: int) -> list[OCRPage]:
+    return [
+        OCRPage(
+            page_num=page_offset + idx + 1,
+            markdown=page.markdown,
+            header=page.header,
+            footer=page.footer,
+            tables_markdown=page.tables_markdown,
+        )
+        for idx, page in enumerate(pages)
+    ]
+
+
+def _assemble(pages: list[OCRPage]) -> str:
+    parts: list[str] = []
+    for page in pages:
+        page_parts = [f"=== Page {page.page_num} ==="]
+        if page.header:
+            page_parts.append(f"--- Header ---\n{page.header}")
+        if page.markdown:
+            page_parts.append(page.markdown)
+        if page.tables_markdown:
+            page_parts.append(f"--- Tables ---\n{page.tables_markdown}")
+        if page.footer:
+            page_parts.append(f"--- Footer ---\n{page.footer}")
+        parts.append("\n".join(page_parts))
+    return "\n\n".join(parts)
+
+
+async def _ocr_file(file_path: str, api_key: str) -> tuple[list[OCRPage], float]:
     """
     Mistral SDK OCR call on a single PDF or image path.
-    Returns per-page markdown plus the estimated OCR cost for this call.
+    Returns per-page OCR structure plus the estimated OCR cost for this call.
     """
     client = Mistral(api_key=api_key)
     ext = os.path.splitext(file_path.lower())[1]
@@ -106,6 +162,9 @@ async def _ocr_file(file_path: str, api_key: str) -> tuple[list[str], float]:
                 document_url=signed.url,
                 document_name=os.path.basename(file_path),
             ),
+            table_format="markdown",
+            extract_header=True,
+            extract_footer=True,
         )
     finally:
         try:
@@ -113,25 +172,40 @@ async def _ocr_file(file_path: str, api_key: str) -> tuple[list[str], float]:
         except Exception as exc:
             logger.warning("Mistral OCR cleanup failed for %s: %s", file_path, exc)
 
-    pages = []
-    for page in response.pages:
-        md = getattr(page, "markdown", getattr(page, "text", ""))
-        pages.append(md)
+    pages: list[OCRPage] = []
+    for idx, page in enumerate(response.pages):
+        markdown = str(getattr(page, "markdown", getattr(page, "text", "")) or "")
+        header = getattr(page, "header", None)
+        footer = getattr(page, "footer", None)
+        raw_tables = getattr(page, "tables", None) or []
+        tables_markdown = "\n\n".join(
+            table_md for table_md in (_table_to_markdown(table) for table in raw_tables) if table_md
+        )
+        pages.append(
+            OCRPage(
+                page_num=idx + 1,
+                markdown=markdown,
+                header=str(header).strip() if header else None,
+                footer=str(footer).strip() if footer else None,
+                tables_markdown=tables_markdown,
+            )
+        )
     ocr_cost_usd = len(pages) * _MISTRAL_OCR_PAGE_PRICE_USD
     return pages, ocr_cost_usd
 
 
 # ── Public async API ──────────────────────────────────────────────────────────
 
-async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int, float]:
+async def run_mistral_ocr(file_path: str, api_key: str) -> OCRResult:
     """
     Run Mistral OCR on a PDF, automatically splitting if the file exceeds the
     1,000-page or 50 MB limits.
 
-    Returns (ocr_text, page_count, ocr_cost_usd):
-      ocr_text   — full text with "=== Page N ===" markers (1-indexed, absolute)
+    Returns OCRResult:
+      text      — full text with page markers, plus extracted headers/footers/tables
       page_count — total number of pages processed (for billing)
-      ocr_cost_usd — OCR cost reported by LiteLLM
+      cost_usd   — OCR cost
+      pages      — structured per-page OCR output
     """
     src        = fitz.open(file_path)
     page_count = len(src)
@@ -142,9 +216,13 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int, float
     if page_count <= chunk_size:
         # Happy path — single call, no splitting needed
         logger.debug("Mistral OCR: single call, %d pages", page_count)
-        pages_md, ocr_cost_usd = await _ocr_file(file_path, api_key)
-        ocr_text = _assemble(pages_md, page_offset=0)
-        return ocr_text, len(pages_md), ocr_cost_usd
+        pages, ocr_cost_usd = await _ocr_file(file_path, api_key)
+        return OCRResult(
+            text=_assemble(pages),
+            page_count=len(pages),
+            cost_usd=ocr_cost_usd,
+            pages=pages,
+        )
 
     # Need to split — build chunk ranges
     chunks = [
@@ -156,13 +234,13 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int, float
         page_count, len(chunks), chunk_size,
     )
 
-    async def _ocr_chunk(start: int, end: int) -> tuple[list[str], int, float]:
+    async def _ocr_chunk(start: int, end: int) -> tuple[list[OCRPage], int, float]:
         tmp_path = await asyncio.to_thread(
             _extract_chunk_to_tempfile, file_path, start, end
         )
         try:
-            pages_md, ocr_cost_usd = await _ocr_file(tmp_path, api_key)
-            return pages_md, start, ocr_cost_usd   # return pages + page offset for reassembly
+            pages, ocr_cost_usd = await _ocr_file(tmp_path, api_key)
+            return pages, start, ocr_cost_usd
         finally:
             try:
                 os.unlink(tmp_path)
@@ -172,24 +250,18 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> tuple[str, int, float
     results = await asyncio.gather(*[_ocr_chunk(s, e) for s, e in chunks])
 
     # Reassemble in order with correct absolute page numbers
-    all_parts: list[str] = []
+    all_pages: list[OCRPage] = []
     total_pages = 0
     total_cost_usd = 0.0
-    for pages_md, offset, ocr_cost_usd in results:
-        all_parts.append(_assemble(pages_md, page_offset=offset))
-        total_pages += len(pages_md)
+    for pages, offset, ocr_cost_usd in results:
+        adjusted_pages = _offset_pages(pages, offset)
+        all_pages.extend(adjusted_pages)
+        total_pages += len(adjusted_pages)
         total_cost_usd += ocr_cost_usd
 
-    return "\n\n".join(all_parts), total_pages, total_cost_usd
-
-
-def _assemble(pages_md: list[str], page_offset: int) -> str:
-    """
-    Join per-page markdown strings into a single text block with page markers.
-    page_offset is the 0-based index of the first page in the original document.
-    """
-    parts = []
-    for i, md in enumerate(pages_md):
-        page_num = page_offset + i + 1   # 1-indexed absolute page number
-        parts.append(f"=== Page {page_num} ===\n{md}")
-    return "\n\n".join(parts)
+    return OCRResult(
+        text=_assemble(all_pages),
+        page_count=total_pages,
+        cost_usd=total_cost_usd,
+        pages=all_pages,
+    )

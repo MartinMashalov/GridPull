@@ -26,34 +26,9 @@ from app.services.extraction.core import (
 
 logger = logging.getLogger(__name__)
 
-_PAGE_MARKER_RE = re.compile(r"^=== Page (\d+) ===\s*$")
-_TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
 _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9/&().,#:%-]*")
 _SECTION_SELECTOR_MAX_TOKENS = 1_200
 _SOV_EXTRACT_MAX_TOKENS = 12_000
-_HEADER_KEYWORDS = (
-    "statement of values",
-    "schedule of values",
-    "schedule",
-    "locations",
-    "location",
-    "premises",
-    "property",
-    "appraisal",
-    "building",
-    "values",
-    "valuation",
-    "occupancy",
-    "construction",
-    "protection",
-    "sprinkler",
-    "vehicle",
-    "auto",
-    "driver",
-    "employee",
-    "payroll",
-    "census",
-)
 
 
 @dataclass
@@ -65,123 +40,38 @@ class SOVSection:
     content: str
 
 
-def _clean_header(line: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"^#+\s*", "", line).strip(" -:\t")).strip()
-
-
-def _looks_like_header(line: str) -> bool:
-    stripped = line.strip()
-    if not stripped or _TABLE_LINE_RE.match(stripped):
-        return False
-    cleaned = _clean_header(stripped)
-    if not cleaned or len(cleaned) > 120:
-        return False
-    if cleaned.lower().startswith("page ") or cleaned in {"---", "___"}:
-        return False
-
-    words = _WORD_RE.findall(cleaned)
-    if not words or len(words) > 14:
-        return False
-
-    letters = [c for c in cleaned if c.isalpha()]
-    uppercase_ratio = (
-        sum(1 for c in letters if c.isupper()) / len(letters)
-        if letters
-        else 0.0
-    )
-    title_ratio = (
-        sum(1 for w in words if w[:1].isupper()) / len(words)
-        if words
-        else 0.0
-    )
-    blob = cleaned.lower()
-    has_keyword = any(keyword in blob for keyword in _HEADER_KEYWORDS)
-    return stripped.startswith("#") or has_keyword or uppercase_ratio >= 0.55 or title_ratio >= 0.8
-
-
 def _first_words(text: str, limit: int = 50) -> str:
     words = _WORD_RE.findall(text)
     return " ".join(words[:limit]).strip()
 
 
-def _split_ocr_pages(ocr_text: str) -> list[tuple[int, str]]:
-    pages: list[tuple[int, str]] = []
-    page_num: int | None = None
-    buf: list[str] = []
-
-    for raw_line in ocr_text.splitlines():
-        match = _PAGE_MARKER_RE.match(raw_line.strip())
-        if match:
-            if page_num is not None:
-                pages.append((page_num, "\n".join(buf).strip()))
-            page_num = int(match.group(1))
-            buf = []
-            continue
-        buf.append(raw_line)
-
-    if page_num is not None:
-        pages.append((page_num, "\n".join(buf).strip()))
-    elif ocr_text.strip():
-        pages.append((1, ocr_text.strip()))
-
-    return pages
-
-
-def _extract_sections(ocr_text: str) -> list[SOVSection]:
+def _build_sections_from_ocr_pages(ocr_pages: list[Any]) -> list[SOVSection]:
     sections: list[SOVSection] = []
-    next_index = 1
-
-    for page_num, page_text in _split_ocr_pages(ocr_text):
-        lines = [line.rstrip() for line in page_text.splitlines()]
-        header_indices = [idx for idx, line in enumerate(lines) if _looks_like_header(line)]
-
-        if not header_indices:
-            fallback_header = next(
-                (
-                    _clean_header(line)
-                    for line in lines
-                    if _clean_header(line) and not _TABLE_LINE_RE.match(line.strip())
-                ),
-                f"Page {page_num}",
+    for index, page in enumerate(ocr_pages, start=1):
+        header = str(getattr(page, "header", "") or "").strip()
+        body = str(getattr(page, "markdown", "") or "").strip()
+        tables_markdown = str(getattr(page, "tables_markdown", "") or "").strip()
+        footer = str(getattr(page, "footer", "") or "").strip()
+        content_parts = [f"=== Page {page.page_num} ==="]
+        if header:
+            content_parts.append(f"--- Header ---\n{header}")
+        if body:
+            content_parts.append(body)
+        if tables_markdown:
+            content_parts.append(f"--- Tables ---\n{tables_markdown}")
+        if footer:
+            content_parts.append(f"--- Footer ---\n{footer}")
+        preview = _first_words(" ".join(part for part in (header, body, tables_markdown, footer) if part))
+        sections.append(
+            SOVSection(
+                index=index,
+                page_num=page.page_num,
+                header=header,
+                preview=preview,
+                content="\n".join(content_parts).strip(),
             )
-            preview = _first_words(page_text)
-            if preview:
-                sections.append(
-                    SOVSection(
-                        index=next_index,
-                        page_num=page_num,
-                        header=fallback_header[:120],
-                        preview=preview,
-                        content=page_text.strip(),
-                    )
-                )
-                next_index += 1
-            continue
-
-        for pos, start_idx in enumerate(header_indices):
-            end_idx = header_indices[pos + 1] if pos + 1 < len(header_indices) else len(lines)
-            header = _clean_header(lines[start_idx]) or f"Page {page_num}"
-            body = "\n".join(lines[start_idx + 1 : end_idx]).strip()
-            preview = _first_words(body or lines[start_idx])
-            if not preview:
-                continue
-            sections.append(
-                SOVSection(
-                    index=next_index,
-                    page_num=page_num,
-                    header=header[:120],
-                    preview=preview,
-                    content=(body or lines[start_idx]).strip(),
-                )
-            )
-            next_index += 1
-
+        )
     return sections
-
-
-def _heuristic_keep(section: SOVSection) -> bool:
-    blob = f"{section.header} {section.preview}".lower()
-    return any(keyword in blob for keyword in _HEADER_KEYWORDS)
 
 
 def _parse_json_content(content: Any) -> dict[str, Any]:
@@ -249,19 +139,19 @@ async def _select_sections(
         for section in sections
     ]
     selector_prompt = (
-        "Pick only the sections worth keeping for insurance schedule extraction.\n\n"
-        "Keep sections that are likely to contain:\n"
+        "Pick only the OCR pages worth keeping for insurance schedule extraction.\n\n"
+        "Keep pages that are likely to contain:\n"
         "- statement of values / schedule of values / location or premises schedules\n"
         "- property schedules, appraisal summaries, site listings, building value tables\n"
         "- vehicle schedules, auto schedules, employee or payroll schedules when they appear as repeated rows\n"
         "- underwriting notes that can fill row-level gaps such as occupancy, construction, protection, sprinklers, valuation, year built\n\n"
-        "Drop sections like cover pages, table of contents, letters, signatures, policy wording, forms, endorsements, disclaimers, claims language, and generic narrative that does not help fill repeated schedule rows.\n\n"
-        "Prefer headers and previews containing words like schedule, location, premises, property, statement of values, appraisal, vehicle, employee, valuation, protection, construction, occupancy, building, contents, business income, TIV.\n\n"
+        "Drop pages like cover pages, table of contents, letters, signatures, policy wording, forms, endorsements, disclaimers, claims language, and generic narrative that does not help fill repeated schedule rows.\n\n"
+        "Use only the provided OCR headers from Mistral. Do not invent or assume extra headers.\n\n"
         f"Filename: {doc.filename}\n"
         f"Requested fields:\n{_fields_block(fields)}\n\n"
         + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + f"Candidate sections:\n{json.dumps(section_payload, ensure_ascii=True)}\n\n"
-        'Return exactly: {"keep_indices": [<section index>, ...]}'
+        + f"Candidate OCR pages:\n{json.dumps(section_payload, ensure_ascii=True)}\n\n"
+        'Return exactly: {"keep_indices": [<page index>, ...]}'
     )
 
     keep_indices: set[int] = set()
@@ -282,12 +172,10 @@ async def _select_sections(
 
     selected = [section for section in sections if section.index in keep_indices]
     if not selected:
-        selected = [section for section in sections if _heuristic_keep(section)]
-    if not selected:
         selected = sections
 
     logger.info(
-        "SOV selector kept %d/%d sections for %s",
+        "SOV selector kept %d/%d OCR pages for %s",
         len(selected),
         len(sections),
         doc.filename,
@@ -365,7 +253,7 @@ async def _extract_rows(
     prompt_parts = [
         f"--- Document Info ---\nFilename: {doc.filename}\nTotal pages: {doc.page_count}\nPipeline: Dedicated SOV extraction",
         f"\n--- Fields to Extract ---\n{_fields_block(fields)}",
-        f"\n--- Kept Sections ---\n{selected_headers}",
+        f"\n--- Kept OCR Pages ---\n{selected_headers}",
     ]
     if instructions.strip():
         prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
@@ -380,7 +268,7 @@ async def _extract_rows(
         "\n--- Extraction Rules ---\n"
         "Return one object per real repeated schedule row.\n"
         "Prefer master schedules and structured tables over narrative duplicates.\n"
-        "Merge detail from the kept sections into the correct row only when the location/entity match is clear.\n"
+        "Merge detail from the kept OCR pages into the correct row only when the location/entity match is clear.\n"
         "Never emit headers, subtotals, totals, or blank rows.\n"
         "Use null when a field is genuinely absent.\n"
         "Return spreadsheet-ready scalar values only.\n"
@@ -416,6 +304,8 @@ async def extract_sov_from_document(
     instructions: str = "",
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
+    filename_lower = doc.filename.lower()
+    skip_trimming = doc.page_count < 15 or filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
 
     if not settings.mistral_api_key or not doc.file_path:
         logger.warning(
@@ -425,21 +315,20 @@ async def extract_sov_from_document(
         fallback_text = doc.content_text or "\n\n".join(
             f"=== Page {page.page_num} ===\n{page.text}" for page in doc.pages
         )
-        sections = _extract_sections(fallback_text)
-        selected = sections or [
-            SOVSection(index=1, page_num=1, header="Document", preview=_first_words(fallback_text), content=fallback_text)
-        ]
-        kept_pages = {section.page_num for section in selected}
-        selected_tables = _selected_tables(doc, kept_pages)
-        trimmed_text = "\n\n".join(
-            f"=== Page {section.page_num} | {section.header} ===\n{section.content}".strip()
-            for section in selected
-        ).strip()
+        kept_pages = {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
+        selected_tables = doc.tables
+        trimmed_text = fallback_text
+        selected_headers = (
+            "- full document kept\n"
+            "- Mistral OCR headers unavailable, so no page trimming was attempted"
+        )
+
         tables_markdown = _selected_tables_markdown(doc, kept_pages)
-        table_hint = build_table_column_hint(selected_tables)
-        selected_headers = "\n".join(
-            f"- page {section.page_num}: {section.header} — {section.preview}"
-            for section in selected
+        trimmed_text = await _maybe_compress_with_bear(
+            trimmed_text,
+            doc.page_count,
+            usage,
+            f"{doc.filename} SOV trimmed text",
         )
         return await _extract_rows(
             doc,
@@ -447,38 +336,52 @@ async def extract_sov_from_document(
             trimmed_text,
             selected_headers,
             tables_markdown,
-            table_hint,
+            build_table_column_hint(selected_tables),
             usage,
             instructions,
         )
 
     try:
-        ocr_text, ocr_pages, ocr_cost_usd = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
-        usage.add_ocr_cost(ocr_cost_usd)
+        ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+        usage.add_ocr_cost(ocr_result.cost_usd)
         logger.info(
             "Dedicated SOV OCR complete for %s: %d pages, %d chars, $%.4f",
             doc.filename,
-            ocr_pages,
-            len(ocr_text),
-            ocr_cost_usd,
+            ocr_result.page_count,
+            len(ocr_result.text),
+            ocr_result.cost_usd,
         )
     except Exception as exc:
         msg = f"SOV OCR failed: {exc}"
         logger.error("Dedicated SOV OCR failed for %s: %s", doc.filename, exc)
         return _error([doc.filename], field_names, msg)
 
-    sections = _extract_sections(ocr_text)
-    selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
-    kept_pages = {section.page_num for section in selected_sections}
-    selected_tables = _selected_tables(doc, kept_pages)
+    all_ocr_pages = ocr_result.pages
+    all_page_nums = {page.page_num for page in all_ocr_pages} or {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
+    if skip_trimming:
+        kept_pages = all_page_nums
+        selected_tables = doc.tables
+        trimmed_text = ocr_result.text
+        selected_headers = (
+            "- full document kept\n"
+            f"- trimming skipped because page_count={doc.page_count}"
+            + (" or spreadsheet-like input was detected" if filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv")) else "")
+        )
+        logger.info("SOV trimming skipped for %s", doc.filename)
+    else:
+        sections = _build_sections_from_ocr_pages(all_ocr_pages)
+        selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
+        kept_pages = {section.page_num for section in selected_sections}
+        selected_tables = _selected_tables(doc, kept_pages)
+        trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
+        if not trimmed_text:
+            trimmed_text = ocr_result.text
+            kept_pages = all_page_nums
 
-    trimmed_text = "\n\n".join(
-        f"=== Page {section.page_num} | {section.header} ===\n{section.content}".strip()
-        for section in selected_sections
-    ).strip()
-    if not trimmed_text:
-        trimmed_text = ocr_text
-        kept_pages = {page.page_num for page in doc.pages}
+        selected_headers = "\n".join(
+            f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
+            for section in selected_sections
+        ) or "- no OCR headers were returned; kept pages were selected by page preview only"
 
     trimmed_text = await _maybe_compress_with_bear(
         trimmed_text,
@@ -493,10 +396,6 @@ async def extract_sov_from_document(
         f"{doc.filename} SOV kept tables",
     )
     table_hint = build_table_column_hint(selected_tables)
-    selected_headers = "\n".join(
-        f"- page {section.page_num}: {section.header} — {section.preview}"
-        for section in selected_sections
-    )
     expected_rows = _estimate_expected_rows(doc, kept_pages)
 
     rows = await _extract_rows(
@@ -523,7 +422,7 @@ async def extract_sov_from_document(
         retry_note = (
             f"The first pass likely missed content. Extracted {len(real_rows)} rows"
             + (f" while the kept tables suggest about {expected_rows} rows." if expected_rows else ".")
-            + f" Current field fill rate is {fill_rate:.0%}. Re-read every kept section and return the fullest complete records you can. This is the only retry."
+            + f" Current field fill rate is {fill_rate:.0%}. Re-read every kept OCR page and return the fullest complete records you can. This is the only retry."
         )
         retry_rows = await _extract_rows(
             doc,
