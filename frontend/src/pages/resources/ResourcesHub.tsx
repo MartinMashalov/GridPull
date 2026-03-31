@@ -76,34 +76,34 @@ export default function ResourcesHub() {
   return (
     <>
       <Helmet>
-        <title>Resources — PDF to Excel Guides, Tutorials & Workflows | PDFexcel.ai</title>
-        <meta name="description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
+        <title>Resources — GridPull Guides, Tutorials & Workflows | GridPull</title>
+        <meta name="description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of GridPull." />
         <meta name="robots" content="index, follow" />
         <link rel="canonical" href="https://gridpull.com/resources" />
         {/* Open Graph */}
-        <meta property="og:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
-        <meta property="og:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
+        <meta property="og:title" content="Resources — GridPull Guides & Tutorials | GridPull" />
+        <meta property="og:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of GridPull." />
         <meta property="og:url" content="https://gridpull.com/resources" />
         <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="PDFexcel.ai" />
+        <meta property="og:site_name" content="GridPull" />
         <meta property="og:image" content="https://gridpull.com/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
+        <meta property="og:image:alt" content="GridPull Resources — Guides, tutorials, and insights on PDF data extraction" />
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
+        <meta name="twitter:title" content="Resources — GridPull Guides & Tutorials | GridPull" />
         <meta name="twitter:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, and automating workflows." />
         <meta name="twitter:image" content="https://gridpull.com/og-image.png" />
-        <meta name="twitter:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
+        <meta name="twitter:image:alt" content="GridPull Resources — Guides, tutorials, and insights on PDF data extraction" />
         {/* Structured Data */}
         <script type="application/ld+json">{JSON.stringify({
           '@context': 'https://schema.org',
           '@type': 'CollectionPage',
-          name: 'PDF to Excel Resources',
-          description: 'Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai.',
+          name: 'GridPull Resources',
+          description: 'Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of GridPull.',
           url: 'https://gridpull.com/resources',
-          publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://gridpull.com' },
+          publisher: { '@type': 'Organization', name: 'GridPull', url: 'https://gridpull.com' },
         })}</script>
         <script type="application/ld+json">{JSON.stringify({
           '@context': 'https://schema.org',
@@ -123,7 +123,7 @@ export default function ResourcesHub() {
               <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center">
                 <FileSpreadsheet size={14} className="text-white" />
               </div>
-              PDFexcel.ai
+              GridPull
             </Link>
             <nav className="flex items-center gap-4 text-xs text-muted-foreground">
               <Link to="/resources" className="text-foreground font-medium">Resources</Link>
@@ -141,7 +141,7 @@ export default function ResourcesHub() {
               <span className="text-foreground">Resources</span>
             </nav>
             <h1 className="text-2xl sm:text-3xl font-bold text-foreground tracking-tight mb-3">
-              PDF to Excel Resources
+              GridPull Resources
             </h1>
             <p className="text-sm text-muted-foreground max-w-2xl mb-6">
               Practical guides for converting PDFs to spreadsheets, extracting structured data from documents, and automating document-to-Excel workflows.
@@ -208,7 +208,7 @@ export default function ResourcesHub() {
               <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
                 <FileSpreadsheet size={11} className="text-white" />
               </div>
-              PDF to Excel
+              GridPull
             </div>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
               <Link to="/" className="hover:text-foreground transition-colors">Home</Link>

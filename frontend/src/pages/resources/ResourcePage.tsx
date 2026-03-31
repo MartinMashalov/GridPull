@@ -138,7 +138,7 @@ export default function ResourcePage() {
     description: resource.metaDescription,
     datePublished: resource.publishedAt,
     dateModified: resource.updatedAt || resource.publishedAt,
-    publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://gridpull.com' },
+    publisher: { '@type': 'Organization', name: 'GridPull', url: 'https://gridpull.com' },
     mainEntityOfPage: resource.canonicalUrl || `https://gridpull.com/resources/${resource.slug}`,
   } : null
 
@@ -166,7 +166,7 @@ export default function ResourcePage() {
         <meta property="og:description" content={resource.metaDescription} />
         <meta property="og:url" content={pageUrl} />
         <meta property="og:type" content="article" />
-        <meta property="og:site_name" content="PDFexcel.ai" />
+        <meta property="og:site_name" content="GridPull" />
         <meta property="og:image" content="https://gridpull.com/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
@@ -193,7 +193,7 @@ export default function ResourcePage() {
               <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center">
                 <FileSpreadsheet size={14} className="text-white" />
               </div>
-              PDFexcel.ai
+              GridPull
             </Link>
             <nav className="flex items-center gap-4 text-xs text-muted-foreground">
               <Link to="/resources" className="hover:text-foreground transition-colors">Resources</Link>
@@ -336,7 +336,7 @@ export default function ResourcePage() {
                     )}
 
                     {resource.whyPdfExcelAiFits.length > 0 && (
-                      <Section icon={Target} title="Why PDFexcel.ai">
+                      <Section icon={Target} title="Why GridPull">
                         <BulletList items={resource.whyPdfExcelAiFits} icon="check" />
                       </Section>
                     )}
@@ -382,14 +382,14 @@ export default function ResourcePage() {
                       to="/"
                       className="block w-full text-center px-4 py-2.5 text-xs font-medium rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
                     >
-                      Convert PDF to Excel
+                      Convert GridPull
                     </Link>
                   </div>
 
                   {/* Trust Signals */}
                   {resource.trustSignals.length > 0 && (
                     <div className="rounded-xl border border-border/40 p-4">
-                      <h3 className="text-xs font-semibold text-foreground mb-2">Why PDFexcel.ai</h3>
+                      <h3 className="text-xs font-semibold text-foreground mb-2">Why GridPull</h3>
                       <ul className="space-y-1.5">
                         {resource.trustSignals.map((s, i) => (
                           <li key={i} className="flex items-start gap-2 text-[11px] text-muted-foreground">
@@ -467,7 +467,7 @@ export default function ResourcePage() {
               <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
                 <FileSpreadsheet size={11} className="text-white" />
               </div>
-              PDF to Excel
+              GridPull
             </div>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
               <Link to="/" className="hover:text-foreground transition-colors">Home</Link>

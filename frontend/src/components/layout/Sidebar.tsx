@@ -50,7 +50,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               <div className="w-7 h-7 bg-primary rounded-md flex items-center justify-center flex-shrink-0">
                 <FileSpreadsheet size={14} className="text-white" />
               </div>
-              <span className="font-semibold text-sm tracking-tight">PDF to Excel</span>
+              <span className="font-semibold text-sm tracking-tight">GridPull</span>
             </div>
           )}
           {collapsed && (

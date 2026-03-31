@@ -11,7 +11,7 @@ export default function TermsPage() {
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <FileSpreadsheet size={14} className="text-white" />
             </div>
-            <span className="font-semibold text-sm tracking-tight">PDF to Excel</span>
+            <span className="font-semibold text-sm tracking-tight">GridPull</span>
           </Link>
         </div>
       </header>
@@ -22,7 +22,7 @@ export default function TermsPage() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2">Terms &amp; Conditions</h1>
           <p className="text-muted-foreground text-sm mb-4">Last updated: March 2026</p>
           <p className="text-muted-foreground text-sm mb-10 leading-relaxed">
-            These Terms &amp; Conditions ("Terms") govern your use of PDFexcel.ai ("Service"), operated by
+            These Terms &amp; Conditions ("Terms") govern your use of GridPull ("Service"), operated by
             Big Vision Systems LLC ("Company", "we", "us", or "our"). By accessing or using the Service,
             you agree to be bound by these Terms. If you do not agree, do not use the Service.
           </p>
@@ -35,7 +35,7 @@ export default function TermsPage() {
               </h2>
               <div className="text-muted-foreground space-y-3">
                 <p>
-                  PDFexcel.ai is an AI-powered document data extraction platform. The Service allows users to
+                  GridPull is an AI-powered document data extraction platform. The Service allows users to
                   upload PDF documents and other supported file types, select data fields to extract, and
                   receive structured spreadsheet output (Excel or CSV).
                 </p>
@@ -299,7 +299,7 @@ export default function TermsPage() {
             <div className="w-5 h-5 bg-primary rounded-md flex items-center justify-center">
               <FileSpreadsheet size={11} className="text-white" />
             </div>
-            PDF to Excel
+            GridPull
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>

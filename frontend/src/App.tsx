@@ -2,6 +2,9 @@ import { Component, ReactNode, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { trackPageView } from '@/lib/analytics'
 import LandingPage from '@/pages/LandingPage'
+import InsurancePage from '@/pages/InsurancePage'
+import AccountingFinancePage from '@/pages/AccountingFinancePage'
+import OtherUseCasesPage from '@/pages/OtherUseCasesPage'
 import PrivacyPage from '@/pages/PrivacyPage'
 import TermsPage from '@/pages/TermsPage'
 import DashboardPage from '@/pages/DashboardPage'
@@ -102,6 +105,9 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/use-cases/insurance" element={<InsurancePage />} />
+        <Route path="/use-cases/accounting-finance" element={<AccountingFinancePage />} />
+        <Route path="/use-cases/other" element={<OtherUseCasesPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/resources" element={<Suspense fallback={<ResourcesLoader />}><ResourcesHub /></Suspense>} />
