@@ -93,28 +93,43 @@ const TESTIMONIALS = [
   },
 ]
 
-/* ─── Pricing examples ─────────────────────────────────────────────────────── */
-const PRICING_EXAMPLES = [
+/* ─── Pricing tiers ───────────────────────────────────────────────────────── */
+const PRICING_TIERS = [
   {
-    label: '50 invoices',
-    pages: 50,
-    cost: '$0.01',
-    time: '~3 min',
-    manual: '4+ hours',
+    name: 'Free',
+    price: '$0',
+    period: '',
+    desc: 'Try it out — no card required',
+    features: ['5 files / month', 'Up to 25 pages per file', 'Excel & CSV export', 'OCR for scanned docs'],
+    cta: 'Start free',
+    highlight: false,
   },
   {
-    label: '200 annual reports (avg 80 pages)',
-    pages: 16000,
-    cost: '$1.60',
-    time: '~45 min',
-    manual: '400+ hours',
+    name: 'Starter',
+    price: '$69',
+    period: '/mo',
+    desc: 'For solo agents & small agencies',
+    features: ['150 files / month', 'Up to 75 pages per file', '$0.60 per file overage', 'Priority processing'],
+    cta: 'Get started',
+    highlight: false,
   },
   {
-    label: '500 scanned receipts',
-    pages: 500,
-    cost: '$0.05',
-    time: '~12 min',
-    manual: '20+ hours',
+    name: 'Pro',
+    price: '$199',
+    period: '/mo',
+    desc: 'For growing agencies & teams',
+    features: ['500 files / month', 'Up to 200 pages per file', '$0.50 per file overage', 'Automated pipelines'],
+    cta: 'Go Pro',
+    highlight: true,
+  },
+  {
+    name: 'Business',
+    price: '$499',
+    period: '/mo',
+    desc: 'For large brokerages & enterprises',
+    features: ['1,500 files / month', 'Up to 500 pages per file', '$0.40 per file overage', 'Automated pipelines'],
+    cta: 'Contact us',
+    highlight: false,
   },
 ]
 
@@ -243,7 +258,7 @@ const USE_CASES = [
 /* ─── Stats ──────────────────────────────────────────────────────────────────── */
 const STATS = [
   { value: '99%+', label: 'Field extraction accuracy' },
-  { value: '~$0.0001', label: 'Per page processed' },
+  { value: '$0/mo', label: 'Free to start' },
   { value: '< 10s', label: 'Average processing time' },
   { value: 'Any PDF', label: 'Scanned, digital, or photo' },
 ]
@@ -325,7 +340,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting. After that, it\'s about $0.0001 per page with no monthly subscription or commitment. Your balance never expires. For context, 200 annual reports would cost roughly $1.60 — versus $20,000+ in manual analyst time.',
+    a: 'It\'s free to get started — just sign up and start extracting with 5 files per month at no cost. When you\'re ready, plans start at $69/mo for 150 files. Need more? Every plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $69.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
@@ -956,33 +971,35 @@ export default function LandingPage() {
             Simple pricing
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            $0.0001 per page. No subscriptions.
+            Plans that scale with your agency.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start for free — no credit card required. Pay only for what you process after that.
-            No monthly fees, no commitment, no expiry. Most competitors charge $0.10–$0.50 per page
-            or lock you into $99+/month plans.
+            Start free — no credit card required. Upgrade when you're ready.
+            From solo agents to large brokerages, pay only for what you need.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
-            That's up to 99.9% cheaper than alternatives.
+            Process thousands of documents for a fraction of manual cost.
           </p>
 
-          {/* Pricing comparison cards */}
-          <div className="grid sm:grid-cols-3 gap-5 mb-10">
-            {PRICING_EXAMPLES.map((ex) => (
-              <div key={ex.label} className="bg-card border border-border rounded-xl p-5 text-center hover:border-primary/30 hover:shadow-sm transition-all">
-                <p className="text-xs text-muted-foreground font-medium mb-3 min-h-[32px]">{ex.label}</p>
-                <p className="text-3xl font-bold text-primary mb-1">{ex.cost}</p>
-                <p className="text-xs text-muted-foreground mb-4">{ex.pages.toLocaleString()} pages × $0.0001</p>
-                <div className="border-t border-border/50 pt-3 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">With PDFexcel.ai</span>
-                    <span className="font-semibold text-emerald-600">{ex.time}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Manual copy-paste</span>
-                    <span className="text-red-400 line-through">{ex.manual}</span>
-                  </div>
+          {/* Pricing tier cards */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+            {PRICING_TIERS.map((tier) => (
+              <div key={tier.name} className={`bg-card border rounded-xl p-5 text-center transition-all hover:shadow-sm ${tier.highlight ? 'border-primary shadow-md ring-1 ring-primary/20' : 'border-border hover:border-primary/30'}`}>
+                {tier.highlight && (
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary mb-2">Most popular</p>
+                )}
+                <p className="text-sm font-semibold mb-1">{tier.name}</p>
+                <p className="text-3xl font-bold text-primary mb-0.5">
+                  {tier.price}<span className="text-sm font-normal text-muted-foreground">{tier.period}</span>
+                </p>
+                <p className="text-xs text-muted-foreground mb-4">{tier.desc}</p>
+                <div className="border-t border-border/50 pt-3 space-y-2 text-left">
+                  {tier.features.map((f) => (
+                    <div key={f} className="flex items-start gap-2 text-xs">
+                      <CheckCircle2 size={13} className="text-primary mt-0.5 flex-shrink-0" />
+                      <span>{f}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -990,8 +1007,7 @@ export default function LandingPage() {
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-5">
-              <DollarSign size={12} className="inline mr-1 text-primary" />
-              Example: 200 annual reports (avg 80 pages each) = 16,000 pages = <strong>$1.60 total</strong>. Manually, that's 400+ analyst-hours at $50/hr = <strong>$20,000</strong>. You save <strong>99.99%</strong>.
+              All plans include 99%+ accuracy, OCR for scanned documents, and Excel/CSV export. No contracts — cancel anytime.
             </p>
             <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
