@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 
 type FormFillingStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
 
-const _FORM_TYPES = new Set(['application/pdf'])
 const _SOURCE_TYPES = new Set([
   'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'text/plain', 'text/markdown',
@@ -138,7 +137,7 @@ export default function FormFillingPage() {
         try {
           const text = await e.response.data.text()
           const json = JSON.parse(text)
-          msg = json.detail || msg
+          msg = json.detail?.message || json.detail || msg
         } catch { /* ignore */ }
       } else if (e.response?.status) {
         msg = `Form filling failed (HTTP ${e.response.status})`
@@ -181,7 +180,7 @@ export default function FormFillingPage() {
       <div className="relative border-b border-border pb-5 mb-6">
         <h1 className="text-xl font-semibold text-foreground">Fill PDF Forms</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Upload a PDF form and source documents — AI will extract relevant data and fill in every field automatically
+          Upload a PDF form and source documents — each form fill uses 1 credit, with a 5 MB max per file
         </p>
       </div>
 
@@ -394,7 +393,7 @@ export default function FormFillingPage() {
       {/* CTA */}
       <Button
         onClick={status === 'complete' ? handleReset : handleFill}
-        disabled={status === 'complete' ? false : (!targetForm || sourceFiles.length === 0 || isProcessing || (user && !user.has_card))}
+        disabled={status === 'complete' ? false : (!targetForm || sourceFiles.length === 0 || isProcessing || !!(user && !user.has_card))}
         size="lg"
         className="w-full shadow-lg shadow-primary/25"
         variant={status === 'complete' ? 'outline' : 'default'}

@@ -27,6 +27,12 @@ STRIPE_PRICE_MAP = {
     "business": settings.stripe_price_business,
 }
 
+STRIPE_LOOKUP_KEY_MAP = {
+    "starter": "gridpull_starter_monthly",
+    "pro": "gridpull_pro_monthly",
+    "business": "gridpull_business_monthly",
+}
+
 # Reverse map: price_id → tier name.  Built at startup from the same env vars so
 # it stays in sync without any manual maintenance.
 _PRICE_ID_TO_TIER: dict[str, str] = {
@@ -75,6 +81,49 @@ async def _ensure_stripe_customer(user: User, db: AsyncSession) -> str:
     db_user.stripe_customer_id = customer_id
     await db.commit()
     return customer_id
+
+
+async def _get_stripe_price_id(tier_name: str) -> str:
+    configured_price_id = STRIPE_PRICE_MAP.get(tier_name, "")
+    expected_amount = TIERS[tier_name].price_monthly
+
+    if configured_price_id:
+        try:
+            price = await asyncio.to_thread(stripe.Price.retrieve, configured_price_id)
+            recurring = price.get("recurring") or {}
+            if (
+                price.get("active")
+                and price.get("unit_amount") == expected_amount
+                and recurring.get("interval") == "month"
+            ):
+                return configured_price_id
+            logger.warning(
+                "Configured Stripe price for %s is out of date: id=%s amount=%s expected=%s",
+                tier_name,
+                configured_price_id,
+                price.get("unit_amount"),
+                expected_amount,
+            )
+        except Exception as exc:
+            logger.warning("Could not retrieve configured Stripe price %s: %s", configured_price_id, exc)
+
+    lookup_key = STRIPE_LOOKUP_KEY_MAP.get(tier_name)
+    if lookup_key:
+        try:
+            price_list = await asyncio.to_thread(
+                stripe.Price.list,
+                lookup_keys=[lookup_key],
+                active=True,
+                limit=10,
+            )
+            for price in price_list.data:
+                recurring = price.get("recurring") or {}
+                if price.get("unit_amount") == expected_amount and recurring.get("interval") == "month":
+                    return price["id"]
+        except Exception as exc:
+            logger.warning("Could not list Stripe prices for %s via lookup key %s: %s", tier_name, lookup_key, exc)
+
+    raise HTTPException(500, "Stripe price not configured for this tier")
 
 
 def _maybe_reset_usage(user: User) -> bool:
@@ -147,9 +196,7 @@ async def create_subscription(
     if body.tier not in STRIPE_PRICE_MAP or body.tier == "free":
         raise HTTPException(400, "Invalid tier")
 
-    price_id = STRIPE_PRICE_MAP[body.tier]
-    if not price_id:
-        raise HTTPException(500, "Stripe price not configured for this tier")
+    price_id = await _get_stripe_price_id(body.tier)
 
     customer_id = await _ensure_stripe_customer(current_user, db)
     result = await db.execute(select(User).where(User.id == current_user.id))
@@ -163,6 +210,7 @@ async def create_subscription(
         payment_method_types=["card"],
         mode="subscription",
         line_items=[{"price": price_id, "quantity": 1}],
+        subscription_data={"metadata": {"tier": body.tier}},
         success_url=f"{settings.frontend_url}/settings?subscription=success&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{settings.frontend_url}/settings?subscription=cancelled",
         metadata={"user_id": current_user.id, "tier": body.tier},
@@ -187,9 +235,7 @@ async def change_subscription(
     if not stripe_subscription_id:
         return await create_subscription(body=body, current_user=current_user, db=db)
 
-    price_id = STRIPE_PRICE_MAP[body.tier]
-    if not price_id:
-        raise HTTPException(500, "Stripe price not configured")
+    price_id = await _get_stripe_price_id(body.tier)
 
     sub = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
     item_id = sub["items"]["data"][0]["id"]

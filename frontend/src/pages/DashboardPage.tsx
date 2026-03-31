@@ -395,8 +395,8 @@ export default function DashboardPage() {
           ? (detail as { type?: string; message?: string })
           : null
 
-      if (status === 402 && paywallDetail?.type === 'file_limit_reached') {
-        setJob((p) => p ? { ...p, status: 'error', message: 'File limit reached', error: paywallDetail.message } : null)
+      if (status === 402 && paywallDetail?.type === 'credit_limit_reached') {
+        setJob((p) => p ? { ...p, status: 'error', message: 'Credit limit reached', error: paywallDetail.message } : null)
         setIsPaywalled(true)
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
         return
@@ -472,7 +472,7 @@ export default function DashboardPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs & Images</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 5 MB each) — choose fields and download a clean spreadsheet</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 5 MB each) — 1 credit covers one file up to 50 pages</p>
         </div>
         <div className="flex items-center gap-2">
           {usageWarning && (
@@ -738,7 +738,7 @@ export default function DashboardPage() {
       <Button
         ref={submitBtnRef}
         onClick={handleProcess}
-        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || (user && !user.has_card)}
+        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || !!(user && !user.has_card)}
         size="lg"
         className="mt-4 w-full shadow-lg shadow-primary/25"
       >

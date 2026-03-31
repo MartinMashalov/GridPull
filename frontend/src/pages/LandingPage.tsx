@@ -974,7 +974,7 @@ export default function LandingPage() {
             Plans that scale with your agency.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free with 10 credits — no credit card required. 1 credit = 1 file (up to 50 pages).
+            Start free with 10 credits. A card is required on file, but you are not charged on the free plan. 1 credit = 1 file (up to 50 pages).
             From solo agents to large brokerages, pay only for what you need.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">

@@ -20,7 +20,6 @@ class TierConfig:
     credits_per_month: int
     overage_rate: Optional[int]  # cents per credit, None = blocked
     has_pipeline: bool
-    stripe_price_id_env: str     # env var name that holds the Stripe Price ID
 
 
 TIERS: dict[str, TierConfig] = {
@@ -31,7 +30,6 @@ TIERS: dict[str, TierConfig] = {
         credits_per_month=10,
         overage_rate=None,
         has_pipeline=False,
-        stripe_price_id_env="",
     ),
     "starter": TierConfig(
         name="starter",
@@ -40,7 +38,6 @@ TIERS: dict[str, TierConfig] = {
         credits_per_month=150,
         overage_rate=60,
         has_pipeline=False,
-        stripe_price_id_env="STRIPE_PRICE_STARTER",
     ),
     "pro": TierConfig(
         name="pro",
@@ -49,7 +46,6 @@ TIERS: dict[str, TierConfig] = {
         credits_per_month=500,
         overage_rate=50,
         has_pipeline=True,
-        stripe_price_id_env="STRIPE_PRICE_PRO",
     ),
     "business": TierConfig(
         name="business",
@@ -58,7 +54,6 @@ TIERS: dict[str, TierConfig] = {
         credits_per_month=1500,
         overage_rate=40,
         has_pipeline=True,
-        stripe_price_id_env="STRIPE_PRICE_BUSINESS",
     ),
 }
 

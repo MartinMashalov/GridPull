@@ -14,6 +14,7 @@ GET  /documents/history          — paginated job history for current user
 """
 
 import asyncio
+import fitz
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ from app.middleware.auth_middleware import get_current_user, get_current_user_ss
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
 from app.services.spreadsheet_service import generate_quickbooks_csv_bytes, generate_qbo_bytes, read_headers_from_bytes
-from app.services.subscription_tiers import get_tier
+from app.services.subscription_tiers import MAX_FILE_SIZE_MB, MAX_PAGES_PER_CREDIT, get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
 
@@ -110,34 +111,58 @@ async def _enqueue_extraction_job(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    from app.services.subscription_tiers import MAX_FILE_SIZE_MB
-
     tier = get_tier(getattr(db_user, "subscription_tier", "free") or "free")
-    _SPREADSHEET_EXTS = {".xlsx", ".csv"}
+    _SPREADSHEET_EXTS = {".xlsx", ".xls", ".xlsm", ".csv"}
+    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
 
     _maybe_reset_usage(db_user)
     await db.commit()
     await db.refresh(db_user)
     used = db_user.credits_used_this_period or 0
 
-    incoming_filenames = {
-        (f.filename or "").strip().lower()
-        for f in files
-        if os.path.splitext((f.filename or "").lower())[1] not in _SPREADSHEET_EXTS
-        and (f.filename or "").strip()
-    }
-    if used > 0 and incoming_filenames:
-        cutoff = datetime.utcnow() - timedelta(days=35)
-        already_q = await db.execute(
-            select(func.lower(Document.filename))
-            .join(ExtractionJob, Document.job_id == ExtractionJob.id)
-            .where(ExtractionJob.user_id == user_id, ExtractionJob.created_at >= cutoff)
-            .distinct()
-        )
-        already_used = {row[0].strip() for row in already_q.all()}
-        num_credits = len(incoming_filenames - already_used)
-    else:
-        num_credits = len(incoming_filenames)
+    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
+    uploads_to_save: list[tuple[str, bytes]] = []
+    num_credits = 0
+    billable_pages = 0
+
+    for upload in files:
+        fname = upload.filename or ""
+        ext = os.path.splitext(fname.lower())[1]
+        content = await upload.read()
+
+        if not content:
+            logger.warning("Skipping empty file %s in extraction request", fname)
+            continue
+        if len(content) > max_bytes:
+            logger.warning("File %s exceeds %d MB limit", fname, MAX_FILE_SIZE_MB)
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{fname}' exceeds the {MAX_FILE_SIZE_MB} MB size limit.",
+            )
+
+        if ext in _SPREADSHEET_EXTS:
+            page_count = 1
+        elif ext in _ALLOWED_EXT:
+            if ext == ".pdf":
+                try:
+                    pdf = fitz.open(stream=content, filetype="pdf")
+                    page_count = max(1, len(pdf))
+                    pdf.close()
+                except Exception as exc:
+                    logger.error("Could not read PDF %s for credit counting: %s", fname, exc)
+                    raise HTTPException(status_code=422, detail=f"Could not read PDF '{fname}'")
+            else:
+                page_count = 1
+            uploads_to_save.append((fname, content))
+        else:
+            logger.warning("Skipping unsupported file %s in extraction request", fname)
+            continue
+
+        billable_pages += page_count
+        num_credits += max(1, (page_count + MAX_PAGES_PER_CREDIT - 1) // MAX_PAGES_PER_CREDIT)
+
+    if not uploads_to_save:
+        raise HTTPException(status_code=400, detail="No valid documents provided")
 
     if tier.name == "free" and used + num_credits > tier.credits_per_month:
         raise HTTPException(
@@ -155,13 +180,15 @@ async def _enqueue_extraction_job(
 
     filenames = [f.filename for f in files]
     logger.info(
-        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars ip=%s",
+        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars billable_pages=%d credits=%d ip=%s",
         log_prefix,
         user_id,
         filenames,
         [f["name"] for f in fields_data],
         format,
         len(instructions.strip()),
+        billable_pages,
+        num_credits,
         client_ip,
     )
 
@@ -171,7 +198,7 @@ async def _enqueue_extraction_job(
         fields=fields_data,
         instructions=instructions.strip() or None,
         format=format,
-        file_count=len(files),
+        file_count=len(uploads_to_save),
     )
     db.add(job)
     await db.commit()
@@ -193,28 +220,8 @@ async def _enqueue_extraction_job(
     os.makedirs(upload_dir, exist_ok=True)
     saved_count = 0
 
-    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
-    _SPREADSHEET_EXT = {".xlsx", ".csv"}
-
-    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
-
-    for upload in files:
-        fname = upload.filename or ""
-        ext = os.path.splitext(fname.lower())[1]
-        if ext in _SPREADSHEET_EXT:
-            logger.info("Skipping baseline spreadsheet %s in job %s", fname, job.id)
-            continue
-        if ext not in _ALLOWED_EXT:
-            logger.warning("Skipping unsupported file %s in job %s", fname, job.id)
-            continue
+    for fname, content in uploads_to_save:
         path = os.path.join(upload_dir, fname)
-        content = await upload.read()
-        if len(content) > max_bytes:
-            logger.warning("File %s exceeds %d MB limit in job %s", fname, MAX_FILE_SIZE_MB, job.id)
-            raise HTTPException(
-                status_code=413,
-                detail=f"File '{fname}' exceeds the {MAX_FILE_SIZE_MB} MB size limit.",
-            )
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content)
         size_kb = len(content) / 1024

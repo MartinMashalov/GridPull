@@ -279,6 +279,7 @@ export default function SettingsPage() {
       <div className="mb-7">
         <h1 className="text-xl font-semibold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage your subscription, payment method, and extraction defaults</p>
+        <p className="text-muted-foreground text-xs mt-2">1 credit = 1 file up to 50 pages or 1 form fill. Excel and CSV count as 1 page. Max file size is 5 MB.</p>
       </div>
 
       <Tabs defaultValue={searchParams.get('tab') || 'subscription'}>
