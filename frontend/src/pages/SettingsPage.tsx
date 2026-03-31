@@ -139,6 +139,7 @@ export default function SettingsPage() {
           subscription_status: r.data.status,
           credits_used_this_period: r.data.credits_used,
           current_period_end: r.data.current_period_end,
+          has_card: r.data.has_card ?? false,
         })
       })
       .catch(() => {})
@@ -164,7 +165,10 @@ export default function SettingsPage() {
     }
     if (card === 'saved') {
       toast.success('Card saved successfully!')
-      api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => {})
+      api.get('/payments/saved-card').then(r => {
+        setSavedCard(r.data.card)
+        if (r.data.card) updateSubscription({ has_card: true })
+      }).catch(() => {})
       setSearchParams({})
     }
   }, [])
@@ -221,6 +225,7 @@ export default function SettingsPage() {
     try {
       await api.delete('/payments/saved-card')
       setSavedCard(null)
+      updateSubscription({ has_card: false })
       toast.success('Card removed')
     } catch {
       toast.error('Failed to remove card')
@@ -276,7 +281,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground text-sm mt-0.5">Manage your subscription, payment method, and extraction defaults</p>
       </div>
 
-      <Tabs defaultValue="subscription">
+      <Tabs defaultValue={searchParams.get('tab') || 'subscription'}>
         <TabsList className="mb-6 w-full sm:w-auto">
           <TabsTrigger value="subscription"><Crown size={13} />Subscription</TabsTrigger>
           <TabsTrigger value="usage" onClick={() => { if (!historyLoaded) fetchHistory() }}><BarChart3 size={13} />Usage</TabsTrigger>

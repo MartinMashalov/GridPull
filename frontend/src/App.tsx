@@ -7,6 +7,7 @@ import TermsPage from '@/pages/TermsPage'
 import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
+import FormFillingPage from '@/pages/FormFillingPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 
@@ -87,6 +88,16 @@ export default function App() {
             <ProtectedRoute>
               <DashboardLayout>
                 <PipelinesPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/form-filling"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <FormFillingPage />
               </DashboardLayout>
             </ProtectedRoute>
           }

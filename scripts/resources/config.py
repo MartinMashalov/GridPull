@@ -32,7 +32,7 @@ MIN_INTENT_MATCH_SCORE = int(os.getenv("RESOURCES_MIN_INTENT_MATCH_SCORE", "80")
 MAX_THIN_CONTENT_RISK = int(os.getenv("RESOURCES_MAX_THIN_CONTENT_RISK", "20"))
 
 ALLOW_NOINDEX_PUBLISH = os.getenv("RESOURCES_ALLOW_NOINDEX_PUBLISH", "true").lower() == "true"
-DEFAULT_CANONICAL_BASE_URL = os.getenv("RESOURCES_DEFAULT_CANONICAL_BASE_URL", "https://pdfexcel.ai")
+DEFAULT_CANONICAL_BASE_URL = os.getenv("RESOURCES_DEFAULT_CANONICAL_BASE_URL", "https://gridpull.com")
 PUBLISHING_MODE = os.getenv("RESOURCES_PUBLISHING_MODE", "AUTOPUBLISH_STRICT")
 
 # Cooldown: minimum hours between cron runs publishing new pages

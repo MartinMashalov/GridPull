@@ -123,6 +123,7 @@ async def get_subscription(
         "usage_percent": min(usage_pct, 100),
         "current_period_end": user.current_period_end.isoformat() if user.current_period_end else None,
         "all_tiers": [tier_info_dict(TIERS[t]) for t in TIER_ORDER],
+        "has_card": bool(user.stripe_payment_method_id),
     }
 
 

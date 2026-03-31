@@ -79,14 +79,14 @@ export default function ResourcesHub() {
         <title>Resources — PDF to Excel Guides, Tutorials & Workflows | PDFexcel.ai</title>
         <meta name="description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
         <meta name="robots" content="index, follow" />
-        <link rel="canonical" href="https://pdfexcel.ai/resources" />
+        <link rel="canonical" href="https://gridpull.com/resources" />
         {/* Open Graph */}
         <meta property="og:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
         <meta property="og:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai." />
-        <meta property="og:url" content="https://pdfexcel.ai/resources" />
+        <meta property="og:url" content="https://gridpull.com/resources" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="PDFexcel.ai" />
-        <meta property="og:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta property="og:image" content="https://gridpull.com/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="og:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
@@ -94,7 +94,7 @@ export default function ResourcesHub() {
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Resources — PDF to Excel Guides & Tutorials | PDFexcel.ai" />
         <meta name="twitter:description" content="Practical guides for converting PDFs to Excel, extracting tables from documents, and automating workflows." />
-        <meta name="twitter:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta name="twitter:image" content="https://gridpull.com/og-image.png" />
         <meta name="twitter:image:alt" content="PDFexcel.ai Resources — Guides, tutorials, and insights on PDF data extraction" />
         {/* Structured Data */}
         <script type="application/ld+json">{JSON.stringify({
@@ -102,15 +102,15 @@ export default function ResourcesHub() {
           '@type': 'CollectionPage',
           name: 'PDF to Excel Resources',
           description: 'Practical guides for converting PDFs to Excel, extracting tables from documents, automating workflows, and getting the most out of PDFexcel.ai.',
-          url: 'https://pdfexcel.ai/resources',
-          publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://pdfexcel.ai' },
+          url: 'https://gridpull.com/resources',
+          publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://gridpull.com' },
         })}</script>
         <script type="application/ld+json">{JSON.stringify({
           '@context': 'https://schema.org',
           '@type': 'BreadcrumbList',
           itemListElement: [
-            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://pdfexcel.ai/' },
-            { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://pdfexcel.ai/resources' },
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://gridpull.com/' },
+            { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://gridpull.com/resources' },
           ],
         })}</script>
       </Helmet>

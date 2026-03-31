@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     extraction_wide_grid_min_rows: int = 5
     extraction_wide_grid_min_cols: int = 4
 
+    # Dedicated SOV pipeline models. These accept any LiteLLM model id.
+    # Leave defaults on gpt-4.1-mini, or point them at Cerebras when available.
+    sov_section_selector_model: str = "gpt-4.1-mini"
+    sov_extraction_model: str = "gpt-4.1-mini"
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""

@@ -138,21 +138,21 @@ export default function ResourcePage() {
     description: resource.metaDescription,
     datePublished: resource.publishedAt,
     dateModified: resource.updatedAt || resource.publishedAt,
-    publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://pdfexcel.ai' },
-    mainEntityOfPage: resource.canonicalUrl || `https://pdfexcel.ai/resources/${resource.slug}`,
+    publisher: { '@type': 'Organization', name: 'PDFexcel.ai', url: 'https://gridpull.com' },
+    mainEntityOfPage: resource.canonicalUrl || `https://gridpull.com/resources/${resource.slug}`,
   } : null
 
   const breadcrumbSchema = {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://pdfexcel.ai/' },
-      { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://pdfexcel.ai/resources' },
-      { '@type': 'ListItem', position: 3, name: resource.title, item: `https://pdfexcel.ai/resources/${resource.slug}` },
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://gridpull.com/' },
+      { '@type': 'ListItem', position: 2, name: 'Resources', item: 'https://gridpull.com/resources' },
+      { '@type': 'ListItem', position: 3, name: resource.title, item: `https://gridpull.com/resources/${resource.slug}` },
     ],
   }
 
-  const pageUrl = `https://pdfexcel.ai/resources/${resource.slug}`
+  const pageUrl = `https://gridpull.com/resources/${resource.slug}`
 
   return (
     <>
@@ -167,7 +167,7 @@ export default function ResourcePage() {
         <meta property="og:url" content={pageUrl} />
         <meta property="og:type" content="article" />
         <meta property="og:site_name" content="PDFexcel.ai" />
-        <meta property="og:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta property="og:image" content="https://gridpull.com/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="og:image:alt" content={resource.metaTitle} />
@@ -177,7 +177,7 @@ export default function ResourcePage() {
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={resource.metaTitle} />
         <meta name="twitter:description" content={resource.metaDescription} />
-        <meta name="twitter:image" content="https://pdfexcel.ai/og-image.png" />
+        <meta name="twitter:image" content="https://gridpull.com/og-image.png" />
         <meta name="twitter:image:alt" content={resource.metaTitle} />
         {/* Structured Data */}
         <script type="application/ld+json">{JSON.stringify(breadcrumbSchema)}</script>

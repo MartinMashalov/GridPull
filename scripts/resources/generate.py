@@ -67,7 +67,7 @@ def generate_resource(topic: dict[str, Any]) -> dict[str, Any] | None:
 
 def _build_generation_prompt(topic: dict[str, Any]) -> str:
     """Build the constrained generation prompt for Claude."""
-    return f"""You are generating structured content for a resource page on pdfexcel.ai.
+    return f"""You are generating structured content for a resource page on gridpull.com.
 
 TARGET:
 - Primary keyword: {topic['keyword']}
@@ -163,7 +163,7 @@ def _build_editorial_prompt(topic: dict[str, Any]) -> str:
     must be valuable on its own, establishing topical authority for SEO.
     """
     return f"""You are an expert technical writer creating an original, in-depth article
-for the resources section of pdfexcel.ai — a tool that converts PDFs to Excel.
+for the resources section of gridpull.com — a tool that converts PDFs to Excel.
 
 CRITICAL: This is an EDUCATIONAL ARTICLE, not a product page. Write as a subject
 matter expert teaching something genuinely useful. The article must be valuable
@@ -190,13 +190,13 @@ WHAT TO AVOID:
 - Do NOT write marketing copy or sales language
 - Do NOT use phrases like "in today's digital world", "game-changer", "revolutionary"
 - Do NOT invent statistics, studies, or benchmarks — only reference generally known facts
-- Do NOT make the article about pdfexcel.ai — the product is mentioned ONLY in a
+- Do NOT make the article about gridpull.com — the product is mentioned ONLY in a
   brief note at the end, naturally, as one option among approaches discussed
 - Do NOT use "we" or "our" when referring to the product in the article body
 - Do NOT keyword-stuff — use the keyword naturally, not in every paragraph
 
 PRODUCT CONTEXT (for the brief mention only):
-pdfexcel.ai uses AI to extract fields from PDFs/images into structured Excel/CSV.
+gridpull.com uses AI to extract fields from PDFs/images into structured Excel/CSV.
 It supports digital PDFs, scanned docs, and images. Free to start.
 
 ARTICLE STRUCTURE — Each "sections" entry must be a substantial paragraph (150-400 words)

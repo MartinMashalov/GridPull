@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIR = resolve(__dirname, '..')
 const DIST_DIR = join(FRONTEND_DIR, 'dist')
 const CONTENT_DIR = join(FRONTEND_DIR, 'public', 'content', 'resources')
-const BASE_URL = 'https://pdfexcel.ai'
+const BASE_URL = 'https://gridpull.com'
 
 const EDITORIAL_TEMPLATES = new Set(['guide', 'industry_insight'])
 

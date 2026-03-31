@@ -516,7 +516,7 @@ def _discover_ai_topics(existing_slugs: set[str], max_topics: int) -> list[dict[
         "comparison - Comparing tools or approaches",
     ]
 
-    prompt = f"""You are a content strategist for pdfexcel.ai, a tool that converts PDFs and images to Excel spreadsheets using AI.
+    prompt = f"""You are a content strategist for gridpull.com, a tool that converts PDFs and images to Excel spreadsheets using AI.
 
 Generate exactly {max_topics} NEW topic ideas for the resources/blog section. These should be SEO-valuable articles that people actually search for, related to:
 - PDF data extraction, document processing, spreadsheet workflows

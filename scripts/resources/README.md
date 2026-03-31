@@ -1,6 +1,6 @@
 # Resources SEO Cron System
 
-Automated system for generating, validating, and publishing SEO resource pages on pdfexcel.ai.
+Automated system for generating, validating, and publishing SEO resource pages on gridpull.com.
 
 ## Architecture
 
@@ -70,7 +70,7 @@ python -m scripts.resources.cron --seed        # Publish pre-built seed content
 | `RESOURCES_MAX_DUPLICATION_RISK` | `20` | Max duplication risk (0-100) |
 | `RESOURCES_MIN_TRUTHFULNESS_SCORE` | `95` | Min truthfulness (0-100) |
 | `RESOURCES_ALLOW_NOINDEX_PUBLISH` | `true` | Allow noindex publishing |
-| `RESOURCES_DEFAULT_CANONICAL_BASE_URL` | `https://pdfexcel.ai` | Base URL |
+| `RESOURCES_DEFAULT_CANONICAL_BASE_URL` | `https://gridpull.com` | Base URL |
 | `RESOURCES_PUBLISHING_MODE` | `AUTOPUBLISH_STRICT` | Publishing mode |
 
 ## Quality Gates

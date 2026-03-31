@@ -62,6 +62,7 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
             "name": user.name,
             "picture": user.picture,
             "balance": user.balance,
+            "has_card": bool(user.stripe_payment_method_id),
         },
     }
 
@@ -100,5 +101,6 @@ async def microsoft_auth(request: Request, body: MicrosoftAuthRequest, db: Async
             "name": user.name,
             "picture": user.picture,
             "balance": user.balance,
+            "has_card": bool(user.stripe_payment_method_id),
         },
     }

@@ -32,7 +32,7 @@ def _pdf_to_excel() -> dict[str, Any]:
         "searchIntent": "transactional",
         "templateType": "file_conversion",
         "indexationStatus": "draft",
-        "canonicalUrl": "https://pdfexcel.ai/resources/pdf-to-excel",
+        "canonicalUrl": "https://gridpull.com/resources/pdf-to-excel",
         "hero": {
             "headline": "Convert PDF to Excel with AI-Powered Extraction",
             "subheadline": "Upload any PDF — invoices, reports, statements — and get a clean, structured Excel spreadsheet with exactly the fields you need. No manual copying, no broken formatting.",
@@ -150,7 +150,7 @@ def _invoice_pdf_to_excel() -> dict[str, Any]:
         "searchIntent": "transactional",
         "templateType": "document_type",
         "indexationStatus": "draft",
-        "canonicalUrl": "https://pdfexcel.ai/resources/invoice-pdf-to-excel",
+        "canonicalUrl": "https://gridpull.com/resources/invoice-pdf-to-excel",
         "hero": {
             "headline": "Convert Invoice PDFs to Excel Automatically",
             "subheadline": "Stop manually typing invoice data into spreadsheets. Upload your invoice PDFs, select the fields you need — invoice number, date, vendor, line items, totals — and download a clean Excel file in seconds.",
@@ -263,7 +263,7 @@ def _scanned_pdf_to_excel() -> dict[str, Any]:
         "searchIntent": "transactional",
         "templateType": "file_conversion",
         "indexationStatus": "draft",
-        "canonicalUrl": "https://pdfexcel.ai/resources/scanned-pdf-to-excel",
+        "canonicalUrl": "https://gridpull.com/resources/scanned-pdf-to-excel",
         "hero": {
             "headline": "Convert Scanned PDFs to Excel with Built-In OCR",
             "subheadline": "Many PDFs are scanned images, not selectable text. PDFexcel.ai handles both — upload scanned documents, photos, or image-based PDFs, and extract structured data into Excel without a separate OCR step.",
@@ -375,7 +375,7 @@ def _batch_convert_pdf_to_excel() -> dict[str, Any]:
         "searchIntent": "transactional",
         "templateType": "workflow",
         "indexationStatus": "draft",
-        "canonicalUrl": "https://pdfexcel.ai/resources/batch-convert-pdf-to-excel",
+        "canonicalUrl": "https://gridpull.com/resources/batch-convert-pdf-to-excel",
         "hero": {
             "headline": "Batch Convert Multiple PDFs to Excel",
             "subheadline": "Upload a stack of PDFs — invoices, receipts, reports, statements — and extract data from all of them into a single, consolidated Excel spreadsheet. Each document becomes one row.",
@@ -489,7 +489,7 @@ def _bank_statement_pdf_to_excel() -> dict[str, Any]:
         "searchIntent": "transactional",
         "templateType": "document_type",
         "indexationStatus": "draft",
-        "canonicalUrl": "https://pdfexcel.ai/resources/bank-statement-pdf-to-excel",
+        "canonicalUrl": "https://gridpull.com/resources/bank-statement-pdf-to-excel",
         "hero": {
             "headline": "Convert Bank Statement PDFs to Excel",
             "subheadline": "Extract transaction dates, descriptions, amounts, and running balances from bank statement PDFs into clean Excel spreadsheets. Works with statements from any bank.",

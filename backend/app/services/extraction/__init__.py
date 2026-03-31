@@ -42,6 +42,38 @@ async def extract_from_document(
     usage: LLMUsage,
     instructions: str = "",
 ) -> List[Dict[str, Any]]:
+    field_names = [f["name"] for f in fields]
+    is_sov_schema = property_schedule_row_cleanup_matches_schema(field_names)
+    has_wide_grid = document_has_wide_data_grid(doc)
+
+    if is_sov_schema:
+        from app.services.sov import extract_sov_from_document
+
+        logger.info(
+            "Routing %s -> dedicated SOV pipeline (pages=%d, tables=%d, scanned=%s)",
+            doc.filename,
+            doc.page_count,
+            len(doc.tables),
+            doc.is_scanned,
+        )
+        rows = await extract_sov_from_document(doc, fields, usage, instructions)
+        doc_full_text = doc.content_text or ""
+        rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
+        rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
+        if rows:
+            rows = finalize_property_schedule_rows(rows, field_names)
+        if not rows:
+            rows = _empty([doc.filename], field_names)
+        logger.info(
+            "extract_from_document done: filename=%s rows=%d cost_usd=%.6f input_tokens=%d output_tokens=%d",
+            doc.filename,
+            len(rows),
+            usage.cost_usd,
+            usage.input_tokens,
+            usage.output_tokens,
+        )
+        return rows
+
     if doc.is_scanned:
         logger.info(
             "Routing %s -> SCAN pipeline (avg_chars_per_page=%.0f)",
@@ -51,83 +83,70 @@ async def extract_from_document(
         rows = await extract_from_scanned_document(doc, fields, usage, instructions)
     else:
         extraction_mode = "single"
-
-        is_sov_schema = property_schedule_row_cleanup_matches_schema([f["name"] for f in fields])
-        has_wide_grid = document_has_wide_data_grid(doc)
-        if is_sov_schema and has_wide_grid:
-            extraction_mode = "multi"
-            logger.info(
-                "Routing %s -> TEXT pipeline (multi, fast-path: SOV schema + wide grid, hint=%s)",
-                doc.filename, doc.doc_type_hint,
+        planner_text = doc.content_text or "\n\n".join(
+            f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
+        )
+        planner_tables = doc.tables_markdown or "\n\n".join(
+            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+            for t in doc.tables
+        )
+        planner_prompt = (
+            "Decide whether this document should produce ONE output object or MANY output objects "
+            "for the requested schema.\n\n"
+            "Reply with exactly one word:\n"
+            "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
+            "- multi: the same requested fields can be filled repeatedly from the same file (e.g. rows in a single table)\n"
+            "- multi_paged: the file is a compilation of independent documents/invoices/statements where each page "
+            "(or small group of pages) is a separate record with its own values for the requested fields. "
+            "Examples: a PDF of many invoices concatenated together, monthly statements batched into one file, "
+            "multiple unrelated policies or customer accounts printed sequentially with no shared master schedule.\n\n"
+            "Rules:\n"
+            "- Base the decision on the requested fields plus the document structure\n"
+            "- A file can contain tables and still be single if the requested fields are document-level\n"
+            "- A file can be multi even when repeated records are arranged across columns instead of rows\n"
+            "- Financial reports / annual reports / 10-K filings / earnings reports: when the requested fields "
+            "include a date, year, or period field alongside financial metrics (revenue, costs, income, etc.), "
+            "classify as multi — these documents contain comparative financial statements with the same metrics "
+            "repeated for multiple fiscal years (e.g. 2023, 2022, 2021 as separate columns). "
+            "Emit one row per fiscal year/period found in the comparative statements.\n"
+            "- Use multi_paged ONLY when pages clearly belong to different independent records, not when a single record spans multiple pages\n"
+            "- If unsure, reply single\n\n"
+            f"Filename: {doc.filename}\n"
+            f"Total pages: {doc.page_count}\n"
+            f"Document structure hint: {doc.doc_type_hint}\n"
+            f"Requested fields:\n{_fields_block(fields)}\n\n"
+            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
+            + f"Document text:\n{await _maybe_compress_with_bear(planner_text, doc.page_count, usage, f'{doc.filename} planner text')}\n\n"
+            f"Detected tables:\n{await _maybe_compress_with_bear(planner_tables, doc.page_count, usage, f'{doc.filename} planner tables')}"
+        )
+        try:
+            planner_resp = await _litellm_acompletion(
+                model=_TEXT_MODEL,
+                messages=[{"role": "user", "content": planner_prompt}],
+                temperature=0,
+                max_tokens=8,
             )
-        else:
-            planner_text = doc.content_text or "\n\n".join(
-                f"=== Page {p.page_num} ===\n{p.text}" for p in doc.pages
-            )
-            planner_tables = doc.tables_markdown or "\n\n".join(
-                f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-                for t in doc.tables
-            )
-            planner_prompt = (
-                "Decide whether this document should produce ONE output object or MANY output objects "
-                "for the requested schema.\n\n"
-                "Reply with exactly one word:\n"
-                "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
-                "- multi: the same requested fields can be filled repeatedly from the same file (e.g. rows in a single table)\n"
-                "- multi_paged: the file is a compilation of independent documents/invoices/statements where each page "
-                "(or small group of pages) is a separate record with its own values for the requested fields. "
-                "Examples: a PDF of many invoices concatenated together, monthly statements batched into one file, "
-                "multiple unrelated policies or customer accounts printed sequentially with no shared master schedule.\n\n"
-                "Rules:\n"
-                "- Base the decision on the requested fields plus the document structure\n"
-                "- A file can contain tables and still be single if the requested fields are document-level\n"
-                "- A file can be multi even when repeated records are arranged across columns instead of rows\n"
-                "- Financial reports / annual reports / 10-K filings / earnings reports: when the requested fields "
-                "include a date, year, or period field alongside financial metrics (revenue, costs, income, etc.), "
-                "classify as multi — these documents contain comparative financial statements with the same metrics "
-                "repeated for multiple fiscal years (e.g. 2023, 2022, 2021 as separate columns). "
-                "Emit one row per fiscal year/period found in the comparative statements.\n"
-                "- Insurance: statement of values (SOV), property schedule, location listing, appraisal reports with a "
-                "summary schedule of values followed by per-location narrative sections -> ALWAYS multi (one row per "
-                "insured location from the schedule; narrative fills gaps). NEVER multi_paged for that pattern.\n"
-                "- Use multi_paged ONLY when pages clearly belong to different independent records, not when a single record spans multiple pages\n"
-                "- If unsure, reply single\n\n"
-                f"Filename: {doc.filename}\n"
-                f"Total pages: {doc.page_count}\n"
-                f"Document structure hint: {doc.doc_type_hint}\n"
-                f"Requested fields:\n{_fields_block(fields)}\n\n"
-                + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-                + f"Document text:\n{await _maybe_compress_with_bear(planner_text, doc.page_count, usage, f'{doc.filename} planner text')}\n\n"
-                f"Detected tables:\n{await _maybe_compress_with_bear(planner_tables, doc.page_count, usage, f'{doc.filename} planner tables')}"
-            )
-            try:
-                planner_resp = await _litellm_acompletion(
-                    model=_TEXT_MODEL,
-                    messages=[{"role": "user", "content": planner_prompt}],
-                    temperature=0,
-                    max_tokens=8,
-                )
-                if planner_resp.usage:
-                    usage.add(planner_resp.usage.prompt_tokens, planner_resp.usage.completion_tokens)
-                record_llm_usage_cost(usage, planner_resp)
-                planner_raw = (planner_resp.choices[0].message.content or "").strip().lower().replace("_", "")
-                if "multipaged" in planner_raw or planner_raw == "multi_paged":
-                    extraction_mode = "multi_paged"
-                elif planner_raw == "multi":
-                    extraction_mode = "multi"
-                else:
-                    extraction_mode = "single"
-                logger.info("Routing %s -> TEXT pipeline (%s, hint=%s)", doc.filename, extraction_mode, doc.doc_type_hint)
-            except Exception as exc:
-                extraction_mode = "multi" if _should_extract_multi(doc, fields) else "single"
-                logger.warning("Routing planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
-
-            if extraction_mode == "multi_paged" and has_wide_grid:
-                logger.info(
-                    "Overriding multi_paged -> multi for %s (parsed wide table grid — avoid per-page split)",
-                    doc.filename,
-                )
+            if planner_resp.usage:
+                usage.add(planner_resp.usage.prompt_tokens, planner_resp.usage.completion_tokens)
+            record_llm_usage_cost(usage, planner_resp)
+            planner_raw = (planner_resp.choices[0].message.content or "").strip().lower().replace("_", "")
+            if "multipaged" in planner_raw or planner_raw == "multi_paged":
+                extraction_mode = "multi_paged"
+            elif planner_raw == "multi":
                 extraction_mode = "multi"
+            else:
+                extraction_mode = "single"
+            logger.info("Routing %s -> TEXT pipeline (%s, hint=%s)", doc.filename, extraction_mode, doc.doc_type_hint)
+        except Exception as exc:
+            extraction_mode = "multi" if _should_extract_multi(doc, fields) else "single"
+            logger.warning("Routing planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
+
+        if extraction_mode == "multi_paged" and has_wide_grid:
+            logger.info(
+                "Overriding multi_paged -> multi for %s (parsed wide table grid — avoid per-page split)",
+                doc.filename,
+            )
+            extraction_mode = "multi"
 
         if extraction_mode == "multi_paged":
             logger.info("TEXT per-page extraction: %s (%d pages)", doc.filename, doc.page_count)
@@ -142,7 +161,6 @@ async def extract_from_document(
         else:
             rows = await extract_single_record(doc, fields, usage, instructions)
 
-        field_names = [f["name"] for f in fields]
         filled = sum(
             1 for row in rows for fn in field_names
             if row.get(fn) is not None

@@ -13,6 +13,7 @@ from app.database import init_db
 from app.logging_config import setup_logging
 from app.routes import auth, documents, payments, users
 from app.routes import pipelines
+from app.routes import form_filling
 from app.workers.pipeline_poller import start_pipeline_poller
 from app.workers.pool import worker_pool
 
@@ -66,8 +67,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         settings.frontend_url,
-        "https://pdfexcel.ai",
-        "https://www.pdfexcel.ai",
+        "https://gridpull.com",
+        "https://www.gridpull.com",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:5173",
@@ -131,6 +132,7 @@ app.include_router(documents.router, prefix="/api")
 app.include_router(payments.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(pipelines.router, prefix="/api")
+app.include_router(form_filling.router, prefix="/api")
 
 
 @app.get("/api/health")

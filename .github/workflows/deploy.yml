@@ -55,12 +55,12 @@ jobs:
 
             # Ensure cert directories exist and bootstrap temporary cert if missing.
             # This allows nginx to start so certbot can complete HTTP-01 validation.
-            mkdir -p nginx/certs/live/pdfexcel.ai
-            if [ ! -f nginx/certs/live/pdfexcel.ai/fullchain.pem ] || [ ! -f nginx/certs/live/pdfexcel.ai/privkey.pem ]; then
+            mkdir -p nginx/certs/live/gridpull.com
+            if [ ! -f nginx/certs/live/gridpull.com/fullchain.pem ] || [ ! -f nginx/certs/live/gridpull.com/privkey.pem ]; then
               openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
-                -keyout nginx/certs/live/pdfexcel.ai/privkey.pem \
-                -out nginx/certs/live/pdfexcel.ai/fullchain.pem \
-                -subj "/CN=pdfexcel.ai"
+                -keyout nginx/certs/live/gridpull.com/privkey.pem \
+                -out nginx/certs/live/gridpull.com/fullchain.pem \
+                -subj "/CN=gridpull.com"
             fi
 
             # Build & restart containers
@@ -73,9 +73,9 @@ jobs:
             docker compose stop certbot || true
             docker compose run --rm --entrypoint "" certbot certbot certonly \
               --webroot -w /var/www/certbot \
-              --email admin@pdfexcel.ai \
+              --email admin@gridpull.com \
               --agree-tos --no-eff-email --non-interactive --keep-until-expiring \
-              -d pdfexcel.ai -d www.pdfexcel.ai
+              -d gridpull.com -d www.gridpull.com
             docker compose start certbot || true
             docker compose exec -T nginx nginx -s reload
 

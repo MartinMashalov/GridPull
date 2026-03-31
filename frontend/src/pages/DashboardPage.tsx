@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -532,6 +532,24 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Card required banner */}
+      {user && !user.has_card && (
+        <div className="relative mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
+            <CreditCard size={15} className="text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Credit card required</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Add a credit card to start processing documents. You won't be charged on the free plan.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => navigate('/settings?tab=payment')} className="flex-shrink-0">
+            Add Card <ArrowRight size={12} className="ml-1" />
+          </Button>
+        </div>
+      )}
+
       {/* How it works — inline guide (hidden on mobile to reduce clutter) */}
       {!job && files.length === 0 && (
         <div className="mb-6 hidden sm:block">
@@ -720,7 +738,7 @@ export default function DashboardPage() {
       <Button
         ref={submitBtnRef}
         onClick={handleProcess}
-        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null)}
+        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || (user && !user.has_card)}
         size="lg"
         className="mt-4 w-full shadow-lg shadow-primary/25"
       >
