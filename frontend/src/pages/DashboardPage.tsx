@@ -523,7 +523,7 @@ export default function DashboardPage() {
               Free limit reached ({usageWarning.files_limit} files/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 200 files/month — just $9.50 for your first month.
+              Upgrade to Starter for 150 files/month — just $34.50 for your first month.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">
