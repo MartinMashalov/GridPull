@@ -78,7 +78,7 @@ async def _ensure_stripe_customer(user: User, db: AsyncSession) -> str:
 
 
 def _maybe_reset_usage(user: User) -> bool:
-    """Reset files_used if the billing period has rolled over. Returns True if reset."""
+    """Reset credits_used if the billing period has rolled over. Returns True if reset."""
     if not user.usage_reset_at:
         return False
     now = datetime.now(timezone.utc)
@@ -86,8 +86,8 @@ def _maybe_reset_usage(user: User) -> bool:
     if reset_at.tzinfo is None:
         reset_at = reset_at.replace(tzinfo=timezone.utc)
     if now >= reset_at:
-        user.files_used_this_period = 0
-        user.overage_files_this_period = 0
+        user.credits_used_this_period = 0
+        user.overage_credits_this_period = 0
         if user.current_period_end:
             pe = user.current_period_end
             if pe.tzinfo is None:
@@ -112,18 +112,17 @@ async def get_subscription(
     await db.commit()
 
     tier = get_tier(user.subscription_tier)
-    usage_pct = (user.files_used_this_period / tier.files_per_month * 100) if tier.files_per_month else 0
+    usage_pct = (user.credits_used_this_period / tier.credits_per_month * 100) if tier.credits_per_month else 0
 
     return {
         "tier": tier_info_dict(tier),
         "status": user.subscription_status,
-        "files_used": user.files_used_this_period,
-        "overage_files": user.overage_files_this_period,
-        "files_limit": tier.files_per_month,
+        "credits_used": user.credits_used_this_period,
+        "overage_credits": user.overage_credits_this_period,
+        "credits_limit": tier.credits_per_month,
         "usage_percent": min(usage_pct, 100),
         "current_period_end": user.current_period_end.isoformat() if user.current_period_end else None,
         "all_tiers": [tier_info_dict(TIERS[t]) for t in TIER_ORDER],
-        "first_month_discount_available": not user.first_month_discount_used,
     }
 
 
@@ -157,7 +156,8 @@ async def create_subscription(
     if not db_user:
         raise HTTPException(404, "User not found")
 
-    session_kwargs = dict(
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.create,
         customer=customer_id,
         payment_method_types=["card"],
         mode="subscription",
@@ -166,12 +166,6 @@ async def create_subscription(
         cancel_url=f"{settings.frontend_url}/settings?subscription=cancelled",
         metadata={"user_id": current_user.id, "tier": body.tier},
     )
-
-    # 50% off first month for Starter
-    if body.tier == "starter" and not db_user.first_month_discount_used and settings.stripe_starter_coupon_id:
-        session_kwargs["discounts"] = [{"coupon": settings.stripe_starter_coupon_id}]
-
-    session = await asyncio.to_thread(stripe.checkout.Session.create, **session_kwargs)
     logger.info("Created subscription checkout for user %s tier=%s", current_user.id, body.tier)
     return {"checkout_url": session.url}
 
@@ -332,8 +326,8 @@ async def get_usage_warning(
     await db.commit()
 
     tier = get_tier(user.subscription_tier)
-    pct = (user.files_used_this_period / tier.files_per_month * 100) if tier.files_per_month else 0
-    at_limit = user.files_used_this_period >= tier.files_per_month
+    pct = (user.credits_used_this_period / tier.credits_per_month * 100) if tier.credits_per_month else 0
+    at_limit = user.credits_used_this_period >= tier.credits_per_month
     near_limit = pct >= 80 and not at_limit
 
     warning = None
@@ -351,9 +345,9 @@ async def get_usage_warning(
 
     return {
         "warning": warning,
-        "files_used": user.files_used_this_period,
-        "files_limit": tier.files_per_month,
-        "overage_files": user.overage_files_this_period,
+        "credits_used": user.credits_used_this_period,
+        "credits_limit": tier.credits_per_month,
+        "overage_credits": user.overage_credits_this_period,
         "overage_rate": tier.overage_rate,
         "usage_percent": min(pct, 100),
         "tier": tier.name,
@@ -476,10 +470,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if isinstance(sub, dict) and sub.get("current_period_end"):
                 user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
                 user.usage_reset_at = user.current_period_end
-            user.files_used_this_period = 0
-            user.overage_files_this_period = 0
-            if tier == "starter":
-                user.first_month_discount_used = True
+            user.credits_used_this_period = 0
+            user.overage_credits_this_period = 0
             await db.commit()
             logger.info(
                 "Checkout subscription completed: user=%s tier=%s sub=%s",
@@ -510,10 +502,8 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
-    user.files_used_this_period = 0
-    user.overage_files_this_period = 0
-    if tier == "starter":
-        user.first_month_discount_used = True
+    user.credits_used_this_period = 0
+    user.overage_credits_this_period = 0
     await db.commit()
     logger.info("Subscription created: user=%s tier=%s sub=%s", user.id, tier, sub["id"])
 
@@ -552,8 +542,8 @@ async def _handle_subscription_deleted(sub: dict, db: AsyncSession):
     user.subscription_status = "active"
     user.stripe_subscription_id = None
     user.current_period_end = None
-    user.files_used_this_period = 0
-    user.overage_files_this_period = 0
+    user.credits_used_this_period = 0
+    user.overage_credits_this_period = 0
     await db.commit()
     logger.info("Subscription deleted — user %s reverted to free", user.id)
 
@@ -568,8 +558,8 @@ async def _handle_invoice_paid(invoice: dict, db: AsyncSession):
         return
 
     # Reset usage on successful renewal payment
-    user.files_used_this_period = 0
-    user.overage_files_this_period = 0
+    user.credits_used_this_period = 0
+    user.overage_credits_this_period = 0
     user.subscription_status = "active"
     period_end_ts = None
     try:

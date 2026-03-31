@@ -73,9 +73,8 @@ class CachedUser:
     subscription_tier: str = "free"
     stripe_subscription_id: Optional[str] = None
     subscription_status: str = "active"
-    files_used_this_period: int = 0
-    overage_files_this_period: int = 0
-    first_month_discount_used: bool = False
+    credits_used_this_period: int = 0
+    overage_credits_this_period: int = 0
 
     def to_json(self) -> str:
         return json.dumps(
@@ -93,9 +92,8 @@ class CachedUser:
                 "subscription_tier": self.subscription_tier,
                 "stripe_subscription_id": self.stripe_subscription_id,
                 "subscription_status": self.subscription_status,
-                "files_used_this_period": self.files_used_this_period,
-                "overage_files_this_period": self.overage_files_this_period,
-                "first_month_discount_used": self.first_month_discount_used,
+                "credits_used_this_period": self.credits_used_this_period,
+                "overage_credits_this_period": self.overage_credits_this_period,
             }
         )
 
@@ -109,9 +107,9 @@ class CachedUser:
         d.setdefault("subscription_tier", "free")
         d.setdefault("stripe_subscription_id", None)
         d.setdefault("subscription_status", "active")
-        d.setdefault("files_used_this_period", 0)
-        d.setdefault("overage_files_this_period", 0)
-        d.setdefault("first_month_discount_used", False)
+        d.setdefault("credits_used_this_period", d.pop("files_used_this_period", 0))
+        d.setdefault("overage_credits_this_period", d.pop("overage_files_this_period", 0))
+        d.pop("first_month_discount_used", None)
         return cls(**d)
 
     @classmethod
@@ -130,9 +128,8 @@ class CachedUser:
             subscription_tier=getattr(user, "subscription_tier", "free") or "free",
             stripe_subscription_id=getattr(user, "stripe_subscription_id", None),
             subscription_status=getattr(user, "subscription_status", "active") or "active",
-            files_used_this_period=getattr(user, "files_used_this_period", 0) or 0,
-            overage_files_this_period=getattr(user, "overage_files_this_period", 0) or 0,
-            first_month_discount_used=bool(getattr(user, "first_month_discount_used", False)),
+            credits_used_this_period=getattr(user, "credits_used_this_period", 0) or 0,
+            overage_credits_this_period=getattr(user, "overage_credits_this_period", 0) or 0,
         )
 
 

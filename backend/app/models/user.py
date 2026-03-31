@@ -29,10 +29,9 @@ class User(Base):
     stripe_subscription_id = Column(String, nullable=True)
     subscription_status = Column(String, default="active")  # active / canceled / past_due / trialing
     current_period_end = Column(DateTime, nullable=True)
-    files_used_this_period = Column(Integer, default=0)
-    overage_files_this_period = Column(Integer, default=0)
+    credits_used_this_period = Column(Integer, default=0)
+    overage_credits_this_period = Column(Integer, default=0)
     usage_reset_at = Column(DateTime, nullable=True)
-    first_month_discount_used = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

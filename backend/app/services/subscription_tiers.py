@@ -7,14 +7,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+# ── Global limits ────────────────────────────────────────────────────────────────
+MAX_PAGES_PER_CREDIT = 50      # 1 credit = up to 50 pages
+MAX_FILE_SIZE_MB = 5           # hard cap per uploaded file
+
+
 @dataclass(frozen=True)
 class TierConfig:
     name: str
     display_name: str
     price_monthly: int           # cents
-    files_per_month: int
-    max_pages_per_file: int
-    overage_rate: Optional[int]  # cents per file, None = blocked
+    credits_per_month: int
+    overage_rate: Optional[int]  # cents per credit, None = blocked
     has_pipeline: bool
     stripe_price_id_env: str     # env var name that holds the Stripe Price ID
 
@@ -24,8 +28,7 @@ TIERS: dict[str, TierConfig] = {
         name="free",
         display_name="Free",
         price_monthly=0,
-        files_per_month=5,
-        max_pages_per_file=25,
+        credits_per_month=10,
         overage_rate=None,
         has_pipeline=False,
         stripe_price_id_env="",
@@ -34,8 +37,7 @@ TIERS: dict[str, TierConfig] = {
         name="starter",
         display_name="Starter",
         price_monthly=6900,
-        files_per_month=150,
-        max_pages_per_file=75,
+        credits_per_month=150,
         overage_rate=60,
         has_pipeline=False,
         stripe_price_id_env="STRIPE_PRICE_STARTER",
@@ -44,8 +46,7 @@ TIERS: dict[str, TierConfig] = {
         name="pro",
         display_name="Pro",
         price_monthly=19900,
-        files_per_month=500,
-        max_pages_per_file=200,
+        credits_per_month=500,
         overage_rate=50,
         has_pipeline=True,
         stripe_price_id_env="STRIPE_PRICE_PRO",
@@ -54,8 +55,7 @@ TIERS: dict[str, TierConfig] = {
         name="business",
         display_name="Business",
         price_monthly=49900,
-        files_per_month=1500,
-        max_pages_per_file=500,
+        credits_per_month=1500,
         overage_rate=40,
         has_pipeline=True,
         stripe_price_id_env="STRIPE_PRICE_BUSINESS",
@@ -78,8 +78,9 @@ def tier_info_dict(tier: TierConfig) -> dict:
         "name": tier.name,
         "display_name": tier.display_name,
         "price_monthly": tier.price_monthly,
-        "files_per_month": tier.files_per_month,
-        "max_pages_per_file": tier.max_pages_per_file,
+        "credits_per_month": tier.credits_per_month,
+        "max_pages_per_credit": MAX_PAGES_PER_CREDIT,
+        "max_file_size_mb": MAX_FILE_SIZE_MB,
         "overage_rate": tier.overage_rate,
         "has_pipeline": tier.has_pipeline,
     }

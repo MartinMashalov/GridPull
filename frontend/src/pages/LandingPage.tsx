@@ -100,7 +100,7 @@ const PRICING_TIERS = [
     price: '$0',
     period: '',
     desc: 'Try it out — no card required',
-    features: ['5 files / month', 'Up to 25 pages per file', 'Excel & CSV export', 'OCR for scanned docs'],
+    features: ['10 credits / month', '1 credit = 1 file (up to 50 pages)', 'Excel & CSV export', 'OCR for scanned docs'],
     cta: 'Start free',
     highlight: false,
   },
@@ -109,7 +109,7 @@ const PRICING_TIERS = [
     price: '$69',
     period: '/mo',
     desc: 'For solo agents & small agencies',
-    features: ['150 files / month', 'Up to 75 pages per file', '$0.60 per file overage', 'Priority processing'],
+    features: ['150 credits / month', '$0.60 per credit overage', '5 MB max file size', 'Priority processing'],
     cta: 'Get started',
     highlight: false,
   },
@@ -118,7 +118,7 @@ const PRICING_TIERS = [
     price: '$199',
     period: '/mo',
     desc: 'For growing agencies & teams',
-    features: ['500 files / month', 'Up to 200 pages per file', '$0.50 per file overage', 'Automated pipelines'],
+    features: ['500 credits / month', '$0.50 per credit overage', 'Automated pipelines', '5 MB max file size'],
     cta: 'Go Pro',
     highlight: true,
   },
@@ -127,7 +127,7 @@ const PRICING_TIERS = [
     price: '$499',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
-    features: ['1,500 files / month', 'Up to 500 pages per file', '$0.40 per file overage', 'Automated pipelines'],
+    features: ['1,500 credits / month', '$0.40 per credit overage', 'Automated pipelines', '5 MB max file size'],
     cta: 'Contact us',
     highlight: false,
   },
@@ -340,7 +340,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting with 5 files per month at no cost. When you\'re ready, plans start at $69/mo for 150 files. Need more? Every plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $69.',
+    a: 'It\'s free to get started — just sign up and start extracting with 10 credits per month at no cost. Each credit covers one file up to 50 pages. When you\'re ready, plans start at $69/mo for 150 credits. Need more? Every paid plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $69.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
@@ -974,7 +974,7 @@ export default function LandingPage() {
             Plans that scale with your agency.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free — no credit card required. Upgrade when you're ready.
+            Start free with 10 credits — no credit card required. 1 credit = 1 file (up to 50 pages).
             From solo agents to large brokerages, pay only for what you need.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
@@ -1007,7 +1007,7 @@ export default function LandingPage() {
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-5">
-              All plans include 99%+ accuracy, OCR for scanned documents, and Excel/CSV export. No contracts — cancel anytime.
+              1 credit = 1 file (up to 50 pages) or 1 form fill. 5 MB max file size. All plans include 99%+ accuracy, OCR, and Excel/CSV export. No contracts — cancel anytime.
             </p>
             <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>

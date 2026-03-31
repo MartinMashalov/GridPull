@@ -3,7 +3,7 @@ import { trackEvent } from '@/lib/analytics'
 import {
   CreditCard, User, Zap, Check, StickyNote, Trash2, X,
   Crown, Rocket, Building2, FileText, AlertTriangle,
-  Sparkles, ChevronRight, BarChart3, Clock,
+  ChevronRight, BarChart3, Clock,
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -29,8 +29,9 @@ interface TierInfo {
   name: string
   display_name: string
   price_monthly: number
-  files_per_month: number
-  max_pages_per_file: number
+  credits_per_month: number
+  max_pages_per_credit: number
+  max_file_size_mb: number
   overage_rate: number | null
   has_pipeline: boolean
 }
@@ -49,8 +50,8 @@ interface JobHistoryItem {
 interface JobHistoryData {
   jobs: JobHistoryItem[]
   total: number
-  files_used_this_period: number
-  files_limit: number
+  credits_used_this_period: number
+  credits_limit: number
   usage_percent: number
   tier: string
 }
@@ -58,13 +59,12 @@ interface JobHistoryData {
 interface SubscriptionData {
   tier: TierInfo
   status: string
-  files_used: number
-  overage_files: number
-  files_limit: number
+  credits_used: number
+  overage_credits: number
+  credits_limit: number
   usage_percent: number
   current_period_end: string | null
   all_tiers: TierInfo[]
-  first_month_discount_available: boolean
 }
 
 const TIER_ICONS: Record<string, React.ReactNode> = {
@@ -137,7 +137,7 @@ export default function SettingsPage() {
         updateSubscription({
           subscription_tier: r.data.tier.name,
           subscription_status: r.data.status,
-          files_used_this_period: r.data.files_used,
+          credits_used_this_period: r.data.credits_used,
           current_period_end: r.data.current_period_end,
         })
       })
@@ -334,9 +334,9 @@ export default function SettingsPage() {
                 {/* Usage meter */}
                 <div className="mt-5">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium">Files used this period</span>
+                    <span className="text-xs font-medium">Credits used this period</span>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {sub.files_used} / {sub.files_limit}
+                      {sub.credits_used} / {sub.credits_limit}
                     </span>
                   </div>
                   <Progress
@@ -350,7 +350,7 @@ export default function SettingsPage() {
                     <div className="mt-2.5 flex items-center gap-1.5 text-amber-500">
                       <AlertTriangle size={12} />
                       <p className="text-xs font-medium">
-                        You've used {sub.files_used} of {sub.files_limit} files.
+                        You've used {sub.credits_used} of {sub.credits_limit} credits.
                         {currentTier !== 'business' && ' Upgrade to avoid overage charges.'}
                       </p>
                     </div>
@@ -359,14 +359,14 @@ export default function SettingsPage() {
                     <div className="mt-2.5 flex items-center gap-1.5 text-red-500">
                       <AlertTriangle size={12} />
                       <p className="text-xs font-medium">
-                        You've hit your free limit. Upgrade to continue processing files.
+                        You've hit your free limit. Upgrade to continue extracting.
                       </p>
                     </div>
                   )}
-                  {sub.overage_files > 0 && sub.tier.overage_rate && (
+                  {sub.overage_credits > 0 && sub.tier.overage_rate && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {sub.overage_files} overage file{sub.overage_files !== 1 ? 's' : ''} this period
-                      (${(sub.tier.overage_rate / 100).toFixed(2)}/file)
+                      {sub.overage_credits} overage credit{sub.overage_credits !== 1 ? 's' : ''} this period
+                      (${(sub.tier.overage_rate / 100).toFixed(2)}/credit)
                     </p>
                   )}
                 </div>
@@ -381,8 +381,6 @@ export default function SettingsPage() {
                 <div className="grid gap-3">
                   {sub.all_tiers.filter(t => t.name !== currentTier).map(tier => {
                     const isUpgrade = tierOrder.indexOf(tier.name) > tierOrder.indexOf(currentTier)
-                    const isStarter = tier.name === 'starter'
-                    const showDiscount = isStarter && sub.first_month_discount_available && currentTier === 'free'
 
                     return (
                       <div
@@ -402,31 +400,17 @@ export default function SettingsPage() {
                               {tier.name === 'pro' && (
                                 <Badge className="text-[10px] bg-amber-500/20 text-amber-600 border-amber-500/30">Popular</Badge>
                               )}
-                              {showDiscount && (
-                                <Badge className="text-[10px] bg-emerald-500/20 text-emerald-600 border-emerald-500/30">
-                                  <Sparkles size={9} className="mr-0.5" /> 50% off first month
-                                </Badge>
-                              )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {tier.files_per_month.toLocaleString()} files/mo
-                              {tier.max_pages_per_file && ` · ${tier.max_pages_per_file} pages/file`}
+                              {tier.credits_per_month.toLocaleString()} credits/mo
                               {tier.has_pipeline && ' · Pipeline access'}
-                              {tier.overage_rate && ` · $${(tier.overage_rate / 100).toFixed(2)} overage`}
+                              {tier.overage_rate && ` · $${(tier.overage_rate / 100).toFixed(2)}/credit overage`}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0 ml-3">
                           <div className="text-right">
-                            {showDiscount ? (
-                              <>
-                                <p className="text-sm font-bold">
-                                  <span className="line-through text-muted-foreground font-normal">${(tier.price_monthly / 100).toFixed(0)}</span>
-                                  {' '}${(tier.price_monthly / 200).toFixed(2)}
-                                </p>
-                                <p className="text-[10px] text-muted-foreground">first month</p>
-                              </>
-                            ) : tier.price_monthly > 0 ? (
+                            {tier.price_monthly > 0 ? (
                               <>
                                 <p className="text-sm font-bold">${(tier.price_monthly / 100).toFixed(0)}</p>
                                 <p className="text-[10px] text-muted-foreground">/month</p>
@@ -482,14 +466,14 @@ export default function SettingsPage() {
                       <BarChart3 size={16} className="text-primary" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">Files Processed</p>
+                      <p className="text-sm font-semibold">Credits Used</p>
                       <p className="text-xs text-muted-foreground">Current billing period</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-2xl font-bold tabular-nums">
-                      {history.files_used_this_period}
-                      <span className="text-sm font-normal text-muted-foreground"> / {history.files_limit}</span>
+                      {history.credits_used_this_period}
+                      <span className="text-sm font-normal text-muted-foreground"> / {history.credits_limit}</span>
                     </p>
                   </div>
                 </div>
@@ -506,7 +490,7 @@ export default function SettingsPage() {
                     {Math.round(history.usage_percent)}% of {history.tier} plan limit
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    {Math.max(0, history.files_limit - history.files_used_this_period)} remaining
+                    {Math.max(0, history.credits_limit - history.credits_used_this_period)} remaining
                   </span>
                 </div>
               </div>
@@ -703,11 +687,11 @@ export default function SettingsPage() {
                       {sub.tier.price_monthly > 0 ? `$${(sub.tier.price_monthly / 100).toFixed(0)}` : 'Free'}
                     </span>
                   </div>
-                  {sub.overage_files > 0 && sub.tier.overage_rate && (
+                  {sub.overage_credits > 0 && sub.tier.overage_rate && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Overage charges (est.)</span>
                       <span className="font-medium text-amber-600">
-                        +${((sub.overage_files * sub.tier.overage_rate) / 100).toFixed(2)}
+                        +${((sub.overage_credits * sub.tier.overage_rate) / 100).toFixed(2)}
                       </span>
                     </div>
                   )}
