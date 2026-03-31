@@ -117,10 +117,9 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status VARCHAR NOT NULL DEFAULT 'active'",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMP",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS files_used_this_period INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS overage_files_this_period INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS credits_used_this_period INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS overage_credits_this_period INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS usage_reset_at TIMESTAMP",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_month_discount_used BOOLEAN NOT NULL DEFAULT FALSE",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
             

@@ -110,13 +110,15 @@ async def _enqueue_extraction_job(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    from app.services.subscription_tiers import MAX_FILE_SIZE_MB
+
     tier = get_tier(getattr(db_user, "subscription_tier", "free") or "free")
     _SPREADSHEET_EXTS = {".xlsx", ".csv"}
 
     _maybe_reset_usage(db_user)
     await db.commit()
     await db.refresh(db_user)
-    used = db_user.files_used_this_period or 0
+    used = db_user.credits_used_this_period or 0
 
     incoming_filenames = {
         (f.filename or "").strip().lower()
@@ -133,23 +135,23 @@ async def _enqueue_extraction_job(
             .distinct()
         )
         already_used = {row[0].strip() for row in already_q.all()}
-        num_files = len(incoming_filenames - already_used)
+        num_credits = len(incoming_filenames - already_used)
     else:
-        num_files = len(incoming_filenames)
+        num_credits = len(incoming_filenames)
 
-    if tier.name == "free" and used + num_files > tier.files_per_month:
+    if tier.name == "free" and used + num_credits > tier.credits_per_month:
         raise HTTPException(
             status_code=402,
             detail={
-                "type": "file_limit_reached",
-                "message": f"Free plan allows {tier.files_per_month} files/month. You've used {used}.",
-                "files_used": used,
-                "files_limit": tier.files_per_month,
+                "type": "credit_limit_reached",
+                "message": f"Free plan allows {tier.credits_per_month} credits/month. You've used {used}.",
+                "credits_used": used,
+                "credits_limit": tier.credits_per_month,
                 "tier": tier.name,
             },
         )
 
-    overage_count = max(0, (used + num_files) - tier.files_per_month)
+    overage_count = max(0, (used + num_credits) - tier.credits_per_month)
 
     filenames = [f.filename for f in files]
     logger.info(
@@ -175,16 +177,16 @@ async def _enqueue_extraction_job(
     await db.commit()
     await db.refresh(job)
 
-    db_user.files_used_this_period = (db_user.files_used_this_period or 0) + num_files
+    db_user.credits_used_this_period = (db_user.credits_used_this_period or 0) + num_credits
     if overage_count > 0:
-        db_user.overage_files_this_period = (db_user.overage_files_this_period or 0) + overage_count
+        db_user.overage_credits_this_period = (db_user.overage_credits_this_period or 0) + overage_count
     await db.commit()
 
     logger.info(
-        "Job created — job_id=%s user_id=%s files_used=%d",
+        "Job created — job_id=%s user_id=%s credits_used=%d",
         job.id,
         user_id,
-        db_user.files_used_this_period,
+        db_user.credits_used_this_period,
     )
 
     upload_dir = os.path.join(settings.upload_dir, job.id)
@@ -193,6 +195,8 @@ async def _enqueue_extraction_job(
 
     _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
     _SPREADSHEET_EXT = {".xlsx", ".csv"}
+
+    max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
 
     for upload in files:
         fname = upload.filename or ""
@@ -205,6 +209,12 @@ async def _enqueue_extraction_job(
             continue
         path = os.path.join(upload_dir, fname)
         content = await upload.read()
+        if len(content) > max_bytes:
+            logger.warning("File %s exceeds %d MB limit in job %s", fname, MAX_FILE_SIZE_MB, job.id)
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{fname}' exceeds the {MAX_FILE_SIZE_MB} MB size limit.",
+            )
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content)
         size_kb = len(content) / 1024
@@ -224,17 +234,17 @@ async def _enqueue_extraction_job(
         user_id,
     )
 
-    new_used = db_user.files_used_this_period
-    usage_pct = (new_used / tier.files_per_month * 100) if tier.files_per_month else 0
+    new_used = db_user.credits_used_this_period
+    usage_pct = (new_used / tier.credits_per_month * 100) if tier.credits_per_month else 0
 
     return {
         "job_id": job.id,
         "status": "queued",
         "usage": {
-            "files_used": new_used,
-            "files_limit": tier.files_per_month,
+            "credits_used": new_used,
+            "credits_limit": tier.credits_per_month,
             "usage_percent": min(usage_pct, 100),
-            "overage_files": overage_count,
+            "overage_credits": overage_count,
             "tier": tier.name,
         },
     }
@@ -747,15 +757,15 @@ async def get_job_history(
         _maybe_reset_usage(db_user)
         await db.commit()
 
-    files_used = db_user.files_used_this_period if db_user else 0
-    files_limit = tier.files_per_month
+    credits_used = db_user.credits_used_this_period if db_user else 0
+    credits_limit = tier.credits_per_month
 
     return {
         "jobs": items,
         "total": total,
-        "files_used_this_period": files_used,
-        "files_limit": files_limit,
-        "usage_percent": min((files_used / files_limit * 100) if files_limit else 0, 100),
+        "credits_used_this_period": credits_used,
+        "credits_limit": credits_limit,
+        "usage_percent": min((credits_used / credits_limit * 100) if credits_limit else 0, 100),
         "tier": tier.name,
     }
 
@@ -791,7 +801,7 @@ async def download_result(
     if tier.name == "free":
         r2 = await db.execute(select(User).where(User.id == current_user.id))
         u = r2.scalar_one_or_none()
-        if u and (u.files_used_this_period or 0) > tier.files_per_month:
+        if u and (u.credits_used_this_period or 0) > tier.credits_per_month:
             raise HTTPException(
                 status_code=402,
                 detail={
@@ -845,7 +855,7 @@ async def download_accounting_format(
     if tier.name == "free":
         r2 = await db.execute(select(User).where(User.id == current_user.id))
         u = r2.scalar_one_or_none()
-        if u and (u.files_used_this_period or 0) > tier.files_per_month:
+        if u and (u.credits_used_this_period or 0) > tier.credits_per_month:
             raise HTTPException(status_code=402, detail={"type": "paywall", "message": "Upgrade to download"})
 
     flat_results: list[dict] = []

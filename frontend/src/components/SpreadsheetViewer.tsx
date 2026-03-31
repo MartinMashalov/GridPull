@@ -206,7 +206,7 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
                 </div>
                 <p className="text-base font-semibold mb-1">Upgrade to download your results</p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Your extraction is complete! Upgrade to Starter to download this file and get 150 files/month.
+                  Your extraction is complete! Upgrade to Starter to download your results and get 150 credits/month.
                 </p>
                 <div className="flex items-center justify-center gap-3">
                   <Button onClick={() => navigate('/settings')} className="gap-1.5">
@@ -214,7 +214,7 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-3">
-                  Starting at $34.50 for your first month
+                  Starting at $69/mo
                 </p>
               </div>
             </div>

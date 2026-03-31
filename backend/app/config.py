@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     stripe_price_starter: str = ""
     stripe_price_pro: str = ""
     stripe_price_business: str = ""
-    stripe_starter_coupon_id: str = ""  # 50% off first month coupon
+    max_file_size_mb: int = 5  # hard cap per uploaded file
 
     # URLs
     frontend_url: str = "http://localhost:3000"
