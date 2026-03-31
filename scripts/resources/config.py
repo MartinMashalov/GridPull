@@ -64,7 +64,7 @@ PRODUCT_CAPABILITIES = {
         "Folder-based watch and export",
         "99%+ accuracy on clear documents",
         "Files encrypted and deleted after processing",
-        "Free to start, pay-as-you-go pricing",
+        "Free to start, plans from $69/mo",
     ],
     "document_types": [
         "Invoices",
