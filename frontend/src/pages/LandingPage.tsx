@@ -100,61 +100,36 @@ const PRICING_TIERS = [
     price: '$0',
     period: '',
     desc: 'Try it out — no card required',
-    features: ['50 files / month', 'Up to 25 pages per file', 'Excel & CSV export', 'OCR for scanned docs'],
+    features: ['5 files / month', 'Up to 25 pages per file', 'Excel & CSV export', 'OCR for scanned docs'],
     cta: 'Start free',
     highlight: false,
   },
   {
     name: 'Starter',
-    price: '$39',
+    price: '$69',
     period: '/mo',
     desc: 'For solo agents & small agencies',
-    features: ['500 files / month', 'Up to 100 pages per file', '$0.10 per file overage', 'Priority processing'],
+    features: ['150 files / month', 'Up to 75 pages per file', '$0.60 per file overage', 'Priority processing'],
     cta: 'Get started',
     highlight: false,
   },
   {
     name: 'Pro',
-    price: '$99',
+    price: '$199',
     period: '/mo',
     desc: 'For growing agencies & teams',
-    features: ['2,500 files / month', 'Up to 250 pages per file', '$0.06 per file overage', 'Automated pipelines'],
+    features: ['500 files / month', 'Up to 200 pages per file', '$0.50 per file overage', 'Automated pipelines'],
     cta: 'Go Pro',
     highlight: true,
   },
   {
     name: 'Business',
-    price: '$249',
+    price: '$499',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
-    features: ['10,000 files / month', 'Up to 500 pages per file', '$0.03 per file overage', 'Automated pipelines'],
+    features: ['1,500 files / month', 'Up to 500 pages per file', '$0.40 per file overage', 'Automated pipelines'],
     cta: 'Contact us',
     highlight: false,
-  },
-]
-
-/* ─── Pricing examples ─────────────────────────────────────────────────────── */
-const PRICING_EXAMPLES = [
-  {
-    label: '50 invoices',
-    pages: 50,
-    cost: '$0',
-    time: '~3 min',
-    manual: '4+ hours',
-  },
-  {
-    label: '200 annual reports (avg 80 pages)',
-    pages: 16000,
-    cost: '$99/mo',
-    time: '~45 min',
-    manual: '400+ hours',
-  },
-  {
-    label: '500 scanned receipts',
-    pages: 500,
-    cost: '$39/mo',
-    time: '~12 min',
-    manual: '20+ hours',
   },
 ]
 
@@ -283,7 +258,7 @@ const USE_CASES = [
 /* ─── Stats ──────────────────────────────────────────────────────────────────── */
 const STATS = [
   { value: '99%+', label: 'Field extraction accuracy' },
-  { value: '~$0.0001', label: 'Per page processed' },
+  { value: '$0/mo', label: 'Free to start' },
   { value: '< 10s', label: 'Average processing time' },
   { value: 'Any PDF', label: 'Scanned, digital, or photo' },
 ]
@@ -365,7 +340,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting. After that, it\'s about $0.0001 per page with no monthly subscription or commitment. Your balance never expires. For context, 200 annual reports would cost roughly $1.60 — versus $20,000+ in manual analyst time.',
+    a: 'It\'s free to get started — just sign up and start extracting with 5 files per month at no cost. When you\'re ready, plans start at $69/mo for 150 files. Need more? Every plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $69.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
