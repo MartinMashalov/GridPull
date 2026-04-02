@@ -95,6 +95,7 @@ async def init_db():
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS completed_docs INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS baseline_update_mode BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS allow_edit_past_values BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE extraction_jobs ADD COLUMN IF NOT EXISTS use_cerebras BOOLEAN NOT NULL DEFAULT FALSE",
             # Stripe payment method storage for saved cards / auto-renewal
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR",

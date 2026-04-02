@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_openai_fallback_model: str = "gpt-4.1-mini"
 
+    # Cerebras (fast inference, optional SOV reasoning mode)
+    cerebras_api_key: str = ""
+    cerebras_api_key2: str = ""
+    cerebras_api_key3: str = ""
+    cerebras_model: str = "cerebras/gpt-oss-120b"
+
     # Mistral (OCR for scanned PDFs)
     mistral_api_key: str = ""
 

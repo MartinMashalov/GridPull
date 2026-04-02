@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
+
+import litellm
 
 from app.config import settings
 from app.services.llm_router import routed_acompletion
@@ -165,12 +170,79 @@ def _parse_json_content(content: Any) -> dict[str, Any]:
     raise last_exc or json.JSONDecodeError("No JSON object found", cleaned, 0)
 
 
+def _pick_cerebras_api_key() -> str:
+    keys = [k for k in (settings.cerebras_api_key, settings.cerebras_api_key2, settings.cerebras_api_key3) if k]
+    return random.choice(keys) if keys else ""
+
+
+async def _cerebras_acompletion(
+    messages: list[dict[str, str]],
+    usage: LLMUsage,
+    max_tokens: int,
+) -> dict[str, Any] | None:
+    api_key = _pick_cerebras_api_key()
+    if not api_key:
+        return None
+
+    model = settings.cerebras_model
+    max_retries = 4
+
+    for attempt in range(max_retries):
+        try:
+            t0 = time.perf_counter()
+            resp = await litellm.acompletion(
+                model=model,
+                messages=messages,
+                temperature=0,
+                max_tokens=max_tokens,
+                api_key=api_key,
+            )
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            if resp.usage:
+                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+            record_llm_usage_cost(usage, resp)
+            parsed = _parse_json_content(resp.choices[0].message.content)
+            logger.info(
+                "Cerebras %s succeeded in %.0fms (attempt %d/%d, in=%d out=%d)",
+                model, elapsed_ms, attempt + 1, max_retries,
+                resp.usage.prompt_tokens if resp.usage else 0,
+                resp.usage.completion_tokens if resp.usage else 0,
+            )
+            return parsed
+        except json.JSONDecodeError as exc:
+            logger.warning("Cerebras %s returned malformed JSON (attempt %d/%d): %s", model, attempt + 1, max_retries, exc)
+            api_key = _pick_cerebras_api_key()
+            continue
+        except Exception as exc:
+            err_str = str(exc).lower()
+            is_capacity = any(kw in err_str for kw in ("capacity", "rate", "limit", "overloaded", "503", "529", "too many", "quota"))
+            if is_capacity and attempt < max_retries - 1:
+                wait = 2 ** attempt + random.random()
+                logger.warning("Cerebras %s capacity issue (attempt %d/%d), retrying in %.1fs: %s", model, attempt + 1, max_retries, wait, exc)
+                api_key = _pick_cerebras_api_key()
+                await asyncio.sleep(wait)
+                continue
+            logger.warning("Cerebras %s failed (attempt %d/%d): %s", model, attempt + 1, max_retries, exc)
+            return None
+
+    return None
+
+
 async def _acompletion(
     model: str,
     messages: list[dict[str, str]],
     usage: LLMUsage,
     max_tokens: int,
+    use_cerebras: bool = False,
 ) -> dict[str, Any]:
+    if use_cerebras:
+        t0 = time.perf_counter()
+        result = await _cerebras_acompletion(messages, usage, max_tokens)
+        if result is not None:
+            return result
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        logger.info("Cerebras unavailable after %.0fms, falling back to OpenAI %s", elapsed_ms, model)
+
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -444,6 +516,7 @@ async def _extract_rows(
     expected_rows: int | None,
     instructions: str = "",
     retry_note: str = "",
+    use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     source_text = "\n".join(part for part in (selected_headers, tables_markdown, trimmed_text) if part)
@@ -498,6 +571,7 @@ async def _extract_rows(
             ],
             usage,
             _sov_extract_token_budget(len(field_names), expected_rows),
+            use_cerebras=use_cerebras,
         )
         rows = _normalise_rows(raw, field_names, doc.filename)
         return rows if rows else _empty([doc.filename], field_names)
@@ -511,6 +585,7 @@ async def extract_sov_from_document(
     fields: List[Dict[str, str]],
     usage: LLMUsage,
     instructions: str = "",
+    use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     filename_lower = doc.filename.lower()
@@ -635,6 +710,7 @@ async def extract_sov_from_document(
         usage,
         expected_rows,
         instructions,
+        use_cerebras=use_cerebras,
     )
 
     real_rows = [row for row in rows if not row.get("_error")]
@@ -663,6 +739,7 @@ async def extract_sov_from_document(
             expected_rows,
             instructions,
             retry_note=retry_note,
+            use_cerebras=use_cerebras,
         )
         if _row_score(retry_rows, field_names, expected_rows) < _row_score(rows, field_names, expected_rows):
             rows = retry_rows

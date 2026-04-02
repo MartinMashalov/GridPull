@@ -9,7 +9,7 @@ Also tests diverse field-name variations to ensure robustness.
 
 Usage:
     cd backend
-    python tests/test_sov_e2e.py [--files 01 02 03 04 05] [--skip-extraction]
+    python tests/test_sov_e2e.py [--files 01 02 03 04 05] [--skip-extraction] [--cerebras]
 """
 from __future__ import annotations
 
@@ -246,6 +246,7 @@ def print_extraction_report(
 async def test_create_from_scratch(
     file_key: str,
     field_set_name: str,
+    use_cerebras: bool = False,
 ) -> dict | None:
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -258,7 +259,8 @@ async def test_create_from_scratch(
     print(f"\n{BOLD}{'═' * 72}{RESET}")
     print(f"{BOLD}  SCENARIO 1: Create from Scratch{RESET}")
     print(f"  File: {path.name}")
-    print(f"  Field set: {field_set_name} ({len(fields)} fields)")
+    mode_label = f" {CYAN}[CEREBRAS]{RESET}" if use_cerebras else ""
+    print(f"  Field set: {field_set_name} ({len(fields)} fields){mode_label}")
     print(f"{BOLD}{'═' * 72}{RESET}")
 
     parsed = parse_pdf(str(path), path.name)
@@ -266,10 +268,12 @@ async def test_create_from_scratch(
 
     usage = LLMUsage()
     t0 = time.perf_counter()
-    rows = await extract_from_document(parsed, fields, usage)
+    rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
     elapsed = time.perf_counter() - t0
 
     report = print_extraction_report(rows, field_names, expected, "Extraction", elapsed, usage.cost_usd)
+    report["elapsed_s"] = elapsed
+    report["mode"] = "cerebras" if use_cerebras else "openai"
 
     real_rows = [r for r in rows if not r.get("_error")]
     if not real_rows:
@@ -317,6 +321,7 @@ async def test_baseline_update(
     file_key: str,
     field_set_name: str,
     extracted_rows: List[Dict[str, Any]] | None = None,
+    use_cerebras: bool = False,
 ) -> dict | None:
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -336,7 +341,7 @@ async def test_baseline_update(
         parsed = parse_pdf(str(path), path.name)
         usage = LLMUsage()
         t0 = time.perf_counter()
-        rows = await extract_from_document(parsed, fields, usage)
+        rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
         elapsed = time.perf_counter() - t0
         extracted_rows = [r for r in rows if not r.get("_error")]
         print(f"  Extracted {len(extracted_rows)} rows in {elapsed:.1f}s (${usage.cost_usd:.6f})")
@@ -491,7 +496,7 @@ async def test_baseline_update(
     }
 
 
-async def test_multi_field_set_extraction(file_key: str) -> list:
+async def test_multi_field_set_extraction(file_key: str, use_cerebras: bool = False) -> list:
     """Run extraction against the same file with all applicable field sets."""
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -515,7 +520,7 @@ async def test_multi_field_set_extraction(file_key: str) -> list:
         field_names = [f["name"] for f in fields]
         usage = LLMUsage()
         t0 = time.perf_counter()
-        rows = await extract_from_document(parsed, fields, usage)
+        rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
         elapsed = time.perf_counter() - t0
         report = print_extraction_report(rows, field_names, expected, f"Fields: {fs_name}", elapsed, usage.cost_usd)
         report["field_set"] = fs_name
@@ -530,17 +535,24 @@ async def main() -> None:
     parser.add_argument("--files", nargs="*", default=None, help="File keys to test (01-05). Default: all available")
     parser.add_argument("--skip-extraction", action="store_true", help="Skip full extraction, only test spreadsheet logic")
     parser.add_argument("--robustness", action="store_true", help="Run multi-field-set robustness tests")
+    parser.add_argument("--cerebras", action="store_true", help="Use Cerebras oss-120b with fallback to OpenAI")
     args = parser.parse_args()
 
+    use_cerebras = args.cerebras
     file_keys = args.files or [k for k in TEST_FILES if TEST_FILES[k][0].exists()]
     if not file_keys:
         print(f"{RED}No test files available{RESET}")
         return
 
+    mode_str = f" {CYAN}[CEREBRAS MODE]{RESET}" if use_cerebras else ""
     print(f"\n{BOLD}{'█' * 72}{RESET}")
-    print(f"{BOLD}  SOV End-to-End Test Suite{RESET}")
+    print(f"{BOLD}  SOV End-to-End Test Suite{mode_str}{RESET}")
     print(f"  Files: {file_keys}")
     print(f"  Skip extraction: {args.skip_extraction}")
+    if use_cerebras:
+        from app.config import settings as _cfg
+        keys_available = sum(1 for k in (_cfg.cerebras_api_key, _cfg.cerebras_api_key2, _cfg.cerebras_api_key3) if k)
+        print(f"  Cerebras model: {_cfg.cerebras_model}  API keys: {keys_available}")
     print(f"{BOLD}{'█' * 72}{RESET}")
 
     all_results: Dict[str, Any] = {}
@@ -548,7 +560,7 @@ async def main() -> None:
     if not args.skip_extraction:
         for key in file_keys:
             fs_name = RECOMMENDED_FIELD_SET_PER_FILE.get(key, "frontend_defaults")
-            report1 = await test_create_from_scratch(key, fs_name)
+            report1 = await test_create_from_scratch(key, fs_name, use_cerebras=use_cerebras)
             all_results[f"create_{key}_{fs_name}"] = report1
 
             if report1 and report1.get("rows", 0) > 2:
@@ -557,14 +569,14 @@ async def main() -> None:
                 field_names = [f["name"] for f in fields]
                 parsed = parse_pdf(str(path), path.name)
                 usage = LLMUsage()
-                rows = await extract_from_document(parsed, fields, usage)
+                rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
                 real_rows = [r for r in rows if not r.get("_error")]
-                report2 = await test_baseline_update(key, fs_name, real_rows)
+                report2 = await test_baseline_update(key, fs_name, real_rows, use_cerebras=use_cerebras)
                 all_results[f"update_{key}_{fs_name}"] = report2
 
         if args.robustness:
             for key in file_keys:
-                robustness = await test_multi_field_set_extraction(key)
+                robustness = await test_multi_field_set_extraction(key, use_cerebras=use_cerebras)
                 all_results[f"robustness_{key}"] = robustness
     else:
         print(f"\n{YELLOW}  Skipping extraction, testing spreadsheet logic only{RESET}")

@@ -106,6 +106,7 @@ async def _enqueue_extraction_job(
     baseline_spreadsheet: Optional[UploadFile] = None,
     baseline_update_mode: bool = False,
     allow_edit_past_values: bool = False,
+    use_cerebras: bool = False,
 ) -> dict:
     from app.routes.payments import _maybe_reset_usage
 
@@ -234,6 +235,7 @@ async def _enqueue_extraction_job(
         file_count=len(uploads_to_save),
         baseline_update_mode=baseline_to_save is not None,
         allow_edit_past_values=bool(allow_edit_past_values and baseline_to_save is not None),
+        use_cerebras=bool(use_cerebras),
     )
     db.add(job)
     await db.commit()
@@ -333,6 +335,7 @@ async def start_extraction(
     baseline_spreadsheet: Optional[UploadFile] = File(None),
     baseline_update_mode: bool = Form(False),
     allow_edit_past_values: bool = Form(False),
+    use_cerebras: bool = Form(False),
     fields: str = Form(...),
     instructions: str = Form(""),
     format: str = Form("xlsx"),
@@ -372,6 +375,7 @@ async def start_extraction(
         baseline_spreadsheet=baseline_spreadsheet,
         baseline_update_mode=baseline_update_mode,
         allow_edit_past_values=allow_edit_past_values,
+        use_cerebras=use_cerebras,
     )
 
 
@@ -382,6 +386,7 @@ async def start_extraction_service(
     baseline_spreadsheet: Optional[UploadFile] = File(None),
     baseline_update_mode: bool = Form(False),
     allow_edit_past_values: bool = Form(False),
+    use_cerebras: bool = Form(False),
     fields: str = Form(...),
     instructions: str = Form(""),
     format: str = Form("xlsx"),
@@ -417,6 +422,7 @@ async def start_extraction_service(
         baseline_spreadsheet=baseline_spreadsheet,
         baseline_update_mode=baseline_update_mode,
         allow_edit_past_values=allow_edit_past_values,
+        use_cerebras=use_cerebras,
     )
 
 

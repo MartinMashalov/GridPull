@@ -141,6 +141,7 @@ async def extract_from_document(
     usage: LLMUsage,
     instructions: str = "",
     batch_document_count: int = 1,
+    use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [f["name"] for f in fields]
     is_sov_schema = property_schedule_row_cleanup_matches_schema(field_names)
@@ -150,13 +151,14 @@ async def extract_from_document(
         from app.services.sov import extract_sov_from_document
 
         logger.info(
-            "Routing %s -> dedicated SOV pipeline (pages=%d, tables=%d, scanned=%s)",
+            "Routing %s -> dedicated SOV pipeline (pages=%d, tables=%d, scanned=%s, cerebras=%s)",
             doc.filename,
             doc.page_count,
             len(doc.tables),
             doc.is_scanned,
+            use_cerebras,
         )
-        rows = await extract_sov_from_document(doc, fields, usage, instructions)
+        rows = await extract_sov_from_document(doc, fields, usage, instructions, use_cerebras=use_cerebras)
         doc_full_text = doc.content_text or ""
         rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
         rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
