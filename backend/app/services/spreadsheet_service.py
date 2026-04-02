@@ -197,14 +197,23 @@ def _plan_spreadsheet_updates(
         return existing_rows, [], final_headers
 
     header_set = set(final_headers)
+
+    def _is_id_field(name: str) -> bool:
+        low = name.lower().strip()
+        if re.search(r"(?:#|no\.?|num(?:ber)?|id)\s*$", low):
+            if re.search(r"(?:phone|fax|tel(?:ephone)?|contact|ext)\s*(?:#|no|num)", low):
+                return False
+            if re.match(r"#\s*of\b", low) or re.search(r"number\s+of\b", low):
+                return False
+            return True
+        if re.search(r"\bloc(?:ation)?\s*#?\b", low):
+            return True
+        if re.search(r"\b(?:vin|ssn|ein|tin|fein|npi)\b", low):
+            return True
+        return False
+
     location_field = next(
-        (
-            field for field in fields
-            if field in header_set and (
-                ("location" in field.lower() and ("number" in field.lower() or "#" in field.lower() or " no" in field.lower()))
-                or re.search(r"\bloc(?:ation)?\s*#?\b", field.lower()) is not None
-            )
-        ),
+        (field for field in fields if field in header_set and _is_id_field(field)),
         None,
     )
     address_field = next(
@@ -212,7 +221,16 @@ def _plan_spreadsheet_updates(
         None,
     )
     city_field = next((field for field in fields if field in header_set and "city" in field.lower()), None)
-    state_field = next((field for field in fields if field in header_set and re.search(r"\bstate\b", field.lower())), None)
+    state_field = next(
+        (
+            field for field in fields
+            if field in header_set and re.search(
+                r"\b(?:state|province|prov)\b|^st\.?$",
+                field.lower().strip(),
+            )
+        ),
+        None,
+    )
     zip_field = next(
         (field for field in fields if field in header_set and ("zip" in field.lower() or "postal" in field.lower())),
         None,
