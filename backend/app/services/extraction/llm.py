@@ -6,9 +6,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-import litellm
-
-from app.config import settings
+from app.services.llm_router import routed_acompletion
 
 from .core import (
     _CLEANUP_MODEL,
@@ -32,10 +30,8 @@ logger = logging.getLogger(__name__)
 
 
 async def _litellm_acompletion(**kwargs: Any) -> Any:
-    """All LLM chat calls go through LiteLLM (OpenAI via api_key). Mistral OCR stays in ocr_service only."""
-    if not kwargs.get("api_key"):
-        kwargs["api_key"] = settings.openai_api_key
-    return await litellm.acompletion(**kwargs)
+    """All LLM chat calls go through the shared router. Mistral OCR stays in ocr_service only."""
+    return await routed_acompletion(route_profile="extraction", **kwargs)
 
 
 async def _llm_extract(

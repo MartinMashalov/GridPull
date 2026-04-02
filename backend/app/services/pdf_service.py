@@ -14,6 +14,9 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from email import policy
+from email.parser import BytesParser
+from html import unescape
 from typing import List
 import fitz  # PyMuPDF >= 1.23
 
@@ -174,7 +177,10 @@ _TABLE_SCORE_KEYWORDS = [
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".tiff", ".bmp", ".webp"}
+_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml"}
+_EMAIL_EXTENSIONS = {".eml", ".emlx"}
+_OUTLOOK_EXTENSIONS = {".msg"}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff", ".bmp", ".webp"}
 
 
 def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
@@ -198,6 +204,169 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
 
     ext = os.path.splitext(filename.lower())[1]
     force_scanned = ext in _IMAGE_EXTENSIONS
+
+    if ext in _TEXT_EXTENSIONS or ext in _EMAIL_EXTENSIONS or ext in _OUTLOOK_EXTENSIONS:
+        with open(file_path, "rb") as fh:
+            raw_bytes = fh.read()
+
+        text = raw_bytes.decode("utf-8", errors="replace")
+
+        if ext in _OUTLOOK_EXTENSIONS:
+            try:
+                import extract_msg
+
+                message = extract_msg.Message(file_path)
+                try:
+                    text_parts: list[str] = []
+                    header_lines = []
+                    for label, value in (
+                        ("Subject", message.subject),
+                        ("From", message.sender),
+                        ("To", message.to),
+                        ("Cc", message.cc),
+                        ("Bcc", message.bcc),
+                        ("Date", str(message.date) if message.date else None),
+                    ):
+                        if value:
+                            header_lines.append(f"{label}: {value}")
+                    if header_lines:
+                        text_parts.append("\n".join(header_lines))
+
+                    body_text = str(message.body or "").strip()
+                    if not body_text and message.htmlBody:
+                        html_text = message.htmlBody
+                        if isinstance(html_text, bytes):
+                            html_text = html_text.decode("utf-8", errors="replace")
+                        html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
+                        html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
+                        html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
+                        body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
+                        body_text = re.sub(r"[ \t]+", " ", body_text)
+                        body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+                    if body_text:
+                        text_parts.append(body_text)
+
+                    attachment_names = []
+                    for attachment in message.attachments:
+                        attachment_name = (
+                            getattr(attachment, "longFilename", None)
+                            or getattr(attachment, "shortFilename", None)
+                            or getattr(attachment, "displayName", None)
+                            or getattr(attachment, "name", None)
+                        )
+                        if attachment_name:
+                            attachment_names.append(str(attachment_name))
+                    if attachment_names:
+                        text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+                    if text_parts:
+                        text = "\n\n".join(text_parts).strip()
+                finally:
+                    message.close()
+            except Exception:
+                logger.warning("Outlook MSG parsing fallback to raw text for %s", filename)
+        elif ext in _EMAIL_EXTENSIONS:
+            email_bytes = raw_bytes
+            if ext == ".emlx":
+                first_line, _, remainder = raw_bytes.partition(b"\n")
+                if first_line.strip().isdigit() and remainder:
+                    email_bytes = remainder
+
+            try:
+                message = BytesParser(policy=policy.default).parsebytes(email_bytes)
+                text_parts: list[str] = []
+                header_lines = []
+                for label, value in (
+                    ("Subject", message.get("subject")),
+                    ("From", message.get("from")),
+                    ("To", message.get("to")),
+                    ("Cc", message.get("cc")),
+                    ("Date", message.get("date")),
+                ):
+                    if value:
+                        header_lines.append(f"{label}: {value}")
+                if header_lines:
+                    text_parts.append("\n".join(header_lines))
+
+                plain_parts: list[str] = []
+                html_parts: list[str] = []
+                attachment_names: list[str] = []
+                for part in (message.walk() if message.is_multipart() else [message]):
+                    disposition = part.get_content_disposition()
+                    content_type = part.get_content_type()
+                    if disposition == "attachment":
+                        attachment_name = part.get_filename()
+                        if attachment_name:
+                            attachment_names.append(attachment_name)
+                        continue
+                    if not content_type.startswith("text/"):
+                        continue
+                    try:
+                        part_text = part.get_content()
+                    except Exception:
+                        payload = part.get_payload(decode=True) or b""
+                        charset = part.get_content_charset() or "utf-8"
+                        part_text = payload.decode(charset, errors="replace")
+                    if not isinstance(part_text, str) or not part_text.strip():
+                        continue
+                    if content_type == "text/plain":
+                        plain_parts.append(part_text)
+                    elif content_type == "text/html":
+                        html_parts.append(part_text)
+
+                body_text = "\n\n".join(chunk.strip() for chunk in plain_parts if chunk.strip()).strip()
+                if not body_text and html_parts:
+                    html_text = "\n\n".join(html_parts)
+                    html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
+                    html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
+                    html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
+                    body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
+                    body_text = re.sub(r"[ \t]+", " ", body_text)
+                    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+
+                if body_text:
+                    text_parts.append(body_text)
+                if attachment_names:
+                    text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+                if text_parts:
+                    text = "\n\n".join(text_parts).strip()
+            except Exception:
+                logger.warning("Email parsing fallback to raw text for %s", filename)
+        elif ext in {".html", ".htm"}:
+            html_text = raw_bytes.decode("utf-8", errors="replace")
+            html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
+            html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
+            html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
+            text = unescape(re.sub(r"<[^>]+>", " ", html_text))
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+        page = ParsedPage(
+            page_num=1,
+            text=text.strip(),
+            tables=[],
+            word_count=len(text.split()),
+            has_numbers=bool(_NUM_RE.search(text)),
+            has_dates=bool(_DATE_RE.search(text)),
+            image_count=0,
+        )
+        logger.info(
+            "parse_pdf done: filename=%s pages=1 tables=0 doc_type_hint=narrative is_scanned=False selected_pages=%s table_scan_pages=%s",
+            filename,
+            [1],
+            [],
+        )
+        return ParsedDocument(
+            filename=filename,
+            file_path=file_path,
+            page_count=1,
+            pages=[page],
+            tables=[],
+            content_text=f"=== Page 1 ===\n{text.strip()}",
+            tables_markdown="",
+            doc_type_hint="narrative",
+            has_tables=False,
+            is_scanned=False,
+        )
 
     doc = fitz.open(file_path)
     page_count_raw = len(doc)

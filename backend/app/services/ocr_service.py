@@ -162,9 +162,6 @@ async def _ocr_file(file_path: str, api_key: str) -> tuple[list[OCRPage], float]
                 document_url=signed.url,
                 document_name=os.path.basename(file_path),
             ),
-            table_format="markdown",
-            extract_header=True,
-            extract_footer=True,
         )
     finally:
         try:

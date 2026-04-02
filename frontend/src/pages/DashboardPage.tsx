@@ -61,11 +61,51 @@ export interface JobState {
 }
 
 const _ACTIVE_JOB_KEY = 'gridpull-active-job'
-const _ACCEPTED_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg'])
-const _SUPPORTED_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg'])
+const _ACCEPTED_TYPES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
+  'text/plain',
+  'text/markdown',
+  'text/html',
+  'application/json',
+  'application/xml',
+  'text/xml',
+  'message/rfc822',
+  'application/vnd.ms-outlook',
+])
+const _SUPPORTED_EXTENSIONS = new Set([
+  'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff',
+  'txt', 'md', 'markdown', 'html', 'htm', 'json', 'xml', 'eml', 'emlx', 'msg',
+])
 const _SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'csv'])
 const _ZIP_MIME_TYPES = new Set(['application/zip', 'application/x-zip-compressed'])
 const _MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+const _EXTENSION_TO_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  txt: 'text/plain',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  html: 'text/html',
+  htm: 'text/html',
+  json: 'application/json',
+  xml: 'application/xml',
+  eml: 'message/rfc822',
+  emlx: 'message/rfc822',
+  msg: 'application/vnd.ms-outlook',
+}
 
 // ── Progress bar ───────────────────────────────────────────────────────────────
 function ProgressBar({ job, onCancel }: { job: JobState; onCancel: () => void }) {
@@ -248,11 +288,7 @@ export default function DashboardPage() {
           }
 
           const blob = await entry.async('blob')
-          const type = entryExt === 'pdf'
-            ? 'application/pdf'
-            : entryExt === 'png'
-              ? 'image/png'
-              : 'image/jpeg'
+        const type = _EXTENSION_TO_MIME[entryExt] || 'application/octet-stream'
           valid.push(new File([blob], entryFileName, { type, lastModified: Date.now() }))
           extractedFromThisZip += 1
         }
@@ -311,6 +347,18 @@ export default function DashboardPage() {
           'application/pdf': ['.pdf'],
           'image/png': ['.png'],
           'image/jpeg': ['.jpg', '.jpeg'],
+          'image/webp': ['.webp'],
+          'image/gif': ['.gif'],
+          'image/bmp': ['.bmp'],
+          'image/tiff': ['.tif', '.tiff'],
+          'text/plain': ['.txt'],
+          'text/markdown': ['.md', '.markdown'],
+          'text/html': ['.html', '.htm'],
+          'application/json': ['.json'],
+          'application/xml': ['.xml'],
+          'message/rfc822': ['.eml', '.emlx'],
+          'application/vnd.ms-outlook': ['.msg'],
+          'application/octet-stream': ['.msg'],
           'application/zip': ['.zip'],
           'application/x-zip-compressed': ['.zip'],
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
@@ -320,6 +368,18 @@ export default function DashboardPage() {
           'application/pdf': ['.pdf'],
           'image/png': ['.png'],
           'image/jpeg': ['.jpg', '.jpeg'],
+          'image/webp': ['.webp'],
+          'image/gif': ['.gif'],
+          'image/bmp': ['.bmp'],
+          'image/tiff': ['.tif', '.tiff'],
+          'text/plain': ['.txt'],
+          'text/markdown': ['.md', '.markdown'],
+          'text/html': ['.html', '.htm'],
+          'application/json': ['.json'],
+          'application/xml': ['.xml'],
+          'message/rfc822': ['.eml', '.emlx'],
+          'application/vnd.ms-outlook': ['.msg'],
+          'application/octet-stream': ['.msg'],
           'application/zip': ['.zip'],
           'application/x-zip-compressed': ['.zip'],
         },
@@ -673,8 +733,8 @@ export default function DashboardPage() {
               <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
               <p className="text-muted-foreground text-sm mt-1">
                 {documentType === 'sov'
-                  ? 'Drop last year\'s spreadsheet (.xlsx or .csv) + new PDFs — headers will sync automatically'
-                  : 'Supports PDF, PNG, JPEG, and ZIP (max 5 MB per file) — upload multiple files at once'
+                  ? 'Drop last year\'s spreadsheet (.xlsx or .csv) + new files such as PDFs, images, Outlook emails, text, HTML, JSON, or XML — headers will sync automatically'
+                  : 'Supports PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP (max 5 MB per file) — upload multiple files at once'
                 }
               </p>
             </div>

@@ -4,8 +4,15 @@ import json
 import base64
 import logging
 import asyncio
-from litellm import ocr, acompletion
+import re
+import tempfile
+from email import policy
+from email.parser import BytesParser
+from html import unescape
+from litellm import ocr
 from pypdf import PdfReader, PdfWriter
+
+from app.services.llm_router import routed_acompletion
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +20,20 @@ logger = logging.getLogger(__name__)
 class MistralOCR:
     """Extract text from PDF using Mistral OCR"""
 
-    async def extract_text_async(self, pdf_bytes: bytes) -> str:
-        logger.info(f"[OCR] Starting async OCR extraction for PDF of size {len(pdf_bytes)} bytes")
+    async def extract_text_async(self, file_bytes: bytes, mime_type: str = "application/pdf") -> str:
+        logger.info(f"[OCR] Starting async OCR extraction for file of size {len(file_bytes)} bytes")
         try:
-            result = await asyncio.to_thread(self._extract_text_sync, pdf_bytes)
+            result = await asyncio.to_thread(self._extract_text_sync, file_bytes, mime_type)
             return result
         except Exception as e:
             logger.error(f"[OCR] Error during OCR extraction: {str(e)}", exc_info=True)
             raise
 
-    def _extract_text_sync(self, pdf_bytes: bytes) -> str:
-        base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    def _extract_text_sync(self, file_bytes: bytes, mime_type: str) -> str:
+        base64_file = base64.b64encode(file_bytes).decode('utf-8')
         document = {
             "type": "document_url",
-            "document_url": f"data:application/pdf;base64,{base64_pdf}"
+            "document_url": f"data:{mime_type};base64,{base64_file}"
         }
         response = ocr(model="mistral/mistral-ocr-latest", document=document)
         extracted_text = "\n".join(page.markdown for page in response.pages)
@@ -133,24 +140,14 @@ class PDFPopulator:
 
         Return a JSON object with ALL field names as keys and appropriate values. Every single field MUST have a value that matches its type constraints."""
 
-        max_retries = 10
-        for attempt in range(max_retries):
-            try:
-                response = await acompletion(
-                    model="groq/llama-3.3-70b-versatile",
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
-                )
-                break
-            except Exception as e:
-                logger.warning(f"[AI] Attempt {attempt + 1} failed: {str(e)}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep((attempt + 1) * 2)
-                else:
-                    raise
+        response = await routed_acompletion(
+            route_profile="form_fill",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
 
         cost = response._hidden_params.get('response_cost', 0.0)
-        used_model = getattr(response, "model", "groq/llama-3.3-70b-versatile")
+        used_model = getattr(response, "model", "unknown")
 
         response_text = response.choices[0].message.content
         if "```json" in response_text:
@@ -200,32 +197,160 @@ class PDFPopulator:
 
             for idx, (filename, file_bytes) in enumerate(source_files_bytes):
                 ext = os.path.splitext(filename.lower())[1]
-                if ext in ('.txt', '.md', '.markdown'):
+                if ext in ('.txt', '.md', '.markdown', '.json', '.xml'):
                     text = file_bytes.decode('utf-8', errors='replace')
                     all_texts.append(text)
                     logger.info(f"[POPULATE] Read text file {filename}: {len(text)} chars")
+                elif ext in ('.html', '.htm'):
+                    text = file_bytes.decode('utf-8', errors='replace')
+                    text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
+                    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+                    text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", text)
+                    text = unescape(re.sub(r"<[^>]+>", " ", text))
+                    text = re.sub(r"[ \t]+", " ", text)
+                    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                    all_texts.append(text)
+                    logger.info(f"[POPULATE] Read HTML file {filename}: {len(text)} chars")
+                elif ext == '.msg':
+                    try:
+                        import extract_msg
+
+                        with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as tmp:
+                            tmp.write(file_bytes)
+                            tmp_path = tmp.name
+                        try:
+                            message = extract_msg.Message(tmp_path)
+                            try:
+                                text_parts = []
+                                header_lines = []
+                                for label, value in (
+                                    ("Subject", message.subject),
+                                    ("From", message.sender),
+                                    ("To", message.to),
+                                    ("Cc", message.cc),
+                                    ("Bcc", message.bcc),
+                                    ("Date", str(message.date) if message.date else None),
+                                ):
+                                    if value:
+                                        header_lines.append(f"{label}: {value}")
+                                if header_lines:
+                                    text_parts.append("\n".join(header_lines))
+
+                                body_text = str(message.body or "").strip()
+                                if not body_text and message.htmlBody:
+                                    html_text = message.htmlBody
+                                    if isinstance(html_text, bytes):
+                                        html_text = html_text.decode('utf-8', errors='replace')
+                                    html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
+                                    html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
+                                    html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
+                                    body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
+                                    body_text = re.sub(r"[ \t]+", " ", body_text)
+                                    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+                                if body_text:
+                                    text_parts.append(body_text)
+
+                                attachment_names = []
+                                for attachment in message.attachments:
+                                    attachment_name = (
+                                        getattr(attachment, 'longFilename', None)
+                                        or getattr(attachment, 'shortFilename', None)
+                                        or getattr(attachment, 'displayName', None)
+                                        or getattr(attachment, 'name', None)
+                                    )
+                                    if attachment_name:
+                                        attachment_names.append(str(attachment_name))
+                                if attachment_names:
+                                    text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+                                text = "\n\n".join(part for part in text_parts if part).strip() or file_bytes.decode('utf-8', errors='replace')
+                            finally:
+                                message.close()
+                        finally:
+                            try:
+                                os.unlink(tmp_path)
+                            except OSError:
+                                pass
+                    except Exception:
+                        text = file_bytes.decode('utf-8', errors='replace')
+                    all_texts.append(text)
+                    logger.info(f"[POPULATE] Read Outlook MSG file {filename}: {len(text)} chars")
+                elif ext in ('.eml', '.emlx'):
+                    email_bytes = file_bytes
+                    if ext == '.emlx':
+                        first_line, _, remainder = file_bytes.partition(b"\n")
+                        if first_line.strip().isdigit() and remainder:
+                            email_bytes = remainder
+                    try:
+                        message = BytesParser(policy=policy.default).parsebytes(email_bytes)
+                        text_parts = []
+                        header_lines = []
+                        for label, value in (
+                            ("Subject", message.get("subject")),
+                            ("From", message.get("from")),
+                            ("To", message.get("to")),
+                            ("Cc", message.get("cc")),
+                            ("Date", message.get("date")),
+                        ):
+                            if value:
+                                header_lines.append(f"{label}: {value}")
+                        if header_lines:
+                            text_parts.append("\n".join(header_lines))
+
+                        plain_parts = []
+                        html_parts = []
+                        attachment_names = []
+                        for part in (message.walk() if message.is_multipart() else [message]):
+                            disposition = part.get_content_disposition()
+                            content_type = part.get_content_type()
+                            if disposition == 'attachment':
+                                attachment_name = part.get_filename()
+                                if attachment_name:
+                                    attachment_names.append(attachment_name)
+                                continue
+                            if not content_type.startswith('text/'):
+                                continue
+                            try:
+                                part_text = part.get_content()
+                            except Exception:
+                                payload = part.get_payload(decode=True) or b""
+                                charset = part.get_content_charset() or 'utf-8'
+                                part_text = payload.decode(charset, errors='replace')
+                            if not isinstance(part_text, str) or not part_text.strip():
+                                continue
+                            if content_type == 'text/plain':
+                                plain_parts.append(part_text)
+                            elif content_type == 'text/html':
+                                html_parts.append(part_text)
+
+                        body_text = "\n\n".join(chunk.strip() for chunk in plain_parts if chunk.strip()).strip()
+                        if not body_text and html_parts:
+                            html_text = "\n\n".join(html_parts)
+                            html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
+                            html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
+                            html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
+                            body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
+                            body_text = re.sub(r"[ \t]+", " ", body_text)
+                            body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+
+                        if body_text:
+                            text_parts.append(body_text)
+                        if attachment_names:
+                            text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+                        text = "\n\n".join(part for part in text_parts if part).strip() or file_bytes.decode('utf-8', errors='replace')
+                    except Exception:
+                        text = file_bytes.decode('utf-8', errors='replace')
+                    all_texts.append(text)
+                    logger.info(f"[POPULATE] Read email file {filename}: {len(text)} chars")
                 elif ext == '.pdf':
-                    extracted = await ocr_extractor.extract_text_async(file_bytes)
+                    extracted = await ocr_extractor.extract_text_async(file_bytes, 'application/pdf')
                     all_texts.append(extracted)
                     logger.info(f"[POPULATE] OCR'd PDF {filename}: {len(extracted)} chars")
-                elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif'):
+                elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
                     mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                            '.webp': 'image/webp', '.gif': 'image/gif'}.get(ext, 'image/png')
-                    b64 = base64.b64encode(file_bytes).decode('utf-8')
-                    img_response = await acompletion(
-                        model="groq/llama-3.3-70b-versatile",
-                        messages=[{
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "Extract ALL text and data from this image. Return everything you can read."},
-                                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
-                            ]
-                        }]
-                    )
-                    img_text = img_response.choices[0].message.content
+                            '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+                            '.tif': 'image/tiff', '.tiff': 'image/tiff'}.get(ext, 'image/png')
+                    img_text = await ocr_extractor.extract_text_async(file_bytes, mime)
                     all_texts.append(img_text)
-                    img_cost = img_response._hidden_params.get('response_cost', 0.0)
-                    total_cost += img_cost
                     logger.info(f"[POPULATE] Extracted text from image {filename}: {len(img_text)} chars")
                 else:
                     text = file_bytes.decode('utf-8', errors='replace')

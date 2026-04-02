@@ -22,7 +22,10 @@ from app.services.subscription_tiers import MAX_FILE_SIZE_MB, get_tier
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/form-filling", tags=["form-filling"])
 
-_ALLOWED_SOURCE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt", ".md", ".markdown"}
+_ALLOWED_SOURCE_EXTS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff",
+    ".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml", ".eml", ".emlx", ".msg",
+}
 
 
 @router.post("/fill")

@@ -113,7 +113,10 @@ async def _enqueue_extraction_job(
 
     tier = get_tier(getattr(db_user, "subscription_tier", "free") or "free")
     _SPREADSHEET_EXTS = {".xlsx", ".xls", ".xlsm", ".csv"}
-    _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg"}
+    _ALLOWED_EXT = {
+        ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff",
+        ".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml", ".eml", ".emlx", ".msg",
+    }
 
     _maybe_reset_usage(db_user)
     await db.commit()

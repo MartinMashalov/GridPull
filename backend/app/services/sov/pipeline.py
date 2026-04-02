@@ -6,9 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import litellm
-
 from app.config import settings
+from app.services.llm_router import routed_acompletion
 from app.services.ocr_service import run_mistral_ocr
 from app.services.pdf_service import ParsedDocument
 from app.services.extraction.core import (
@@ -29,6 +28,7 @@ logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9/&().,#:%-]*")
 _SECTION_SELECTOR_MAX_TOKENS = 1_200
 _SOV_EXTRACT_MAX_TOKENS = 12_000
+_SOV_LITEPARSE_THRESHOLD_PAGES = 15
 
 
 @dataclass
@@ -100,15 +100,13 @@ async def _acompletion(
         "max_tokens": max_tokens,
         "response_format": {"type": "json_object"},
     }
-    if "/" not in model and settings.openai_api_key:
-        kwargs["api_key"] = settings.openai_api_key
 
     last_exc: Exception | None = None
     for with_response_format in (True, False):
         try:
             if not with_response_format:
                 kwargs.pop("response_format", None)
-            resp = await litellm.acompletion(**kwargs)
+            resp = await routed_acompletion(route_profile="extraction", **kwargs)
             if resp.usage:
                 usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
             record_llm_usage_cost(usage, resp)
@@ -253,7 +251,7 @@ async def _extract_rows(
     prompt_parts = [
         f"--- Document Info ---\nFilename: {doc.filename}\nTotal pages: {doc.page_count}\nPipeline: Dedicated SOV extraction",
         f"\n--- Fields to Extract ---\n{_fields_block(fields)}",
-        f"\n--- Kept OCR Pages ---\n{selected_headers}",
+        f"\n--- Selected Source Context ---\n{selected_headers}",
     ]
     if instructions.strip():
         prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
@@ -268,7 +266,7 @@ async def _extract_rows(
         "\n--- Extraction Rules ---\n"
         "Return one object per real repeated schedule row.\n"
         "Prefer master schedules and structured tables over narrative duplicates.\n"
-        "Merge detail from the kept OCR pages into the correct row only when the location/entity match is clear.\n"
+        "Merge detail from the selected source context into the correct row only when the location/entity match is clear.\n"
         "Never emit headers, subtotals, totals, or blank rows.\n"
         "Use null when a field is genuinely absent.\n"
         "Return spreadsheet-ready scalar values only.\n"
@@ -276,7 +274,7 @@ async def _extract_rows(
     )
 
     system_prompt = (
-        "You extract statement-of-values style schedules from trimmed OCR context.\n"
+        "You extract statement-of-values style schedules from selected document context.\n"
         "Focus on repeated rows for insured locations, premises, vehicles, or employees.\n"
         "Return valid JSON only."
     )
@@ -305,83 +303,100 @@ async def extract_sov_from_document(
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     filename_lower = doc.filename.lower()
-    skip_trimming = doc.page_count < 15 or filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
+    skip_trimming = (
+        doc.page_count <= _SOV_LITEPARSE_THRESHOLD_PAGES
+        or filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
+    )
+    full_parser_text = "\n\n".join(
+        f"=== Page {page.page_num} ===\n{page.text}" for page in doc.pages
+    ) or doc.content_text
+    kept_pages = {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
+    selected_tables = doc.tables
+    selected_headers = ""
+    trimmed_text = full_parser_text
+    tables_markdown = ""
+    table_hint = ""
+    use_liteparse_raw_text = (
+        not doc.is_scanned
+        and doc.page_count > _SOV_LITEPARSE_THRESHOLD_PAGES
+    )
 
-    if not settings.mistral_api_key or not doc.file_path:
-        logger.warning(
-            "SOV pipeline fallback for %s: missing Mistral OCR configuration or file path",
-            doc.filename,
-        )
-        fallback_text = doc.content_text or "\n\n".join(
-            f"=== Page {page.page_num} ===\n{page.text}" for page in doc.pages
-        )
-        kept_pages = {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
-        selected_tables = doc.tables
-        trimmed_text = fallback_text
-        selected_headers = (
-            "- full document kept\n"
-            "- Mistral OCR headers unavailable, so no page trimming was attempted"
-        )
+    if doc.is_scanned and settings.mistral_api_key and doc.file_path:
+        try:
+            ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+            usage.add_ocr_cost(ocr_result.cost_usd)
+            logger.info(
+                "Dedicated SOV OCR complete for %s: %d pages, %d chars, $%.4f",
+                doc.filename,
+                ocr_result.page_count,
+                len(ocr_result.text),
+                ocr_result.cost_usd,
+            )
+        except Exception as exc:
+            msg = f"SOV OCR failed: {exc}"
+            logger.error("Dedicated SOV OCR failed for %s: %s", doc.filename, exc)
+            return _error([doc.filename], field_names, msg)
 
-        tables_markdown = _selected_tables_markdown(doc, kept_pages)
-        trimmed_text = await _maybe_compress_with_bear(
-            trimmed_text,
-            doc.page_count,
-            usage,
-            f"{doc.filename} SOV trimmed text",
+        all_ocr_pages = ocr_result.pages
+        all_page_nums = (
+            {page.page_num for page in all_ocr_pages}
+            or kept_pages
         )
-        return await _extract_rows(
-            doc,
-            fields,
-            trimmed_text,
-            selected_headers,
-            tables_markdown,
-            build_table_column_hint(selected_tables),
-            usage,
-            instructions,
-        )
-
-    try:
-        ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
-        usage.add_ocr_cost(ocr_result.cost_usd)
-        logger.info(
-            "Dedicated SOV OCR complete for %s: %d pages, %d chars, $%.4f",
-            doc.filename,
-            ocr_result.page_count,
-            len(ocr_result.text),
-            ocr_result.cost_usd,
-        )
-    except Exception as exc:
-        msg = f"SOV OCR failed: {exc}"
-        logger.error("Dedicated SOV OCR failed for %s: %s", doc.filename, exc)
-        return _error([doc.filename], field_names, msg)
-
-    all_ocr_pages = ocr_result.pages
-    all_page_nums = {page.page_num for page in all_ocr_pages} or {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
-    if skip_trimming:
-        kept_pages = all_page_nums
-        selected_tables = doc.tables
-        trimmed_text = ocr_result.text
-        selected_headers = (
-            "- full document kept\n"
-            f"- trimming skipped because page_count={doc.page_count}"
-            + (" or spreadsheet-like input was detected" if filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv")) else "")
-        )
-        logger.info("SOV trimming skipped for %s", doc.filename)
-    else:
-        sections = _build_sections_from_ocr_pages(all_ocr_pages)
-        selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
-        kept_pages = {section.page_num for section in selected_sections}
-        selected_tables = _selected_tables(doc, kept_pages)
-        trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
-        if not trimmed_text:
-            trimmed_text = ocr_result.text
+        if skip_trimming:
             kept_pages = all_page_nums
+            selected_tables = doc.tables
+            trimmed_text = ocr_result.text
+            selected_headers = (
+                "- full document kept\n"
+                f"- trimming skipped because page_count={doc.page_count}"
+                + (" or spreadsheet-like input was detected" if filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv")) else "")
+            )
+            logger.info("SOV trimming skipped for %s", doc.filename)
+        else:
+            sections = _build_sections_from_ocr_pages(all_ocr_pages)
+            selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
+            kept_pages = {section.page_num for section in selected_sections}
+            selected_tables = _selected_tables(doc, kept_pages)
+            trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
+            if not trimmed_text:
+                trimmed_text = ocr_result.text
+                kept_pages = all_page_nums
 
-        selected_headers = "\n".join(
-            f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
-            for section in selected_sections
-        ) or "- no OCR headers were returned; kept pages were selected by page preview only"
+            selected_headers = "\n".join(
+                f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
+                for section in selected_sections
+            ) or "- no OCR headers were returned; kept pages were selected by page preview only"
+    else:
+        if doc.is_scanned:
+            logger.warning(
+                "SOV scanned fallback for %s: missing Mistral OCR configuration or file path",
+                doc.filename,
+            )
+            selected_headers = (
+                "- full document kept\n"
+                "- scanned file fell back to parser text because Mistral OCR was unavailable"
+            )
+        elif use_liteparse_raw_text:
+            logger.info(
+                "SOV using LiteParse-style raw text for %s: page_count=%d",
+                doc.filename,
+                doc.page_count,
+            )
+            selected_tables = []
+            selected_headers = (
+                "- full document kept\n"
+                f"- using LiteParse-style raw text because page_count>{_SOV_LITEPARSE_THRESHOLD_PAGES} and file is not scanned"
+            )
+        else:
+            logger.info(
+                "SOV using parser text for %s: page_count=%d",
+                doc.filename,
+                doc.page_count,
+            )
+            selected_headers = (
+                "- full document kept\n"
+                "- using parser text because file is not scanned"
+            )
 
     trimmed_text = await _maybe_compress_with_bear(
         trimmed_text,
@@ -389,13 +404,14 @@ async def extract_sov_from_document(
         usage,
         f"{doc.filename} SOV trimmed text",
     )
-    tables_markdown = await _maybe_compress_with_bear(
-        _selected_tables_markdown(doc, kept_pages),
-        doc.page_count,
-        usage,
-        f"{doc.filename} SOV kept tables",
-    )
-    table_hint = build_table_column_hint(selected_tables)
+    if not use_liteparse_raw_text:
+        tables_markdown = await _maybe_compress_with_bear(
+            _selected_tables_markdown(doc, kept_pages),
+            doc.page_count,
+            usage,
+            f"{doc.filename} SOV kept tables",
+        )
+        table_hint = build_table_column_hint(selected_tables)
     expected_rows = _estimate_expected_rows(doc, kept_pages)
 
     rows = await _extract_rows(

@@ -10,10 +10,26 @@ import { cn } from '@/lib/utils'
 type FormFillingStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
 
 const _SOURCE_TYPES = new Set([
-  'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif',
-  'text/plain', 'text/markdown',
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
+  'text/plain',
+  'text/markdown',
+  'text/html',
+  'application/json',
+  'application/xml',
+  'text/xml',
+  'message/rfc822',
+  'application/vnd.ms-outlook',
 ])
-const _SOURCE_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'txt', 'md', 'markdown'])
+const _SOURCE_EXTENSIONS = new Set([
+  'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff',
+  'txt', 'md', 'markdown', 'html', 'htm', 'json', 'xml', 'eml', 'emlx', 'msg',
+])
 
 function getFileIcon(name: string) {
   const ext = name.split('.').pop()?.toLowerCase() || ''
@@ -58,7 +74,7 @@ export default function FormFillingPage() {
       }
     }
     if (skipped > 0) {
-      setValidationMsg(`${skipped} unsupported file${skipped > 1 ? 's' : ''} skipped. Supported: PDF, images, TXT, Markdown.`)
+      setValidationMsg(`${skipped} unsupported file${skipped > 1 ? 's' : ''} skipped. Supported: PDFs, images, Outlook emails, TXT, Markdown, HTML, JSON, and XML.`)
     } else {
       setValidationMsg(null)
     }
@@ -83,8 +99,16 @@ export default function FormFillingPage() {
       'image/jpeg': ['.jpg', '.jpeg'],
       'image/webp': ['.webp'],
       'image/gif': ['.gif'],
+      'image/bmp': ['.bmp'],
+      'image/tiff': ['.tif', '.tiff'],
       'text/plain': ['.txt'],
       'text/markdown': ['.md', '.markdown'],
+      'text/html': ['.html', '.htm'],
+      'application/json': ['.json'],
+      'application/xml': ['.xml'],
+      'message/rfc822': ['.eml', '.emlx'],
+      'application/vnd.ms-outlook': ['.msg'],
+      'application/octet-stream': ['.msg'],
     },
     multiple: true,
     noKeyboard: true,

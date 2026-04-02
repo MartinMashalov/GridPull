@@ -51,6 +51,13 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    llm_openai_fallback_model: str = "gpt-4.1-mini"
+
+    # Cerebras
+    cerebras_api_key: str = ""
+    cerebras_api_key2: str = ""
+    cerebras_api_key3: str = ""
+    cerebras_api_base: str = "https://api.cerebras.ai/v1"
 
     # Mistral (OCR for scanned PDFs)
     mistral_api_key: str = ""
