@@ -4,7 +4,7 @@ import { useGoogleLogin } from '@react-oauth/google'
 import { PublicClientApplication } from '@azure/msal-browser'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
-  FileSpreadsheet, ArrowRight, ArrowLeft, Lock, Mail,
+  FileSpreadsheet, ArrowRight, ArrowLeft, Lock,
   CheckCircle2, Receipt, BarChart3, Landmark, Calculator,
   CreditCard, FileText, TrendingUp, DollarSign,
   X,

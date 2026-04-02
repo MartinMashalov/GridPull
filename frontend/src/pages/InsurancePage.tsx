@@ -4,8 +4,8 @@ import { useGoogleLogin } from '@react-oauth/google'
 import { PublicClientApplication } from '@azure/msal-browser'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
-  FileSpreadsheet, ArrowRight, ArrowLeft, Lock, Mail,
-  CheckCircle2, ShieldCheck, FileText, ClipboardList,
+  FileSpreadsheet, ArrowRight, ArrowLeft, Lock,
+  CheckCircle2, ShieldCheck,
   Building2, Users, Briefcase, FileCheck, FormInput, Layers,
   X,
 } from 'lucide-react'

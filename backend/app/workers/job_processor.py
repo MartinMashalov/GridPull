@@ -24,7 +24,12 @@ from app.models.user import User
 from app.services.billing_service import maybe_auto_renew
 from app.services.extraction_service import LLMUsage, extract_from_document
 from app.services.pdf_service import parse_pdf
-from app.services.spreadsheet_service import generate_csv, generate_excel
+from app.services.spreadsheet_service import (
+    generate_csv,
+    generate_excel,
+    update_csv_baseline_bytes,
+    update_excel_baseline_bytes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -275,11 +280,38 @@ async def process_job(
             await db.commit()
             await emit("generating", 75, "Generating spreadsheet…", total_docs, total_docs)
 
-            output_filename = f"gridpull_{job_id}.{job.format}"
-            output_path = os.path.join(settings.output_dir, output_filename)
+            if job.baseline_update_mode:
+                baseline_path = os.path.join(settings.upload_dir, job_id, f"baseline.{job.format}")
+                if not os.path.exists(baseline_path):
+                    raise RuntimeError("Baseline spreadsheet file not found for editable baseline job")
+                output_filename = f"updated_baseline.{job.format}"
+            else:
+                output_filename = f"gridpull_{job_id}.{job.format}"
+            output_path = os.path.join(settings.output_dir, f"{job_id}_{output_filename}")
 
             gen_start = time.monotonic()
-            if job.format == "csv":
+            if job.baseline_update_mode:
+                with open(baseline_path, "rb") as fh:
+                    baseline_bytes = fh.read()
+                if job.format == "csv":
+                    output_bytes = await asyncio.to_thread(
+                        update_csv_baseline_bytes,
+                        baseline_bytes,
+                        all_extracted,
+                        field_names,
+                        bool(job.allow_edit_past_values),
+                    )
+                else:
+                    output_bytes = await asyncio.to_thread(
+                        update_excel_baseline_bytes,
+                        baseline_bytes,
+                        all_extracted,
+                        field_names,
+                        bool(job.allow_edit_past_values),
+                    )
+                with open(output_path, "wb") as fh:
+                    fh.write(output_bytes)
+            elif job.format == "csv":
                 await asyncio.to_thread(generate_csv, all_extracted, output_path, field_names)
             else:
                 await asyncio.to_thread(generate_excel, all_extracted, output_path, field_names)
@@ -336,6 +368,8 @@ async def process_job(
                     "results": all_extracted,
                     "fields": field_names,
                     "cost": job.cost,
+                    "baseline_update_mode": bool(job.baseline_update_mode),
+                    "output_filename": output_filename,
                 },
             )
 

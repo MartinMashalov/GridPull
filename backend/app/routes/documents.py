@@ -103,6 +103,9 @@ async def _enqueue_extraction_job(
     client_ip: str,
     *,
     log_prefix: str = "Extract",
+    baseline_spreadsheet: Optional[UploadFile] = None,
+    baseline_update_mode: bool = False,
+    allow_edit_past_values: bool = False,
 ) -> dict:
     from app.routes.payments import _maybe_reset_usage
 
@@ -125,8 +128,31 @@ async def _enqueue_extraction_job(
 
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     uploads_to_save: list[tuple[str, bytes]] = []
+    baseline_to_save: bytes | None = None
     num_credits = 0
     billable_pages = 0
+
+    if baseline_spreadsheet is not None:
+        baseline_name = baseline_spreadsheet.filename or ""
+        baseline_ext = os.path.splitext(baseline_name.lower())[1]
+        if baseline_ext not in {".xlsx", ".csv"}:
+            raise HTTPException(status_code=400, detail="Baseline spreadsheet must be .xlsx or .csv")
+        baseline_content = await baseline_spreadsheet.read()
+        if not baseline_content:
+            raise HTTPException(status_code=400, detail="Baseline spreadsheet is empty")
+        if len(baseline_content) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{baseline_name}' exceeds the {MAX_FILE_SIZE_MB} MB size limit.",
+            )
+        if baseline_update_mode:
+            baseline_to_save = baseline_content
+            format = "csv" if baseline_ext == ".csv" else "xlsx"
+        else:
+            logger.info("Ignoring baseline spreadsheet %s because baseline_update_mode=false", baseline_name)
+
+    if baseline_update_mode and baseline_to_save is None:
+        raise HTTPException(status_code=400, detail="Editable baseline mode requires a spreadsheet upload")
 
     for upload in files:
         fname = upload.filename or ""
@@ -182,8 +208,10 @@ async def _enqueue_extraction_job(
     overage_count = max(0, (used + num_credits) - tier.credits_per_month)
 
     filenames = [f.filename for f in files]
+    if baseline_to_save is not None:
+        filenames.append("[baseline spreadsheet]")
     logger.info(
-        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars billable_pages=%d credits=%d ip=%s",
+        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars billable_pages=%d credits=%d baseline_update_mode=%s allow_edit_past_values=%s ip=%s",
         log_prefix,
         user_id,
         filenames,
@@ -192,6 +220,8 @@ async def _enqueue_extraction_job(
         len(instructions.strip()),
         billable_pages,
         num_credits,
+        bool(baseline_to_save),
+        bool(allow_edit_past_values and baseline_to_save is not None),
         client_ip,
     )
 
@@ -202,6 +232,8 @@ async def _enqueue_extraction_job(
         instructions=instructions.strip() or None,
         format=format,
         file_count=len(uploads_to_save),
+        baseline_update_mode=baseline_to_save is not None,
+        allow_edit_past_values=bool(allow_edit_past_values and baseline_to_save is not None),
     )
     db.add(job)
     await db.commit()
@@ -231,6 +263,12 @@ async def _enqueue_extraction_job(
         db.add(Document(job_id=job.id, filename=fname, file_path=path))
         logger.info("Saved %s (%.1f KB) for job %s", fname, size_kb, job.id)
         saved_count += 1
+
+    if baseline_to_save is not None:
+        baseline_path = os.path.join(upload_dir, f"baseline.{format}")
+        async with aiofiles.open(baseline_path, "wb") as fh:
+            await fh.write(baseline_to_save)
+        logger.info("Saved baseline spreadsheet (%.1f KB) for job %s", len(baseline_to_save) / 1024, job.id)
 
     await db.commit()
     logger.info("Saved %d file(s) for job %s — enqueuing…", saved_count, job.id)
@@ -292,6 +330,9 @@ async def parse_spreadsheet_headers(
 async def start_extraction(
     request: Request,
     files: List[UploadFile] = File(...),
+    baseline_spreadsheet: Optional[UploadFile] = File(None),
+    baseline_update_mode: bool = Form(False),
+    allow_edit_past_values: bool = Form(False),
     fields: str = Form(...),
     instructions: str = Form(""),
     format: str = Form("xlsx"),
@@ -328,6 +369,9 @@ async def start_extraction(
         format,
         client_ip,
         log_prefix="Extract",
+        baseline_spreadsheet=baseline_spreadsheet,
+        baseline_update_mode=baseline_update_mode,
+        allow_edit_past_values=allow_edit_past_values,
     )
 
 
@@ -335,6 +379,9 @@ async def start_extraction(
 async def start_extraction_service(
     request: Request,
     files: List[UploadFile] = File(...),
+    baseline_spreadsheet: Optional[UploadFile] = File(None),
+    baseline_update_mode: bool = Form(False),
+    allow_edit_past_values: bool = Form(False),
     fields: str = Form(...),
     instructions: str = Form(""),
     format: str = Form("xlsx"),
@@ -367,6 +414,9 @@ async def start_extraction_service(
         format,
         client_ip,
         log_prefix="Extract-service",
+        baseline_spreadsheet=baseline_spreadsheet,
+        baseline_update_mode=baseline_update_mode,
+        allow_edit_past_values=allow_edit_past_values,
     )
 
 
@@ -407,6 +457,8 @@ async def get_job_status_service(
         "format": job.format,
         "file_count": job.file_count,
         "cost": job.cost,
+        "baseline_update_mode": bool(job.baseline_update_mode),
+        "output_filename": f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}",
     }
     if job.status in ("complete", "error"):
         await cache_set_job_status(job_id, uid, payload)
@@ -460,6 +512,8 @@ async def get_results_service(
         ),
         "results": flat_results,
         "cost": job.cost,
+        "baseline_update_mode": bool(job.baseline_update_mode),
+        "output_filename": f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}",
     }
     await cache_set_results(job_id, uid, payload)
     _RESULT_CACHE[job_id] = {**payload, "_owner": uid}
@@ -494,10 +548,11 @@ async def download_result_service(
         if job.format == "xlsx"
         else "text/csv"
     )
+    download_name = f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}"
     return FileResponse(
         path=job.output_path,
         media_type=media_type,
-        filename=f"gridpull_export.{job.format}",
+        filename=download_name,
     )
 
 
@@ -543,6 +598,8 @@ async def get_job_status(
         "format": job.format,
         "file_count": job.file_count,
         "cost": job.cost,
+        "baseline_update_mode": bool(job.baseline_update_mode),
+        "output_filename": f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}",
     }
     if job.status in ("complete", "error"):
         await cache_set_job_status(job_id, current_user.id, payload)
@@ -595,6 +652,8 @@ async def job_progress_sse(
                 "results": results,
                 "fields": field_names,
                 "cost": job.cost,
+                "baseline_update_mode": bool(job.baseline_update_mode),
+                "output_filename": f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}",
             }
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -686,6 +745,8 @@ async def get_results(
         ),
         "results": flat_results,
         "cost": job.cost,
+        "baseline_update_mode": bool(job.baseline_update_mode),
+        "output_filename": f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}",
     }
     await cache_set_results(job_id, current_user.id, payload)
     _RESULT_CACHE[job_id] = {**payload, "_owner": current_user.id}
@@ -838,10 +899,11 @@ async def download_result(
         if job.format == "xlsx"
         else "text/csv"
     )
+    download_name = f"updated_baseline.{job.format}" if job.baseline_update_mode else f"gridpull_export.{job.format}"
     return FileResponse(
         path=job.output_path,
         media_type=media_type,
-        filename=f"gridpull_export.{job.format}",
+        filename=download_name,
     )
 
 

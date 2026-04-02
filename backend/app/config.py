@@ -49,15 +49,9 @@ class Settings(BaseSettings):
         description="Existing users.id UUID (e.g. from DB or after one OAuth login); must match a row in users",
     )
 
-    # OpenAI
+    # Shared LLM model
     openai_api_key: str = ""
     llm_openai_fallback_model: str = "gpt-4.1-mini"
-
-    # Cerebras
-    cerebras_api_key: str = ""
-    cerebras_api_key2: str = ""
-    cerebras_api_key3: str = ""
-    cerebras_api_base: str = "https://api.cerebras.ai/v1"
 
     # Mistral (OCR for scanned PDFs)
     mistral_api_key: str = ""
@@ -79,8 +73,7 @@ class Settings(BaseSettings):
     extraction_wide_grid_min_rows: int = 5
     extraction_wide_grid_min_cols: int = 4
 
-    # Dedicated SOV pipeline models. These accept any LiteLLM model id.
-    # Leave defaults on gpt-4.1-mini, or point them at Cerebras when available.
+    # Dedicated SOV pipeline models. Keep these aligned with the main extraction model.
     sov_section_selector_model: str = "gpt-4.1-mini"
     sov_extraction_model: str = "gpt-4.1-mini"
 
@@ -108,11 +101,8 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     output_dir: str = "./outputs"
 
-    # OpenAI models to rotate through
     openai_models: List[str] = [
-        "gpt-4o-mini",
-        "gpt-3.5-turbo",
-        "gpt-4o-mini-2024-07-18",
+        "gpt-4.1-mini",
     ]
 
     class Config:

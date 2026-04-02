@@ -29,6 +29,7 @@ _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9/&().,#:%-]*")
 _SECTION_SELECTOR_MAX_TOKENS = 1_200
 _SOV_EXTRACT_MAX_TOKENS = 12_000
 _SOV_LITEPARSE_THRESHOLD_PAGES = 15
+_TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 
 
 @dataclass
@@ -74,17 +75,94 @@ def _build_sections_from_ocr_pages(ocr_pages: list[Any]) -> list[SOVSection]:
     return sections
 
 
-def _parse_json_content(content: Any) -> dict[str, Any]:
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
     if isinstance(content, list):
-        content = "".join(str(part) for part in content)
-    if not isinstance(content, str):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+                continue
+            if isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+            text = getattr(part, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+def _extract_json_object_fragment(text: str) -> str | None:
+    start = text.find("{")
+    while start >= 0:
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : idx + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def _parse_json_content(content: Any) -> dict[str, Any]:
+    cleaned = _content_to_text(content).strip()
+    if not cleaned:
         return {}
-    cleaned = content.strip()
-    if "```json" in cleaned:
-        cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
-    elif "```" in cleaned:
-        cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
-    return json.loads(cleaned)
+
+    candidates = [cleaned]
+    for block in re.findall(r"```(?:json)?\s*(.*?)```", cleaned, flags=re.DOTALL | re.IGNORECASE):
+        stripped = block.strip()
+        if stripped:
+            candidates.append(stripped)
+    fragment = _extract_json_object_fragment(cleaned)
+    if fragment:
+        candidates.append(fragment)
+
+    decoder = json.JSONDecoder()
+    last_exc: json.JSONDecodeError | None = None
+    seen: set[str] = set()
+
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        for variant in (candidate, _TRAILING_COMMA_RE.sub(r"\1", candidate)):
+            if not variant:
+                continue
+            try:
+                parsed = json.loads(variant)
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                try:
+                    parsed, _ = decoder.raw_decode(variant)
+                except json.JSONDecodeError as raw_exc:
+                    last_exc = raw_exc
+                    continue
+            if isinstance(parsed, dict):
+                return parsed
+
+    raise last_exc or json.JSONDecodeError("No JSON object found", cleaned, 0)
 
 
 async def _acompletion(
@@ -103,16 +181,28 @@ async def _acompletion(
 
     last_exc: Exception | None = None
     for with_response_format in (True, False):
-        try:
-            if not with_response_format:
-                kwargs.pop("response_format", None)
-            resp = await routed_acompletion(route_profile="extraction", **kwargs)
-            if resp.usage:
-                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-            record_llm_usage_cost(usage, resp)
-            return _parse_json_content(resp.choices[0].message.content)
-        except Exception as exc:
-            last_exc = exc
+        for attempt in range(2):
+            try:
+                call_kwargs = dict(kwargs)
+                if not with_response_format:
+                    call_kwargs.pop("response_format", None)
+                resp = await routed_acompletion(route_profile="extraction", **call_kwargs)
+                if resp.usage:
+                    usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+                record_llm_usage_cost(usage, resp)
+                return _parse_json_content(resp.choices[0].message.content)
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                if attempt == 0:
+                    logger.warning(
+                        "SOV model %s returned malformed JSON; retrying once (%s response_format)",
+                        model,
+                        "with" if with_response_format else "without",
+                    )
+                    continue
+            except Exception as exc:
+                last_exc = exc
+                break
 
     raise last_exc or RuntimeError("LLM call failed")
 
@@ -196,18 +286,82 @@ def _selected_tables(doc: ParsedDocument, kept_pages: set[int]) -> list:
     return tables or doc.tables
 
 
+def _table_header_signature(markdown: str) -> tuple[str, ...]:
+    header_lines: list[str] = []
+    for line in markdown.split("\n"):
+        if re.match(r"^\|\s*-", line):
+            break
+        header_lines.append(line)
+    header_text = " ".join(header_lines).lower()
+    return tuple(
+        token
+        for token in (
+            re.sub(r"[^a-z0-9]+", "", cell)
+            for cell in header_text.split("|")
+        )
+        if token and token != "---"
+    )
+
+
+def _expected_rows_from_text(text: str) -> int | None:
+    if not text:
+        return None
+    patterns = (
+        r"\btotal\s+(?:locations?|premises|sites|properties|buildings|vehicles?|autos?)\s*[:#-]?\s*(\d{1,4})\b",
+        r"\bschedule\s+of\s+(\d{1,4})\s+(?:vehicles?|autos?|locations?|sites?)\b",
+        r"\blocation\s+\d+\s+of\s+(\d{1,4})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+    
+        if not match:
+            continue
+        try:
+            value = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
+
+
 def _estimate_expected_rows(doc: ParsedDocument, kept_pages: set[int]) -> int | None:
-    row_counts = [
-        max(0, table.row_count - 1)
+    selected_pages = [page for page in doc.pages if page.page_num in kept_pages] or doc.pages
+    selected_text = "\n".join(page.text for page in selected_pages)
+    explicit_count = _expected_rows_from_text(selected_text or doc.content_text)
+    if explicit_count:
+        return explicit_count
+
+    candidate_tables = [
+        table
         for table in doc.tables
         if table.page_num in kept_pages and table.row_count >= 4 and table.col_count >= 3
     ]
-    if not row_counts:
-        row_counts = [
-            max(0, table.row_count - 1)
+    if not candidate_tables:
+        candidate_tables = [
+            table
             for table in doc.tables
             if table.row_count >= 4 and table.col_count >= 3
         ]
+    if not candidate_tables:
+        return None
+
+    multi_page_schedule_counts: list[int] = []
+    grouped_tables: dict[tuple[str, ...], list] = {}
+    for table in candidate_tables:
+        signature = _table_header_signature(table.markdown)
+        if not signature:
+            continue
+        grouped_tables.setdefault(signature, []).append(table)
+    for tables in grouped_tables.values():
+        if len(tables) < 2 or min(table.col_count for table in tables) < 8:
+            continue
+        multi_page_schedule_counts.append(sum(max(0, table.row_count - 1) for table in tables))
+
+    if multi_page_schedule_counts:
+        return max(multi_page_schedule_counts)
+
+    row_counts = [max(0, table.row_count - 1) for table in candidate_tables]
     return max(row_counts) if row_counts else None
 
 
@@ -236,6 +390,49 @@ def _row_score(
     return (error_count + count_delta - fill_rate, filled, len(real_rows))
 
 
+def _sov_extract_token_budget(field_count: int, expected_rows: int | None) -> int:
+    row_target = max(expected_rows or 8, 8)
+    estimated = 2_000 + field_count * row_target * 18
+    return min(32_768, max(_SOV_EXTRACT_MAX_TOKENS, estimated))
+
+
+def _vehicle_schedule_guidance(source_text: str) -> str:
+    lower = source_text.lower()
+    if not (
+        ("vin" in lower or "garaging location" in lower)
+        and ("vehicle" in lower or "veh#" in lower or "veh #" in lower or "covered autos" in lower)
+    ):
+        return ""
+    return (
+        "--- Vehicle Schedule Guidance ---\n"
+        "This file is a vehicle schedule.\n"
+        "- Emit one row per vehicle, even when multiple vehicles share the same garaging location.\n"
+        "- Use vehicle/unit number fields for location-like identifiers when the schema asks for a generic row identifier.\n"
+        "- Split Garaging Location into City/State/Zip when possible.\n"
+        "- If the garaging location is only available as one combined city/state/zip string, still use that full string for address-like fields instead of leaving them blank.\n"
+        "- When the schema asks for a generic year field, use the vehicle model year.\n"
+        "- When the schema asks for a generic insured value or total value field, use Cost New, Stated Amount, Scheduled Value, or the closest per-vehicle value column.\n"
+        "- Leave clearly property-only fields null when the vehicle schedule does not provide a truthful match."
+    )
+
+
+def _repeated_location_form_guidance(source_text: str) -> str:
+    lower = source_text.lower()
+    if not (
+        re.search(r"\blocation\s+\d+\s+of\s+\d+\b", lower)
+        and "premises address" in lower
+        and "coverage limits" in lower
+    ):
+        return ""
+    return (
+        "--- Repeated Location Guidance ---\n"
+        "This file repeats one insured location per page/section.\n"
+        "- Emit one row per location/page block.\n"
+        "- Merge the premises/address block, building information block, and coverage limits block from the same location into one row.\n"
+        "- Do not drop ZIP or coverage values just because they appear in labels or row-wise key/value sections instead of a single flat table."
+    )
+
+
 async def _extract_rows(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
@@ -244,19 +441,31 @@ async def _extract_rows(
     tables_markdown: str,
     table_hint: str,
     usage: LLMUsage,
+    expected_rows: int | None,
     instructions: str = "",
     retry_note: str = "",
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
+    source_text = "\n".join(part for part in (selected_headers, tables_markdown, trimmed_text) if part)
+    vehicle_guidance = _vehicle_schedule_guidance(source_text)
+    repeated_location_guidance = _repeated_location_form_guidance(source_text)
     prompt_parts = [
         f"--- Document Info ---\nFilename: {doc.filename}\nTotal pages: {doc.page_count}\nPipeline: Dedicated SOV extraction",
         f"\n--- Fields to Extract ---\n{_fields_block(fields)}",
         f"\n--- Selected Source Context ---\n{selected_headers}",
     ]
+    if expected_rows:
+        prompt_parts.append(
+            f"\n--- Expected Row Count ---\nThe document likely contains about {expected_rows} real schedule rows. Return all of them unless a row is clearly a header, total, or blank spacer."
+        )
     if instructions.strip():
         prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
     if retry_note:
         prompt_parts.append(f"\n--- Retry Guidance ---\n{retry_note}")
+    if vehicle_guidance:
+        prompt_parts.append(f"\n{vehicle_guidance}")
+    if repeated_location_guidance:
+        prompt_parts.append(f"\n{repeated_location_guidance}")
     if table_hint:
         prompt_parts.append(f"\n{table_hint}")
     if tables_markdown:
@@ -267,6 +476,8 @@ async def _extract_rows(
         "Return one object per real repeated schedule row.\n"
         "Prefer master schedules and structured tables over narrative duplicates.\n"
         "Merge detail from the selected source context into the correct row only when the location/entity match is clear.\n"
+        "Extract ALL real rows even when many requested fields are null for a given row.\n"
+        "If the requested schema is broader than the document, still emit the row and leave unsupported fields null.\n"
         "Never emit headers, subtotals, totals, or blank rows.\n"
         "Use null when a field is genuinely absent.\n"
         "Return spreadsheet-ready scalar values only.\n"
@@ -286,7 +497,7 @@ async def _extract_rows(
                 {"role": "user", "content": "\n".join(prompt_parts)},
             ],
             usage,
-            _SOV_EXTRACT_MAX_TOKENS,
+            _sov_extract_token_budget(len(field_names), expected_rows),
         )
         rows = _normalise_rows(raw, field_names, doc.filename)
         return rows if rows else _empty([doc.filename], field_names)
@@ -422,6 +633,7 @@ async def extract_sov_from_document(
         tables_markdown,
         table_hint,
         usage,
+        expected_rows,
         instructions,
     )
 
@@ -448,6 +660,7 @@ async def extract_sov_from_document(
             tables_markdown,
             table_hint,
             usage,
+            expected_rows,
             instructions,
             retry_note=retry_note,
         )

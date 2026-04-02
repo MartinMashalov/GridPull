@@ -75,7 +75,16 @@ jobs:
               --webroot -w /var/www/certbot \
               --email admin@gridpull.com \
               --agree-tos --no-eff-email --non-interactive --keep-until-expiring \
-              -d gridpull.com -d www.gridpull.com
+              --cert-name gridpull.com --force-renewal \
+              -d gridpull.com -d www.gridpull.com || true
+
+            # Certbot may have written the cert under gridpull.com-0001 if the
+            # self-signed bootstrap occupied gridpull.com. Copy real cert over.
+            if [ -d nginx/certs/live/gridpull.com-0001 ]; then
+              cp -L nginx/certs/live/gridpull.com-0001/fullchain.pem nginx/certs/live/gridpull.com/fullchain.pem
+              cp -L nginx/certs/live/gridpull.com-0001/privkey.pem   nginx/certs/live/gridpull.com/privkey.pem
+            fi
+
             docker compose start certbot || true
             docker compose exec -T nginx nginx -s reload
 

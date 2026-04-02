@@ -91,6 +91,105 @@ async def _litellm_extract(
     )
 
 
+def _infer_schedule_key_fields(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+) -> tuple[str | None, str | None]:
+    data_rows = [row for row in rows if not row.get("_error")]
+    if not data_rows:
+        return (None, None)
+
+    profiles: Dict[str, Dict[str, float]] = {}
+    for fn in field_names:
+        values = [
+            re.sub(r"\s+", " ", str(row.get(fn) or "").strip())
+            for row in data_rows
+            if _is_filled_value(row.get(fn))
+        ]
+        if not values:
+            continue
+        count = len(values)
+        unique_ratio = len({value.lower() for value in values}) / count
+        avg_len = sum(len(value) for value in values) / count
+
+        def ratio(predicate: Any) -> float:
+            return sum(1 for value in values if predicate(value)) / count
+
+        profiles[fn] = {
+            "filled_ratio": count / len(data_rows),
+            "unique_ratio": unique_ratio,
+            "avg_len": avg_len,
+            "short_code_ratio": ratio(
+                lambda value: len(value) <= 16
+                and " " not in value
+                and any(ch.isdigit() for ch in value)
+                and bool(re.fullmatch(r"[A-Za-z0-9#/_-]+", value))
+            ),
+            "numeric_only_ratio": ratio(lambda value: bool(re.fullmatch(r"\d+", value))),
+            "large_number_ratio": ratio(
+                lambda value: bool(re.fullmatch(r"\d+", value)) and int(value) > 999
+            ),
+            "year_like_ratio": ratio(
+                lambda value: bool(re.fullmatch(r"(18|19|20)\d{2}", value))
+            ),
+            "zip_like_ratio": ratio(
+                lambda value: bool(
+                    re.fullmatch(r"\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d", value)
+                )
+            ),
+            "money_like_ratio": ratio(
+                lambda value: bool(re.search(r"\$|\d{1,3}(?:,\d{3})+", value))
+            ),
+            "address_like_ratio": ratio(
+                lambda value: len(value) >= 8
+                and any(ch.isdigit() for ch in value)
+                and any(ch.isalpha() for ch in value)
+                and (" " in value or "," in value)
+            ),
+        }
+
+    if not profiles:
+        return (None, None)
+
+    id_field: str | None = None
+    id_score = float("-inf")
+    addr_field: str | None = None
+    addr_score = float("-inf")
+    for fn, profile in profiles.items():
+        score = (
+            profile["filled_ratio"] * 1.5
+            + profile["unique_ratio"] * 4
+            + profile["short_code_ratio"] * 3
+            + profile["numeric_only_ratio"]
+            - profile["zip_like_ratio"] * 6
+            - profile["address_like_ratio"] * 4
+            - profile["money_like_ratio"] * 3
+            - profile["year_like_ratio"] * 4
+            - profile["large_number_ratio"] * 4
+        )
+        if score > id_score:
+            id_score = score
+            id_field = fn
+
+        score = (
+            profile["filled_ratio"] * 1.5
+            + profile["unique_ratio"] * 1.5
+            + profile["address_like_ratio"] * 4
+            - profile["zip_like_ratio"] * 4
+            - profile["money_like_ratio"] * 3
+            - profile["short_code_ratio"] * 2
+        )
+        if score > addr_score:
+            addr_score = score
+            addr_field = fn
+
+    if id_score < 2.5:
+        id_field = None
+    if addr_score < 2.0:
+        addr_field = None
+    return (id_field, addr_field)
+
+
 def _merge_rows_by_identifier(
     rows: List[Dict[str, Any]],
     field_names: List[str],
@@ -108,39 +207,20 @@ def _merge_rows_by_identifier(
     if len(rows) <= 1:
         return rows
 
-    id_candidates: List[str] = []
-    for fn in field_names:
-        fl = fn.lower()
-        if "allocation" in fl and "location" not in fl:
-            continue
-        if re.search(r"\bnumber\b", fl) and any(x in fl for x in ("stor", "story", "sq ft", "sqft", "area")):
-            continue
-        if re.search(r"\blocation\b", fl) or re.search(r"\bloc\s*#|\bloc\.", fl):
-            id_candidates.append(fn)
-        elif re.search(r"\bnumber\b", fl) or "no." in fl:
-            id_candidates.append(fn)
-        elif "#" in fn and "number" in fl:
-            id_candidates.append(fn)
-        elif re.search(r"\b(?:property|site|schedule|premises)\s+id\b", fl):
-            id_candidates.append(fn)
-    addr_candidates = [
-        fn for fn in field_names
-        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
-    ]
-
-    if not id_candidates and not addr_candidates:
+    id_field, addr_field = _infer_schedule_key_fields(rows, field_names)
+    if not id_field and not addr_field:
         return rows
-
-    id_field = id_candidates[0] if id_candidates else None
-    addr_field = addr_candidates[0] if addr_candidates else None
 
     def _norm(v: Any) -> str:
         return str(v or "").strip().lower()
 
     def _base_num(v: str) -> str:
-        """Extract leading numeric portion: '1 - Building 1' -> '1', 'Loc 0012' -> '0012'"""
-        m = re.match(r"^(?:loc(?:ation)?\s*#?\s*)?(\d+)", v.strip(), re.I)
-        return m.group(1) if m else v[:20]
+        """Prefer the first token containing a digit; otherwise use the first token."""
+        tokens = re.findall(r"[A-Za-z0-9#/_-]+", v.strip())
+        for token in tokens:
+            if any(ch.isdigit() for ch in token):
+                return token
+        return tokens[0] if tokens else v[:20]
 
     def _merge_key(row: Dict[str, Any]) -> str | None:
         parts = []
@@ -206,20 +286,7 @@ def finalize_property_schedule_rows(
     """Drop blank/spacer rows, re-merge split location lines, remove exact duplicate records."""
     if not rows:
         return rows
-    loc_num_fn = next(
-        (fn for fn in field_names if "location" in fn.lower() and "number" in fn.lower()),
-        None,
-    )
-    addr_fns = [
-        fn for fn in field_names
-        if ("address" in fn.lower() or "street" in fn.lower()) and "email" not in fn.lower()
-    ]
-    primary_addr = addr_fns[0] if addr_fns else None
-    city_fns = [
-        fn for fn in field_names
-        if ("city" in fn.lower() and "velocity" not in fn.lower())
-    ]
-    primary_city = city_fns[0] if city_fns else None
+    loc_num_fn, primary_addr = _infer_schedule_key_fields(rows, field_names)
     non_empty: List[Dict[str, Any]] = []
     for row in rows:
         if row.get("_error"):
@@ -238,13 +305,11 @@ def finalize_property_schedule_rows(
             kept.append(row)
             continue
         loc_filled = bool(loc_num_fn and _is_filled_value(row.get(loc_num_fn)))
-        addr_and_city = bool(
+        addr_filled = bool(
             primary_addr
-            and primary_city
             and _is_filled_value(row.get(primary_addr))
-            and _is_filled_value(row.get(primary_city))
         )
-        if not (loc_filled or addr_and_city):
+        if not (loc_filled or addr_filled):
             continue
         kept.append(row)
     if not kept:
@@ -259,8 +324,8 @@ def finalize_property_schedule_rows(
         loc_part = ""
         if loc_num_fn and _is_filled_value(row.get(loc_num_fn)):
             raw_loc = str(row.get(loc_num_fn)).strip()
-            m = re.match(r"^(?:loc(?:ation)?\s*#?\s*)?(\d+)", raw_loc, re.I)
-            loc_part = (m.group(1) if m else raw_loc[:24]).lower()
+            tokens = re.findall(r"[A-Za-z0-9#/_-]+", raw_loc)
+            loc_part = next((token for token in tokens if any(ch.isdigit() for ch in token)), raw_loc[:24]).lower()
         addr_part = ""
         if primary_addr and _is_filled_value(row.get(primary_addr)):
             addr_part = re.sub(r"\s+", " ", str(row.get(primary_addr)).strip().lower()[:80])
@@ -365,10 +430,7 @@ async def backfill_missing_row_fields_from_document(
 ) -> List[Dict[str, Any]]:
     """One pass: fill still-empty fields using full document text (schedule + narrative)."""
     field_names = [f["name"] for f in fields]
-    addr_fn = next(
-        (fn for fn in field_names if "address" in fn.lower() and "email" not in fn.lower()),
-        None,
-    )
+    _, addr_fn = _infer_schedule_key_fields(rows, field_names)
     items: List[Dict[str, Any]] = []
     for i, row in enumerate(rows):
         if row.get("_error"):
@@ -404,7 +466,7 @@ async def backfill_missing_row_fields_from_document(
     user_prompt = (
         "Each item lists array index, fields still missing, and fields already extracted. "
         "When 'near_text' is present, use it as the primary source for that item's missing fields "
-        "(it is anchored to the row's street address in the document).\n"
+        "(it is anchored to the row's strongest location fragment in the document).\n"
         "For every item, fill ONLY the missing fields. "
         "Do not overwrite or repeat 'known' values in the patch objects. Use null if absent.\n\n"
         f"--- Fields ---\n{fblock}\n\n"

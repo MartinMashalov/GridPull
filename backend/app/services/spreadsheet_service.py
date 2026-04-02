@@ -7,6 +7,10 @@ import csv
 from datetime import datetime, date
 from typing import List, Dict, Any
 
+_STATUS_HEADER = "GridPull Status"
+_SOURCE_FILE_HEADER = "Source File"
+_EMPTY_MARKERS = {"", "null", "none", "n/a", "na", "-", "—", "unknown", "not found", "not available"}
+
 
 def generate_excel(
     data: List[Dict[str, Any]],
@@ -175,6 +179,203 @@ def append_to_csv_bytes(
             row[field] = row_data.get(field, "")
         writer.writerow(row)
     return (existing_text + "\n" + buf.getvalue()).encode("utf-8")
+
+
+def _plan_spreadsheet_updates(
+    existing_rows: List[Dict[str, Any]],
+    headers: List[str],
+    new_rows: List[Dict[str, Any]],
+    fields: List[str],
+    allow_edit_past_values: bool,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
+    final_headers = list(headers)
+    if _STATUS_HEADER not in final_headers:
+        final_headers.append(_STATUS_HEADER)
+
+    extracted_rows = [row for row in new_rows if not row.get("_error")]
+    if not extracted_rows:
+        return existing_rows, [], final_headers
+
+    header_set = set(final_headers)
+    location_field = next(
+        (
+            field for field in fields
+            if field in header_set and (
+                ("location" in field.lower() and ("number" in field.lower() or "#" in field.lower() or " no" in field.lower()))
+                or re.search(r"\bloc(?:ation)?\s*#?\b", field.lower()) is not None
+            )
+        ),
+        None,
+    )
+    address_field = next(
+        (field for field in fields if field in header_set and ("address" in field.lower() or "street" in field.lower())),
+        None,
+    )
+    city_field = next((field for field in fields if field in header_set and "city" in field.lower()), None)
+    state_field = next((field for field in fields if field in header_set and re.search(r"\bstate\b", field.lower())), None)
+    zip_field = next(
+        (field for field in fields if field in header_set and ("zip" in field.lower() or "postal" in field.lower())),
+        None,
+    )
+
+    def is_filled(value: Any) -> bool:
+        if value is None:
+            return False
+        return str(value).strip().lower() not in _EMPTY_MARKERS
+
+    def norm(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", re.sub(r"\s+", " ", str(value or "").strip().lower()))
+
+    def row_key(row: Dict[str, Any]) -> str | None:
+        if location_field and is_filled(row.get(location_field)):
+            return f"loc::{norm(row.get(location_field))}"
+        if not address_field or not city_field:
+            return None
+        if not is_filled(row.get(address_field)) or not is_filled(row.get(city_field)):
+            return None
+        state_part = norm(row.get(state_field)) if state_field and is_filled(row.get(state_field)) else ""
+        zip_part = norm(row.get(zip_field)) if zip_field and is_filled(row.get(zip_field)) else ""
+        if not state_part and not zip_part:
+            return None
+        return f"addr::{norm(row.get(address_field))}|{norm(row.get(city_field))}|{state_part}|{zip_part}"
+
+    existing_by_key: Dict[str, int] = {}
+    ambiguous_keys: set[str] = set()
+    for idx, row in enumerate(existing_rows):
+        key = row_key(row)
+        if not key:
+            continue
+        if key in existing_by_key:
+            ambiguous_keys.add(key)
+            existing_by_key.pop(key, None)
+            continue
+        existing_by_key[key] = idx
+
+    matched_indices: set[int] = set()
+    appended_rows: List[Dict[str, Any]] = []
+    for extracted in extracted_rows:
+        key = row_key(extracted)
+        existing_idx = existing_by_key.get(key) if key and key not in ambiguous_keys else None
+        if existing_idx is None or existing_idx in matched_indices:
+            new_row = {header: "" for header in final_headers}
+            if _SOURCE_FILE_HEADER in final_headers:
+                new_row[_SOURCE_FILE_HEADER] = extracted.get("_source_file", "")
+            for field in fields:
+                if field in final_headers:
+                    new_row[field] = "" if extracted.get(field) is None else extracted.get(field)
+            new_row[_STATUS_HEADER] = "new"
+            appended_rows.append(new_row)
+            continue
+
+        matched_indices.add(existing_idx)
+        existing_row = existing_rows[existing_idx]
+        if allow_edit_past_values:
+            for field in fields:
+                if field in final_headers:
+                    existing_row[field] = "" if extracted.get(field) is None else extracted.get(field)
+            if _SOURCE_FILE_HEADER in final_headers and extracted.get("_source_file"):
+                existing_row[_SOURCE_FILE_HEADER] = extracted.get("_source_file")
+            existing_row[_STATUS_HEADER] = "updated"
+        else:
+            existing_row[_STATUS_HEADER] = "matched_preserved"
+
+    for idx, row in enumerate(existing_rows):
+        if idx in matched_indices:
+            continue
+        key = row_key(row)
+        if not key or key in ambiguous_keys:
+            continue
+        row[_STATUS_HEADER] = "not_found"
+
+    return existing_rows, appended_rows, final_headers
+
+
+def update_excel_baseline_bytes(
+    existing_bytes: bytes,
+    new_rows: List[Dict[str, Any]],
+    fields: List[str],
+    allow_edit_past_values: bool,
+) -> bytes:
+    buf = io.BytesIO(existing_bytes)
+    wb = openpyxl.load_workbook(buf)
+    ws = wb.active
+
+    header_columns: List[tuple[str, int]] = []
+    for col_idx in range(1, ws.max_column + 1):
+        value = ws.cell(row=1, column=col_idx).value
+        text = str(value).strip() if value is not None else ""
+        if text:
+            header_columns.append((text, col_idx))
+    existing_headers = [header for header, _ in header_columns]
+
+    existing_rows: List[Dict[str, Any]] = []
+    for row_idx in range(2, ws.max_row + 1):
+        row_data: Dict[str, Any] = {"_gridpull_row_num": row_idx}
+        has_value = False
+        for header, col_idx in header_columns:
+            value = ws.cell(row=row_idx, column=col_idx).value
+            row_data[header] = value
+            if value not in (None, ""):
+                has_value = True
+        if has_value:
+            existing_rows.append(row_data)
+
+    updated_rows, appended_rows, final_headers = _plan_spreadsheet_updates(
+        existing_rows,
+        existing_headers,
+        new_rows,
+        fields,
+        allow_edit_past_values,
+    )
+
+    header_map: Dict[str, int] = {header: col_idx for header, col_idx in header_columns}
+    next_col = ws.max_column + 1
+    for header in final_headers:
+        if header not in header_map:
+            header_map[header] = next_col
+            next_col += 1
+        ws.cell(row=1, column=header_map[header], value=header)
+
+    for row_data in updated_rows:
+        row_num = int(row_data["_gridpull_row_num"])
+        for header in final_headers:
+            ws.cell(row=row_num, column=header_map[header], value=row_data.get(header, ""))
+
+    for row_data in appended_rows:
+        next_row = ws.max_row + 1
+        for header in final_headers:
+            ws.cell(row=next_row, column=header_map[header], value=row_data.get(header, ""))
+
+    out_buf = io.BytesIO()
+    wb.save(out_buf)
+    return out_buf.getvalue()
+
+
+def update_csv_baseline_bytes(
+    existing_bytes: bytes,
+    new_rows: List[Dict[str, Any]],
+    fields: List[str],
+    allow_edit_past_values: bool,
+) -> bytes:
+    text = existing_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    existing_headers = list(reader.fieldnames or [])
+    existing_rows = [dict(row) for row in reader]
+    updated_rows, appended_rows, final_headers = _plan_spreadsheet_updates(
+        existing_rows,
+        existing_headers,
+        new_rows,
+        fields,
+        allow_edit_past_values,
+    )
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=final_headers, extrasaction="ignore")
+    writer.writeheader()
+    for row_data in [*updated_rows, *appended_rows]:
+        row = {header: row_data.get(header, "") for header in final_headers}
+        writer.writerow(row)
+    return buf.getvalue().encode("utf-8")
 
 
 def generate_csv_bytes(

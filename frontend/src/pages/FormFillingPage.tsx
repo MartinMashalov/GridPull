@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, Download, ClipboardList, ArrowRight, Lock, Trash2, Eye, File, CreditCard } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, Download, Clipboard, ArrowRight, Lock, Trash2, Eye, File, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
@@ -215,7 +215,7 @@ export default function FormFillingPage() {
           <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col items-center text-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <ClipboardList size={14} className="text-primary" />
+                <Clipboard size={14} className="text-primary" />
               </div>
               <div>
                 <p className="text-xs font-medium text-foreground">1. Upload a PDF form</p>
@@ -311,7 +311,7 @@ export default function FormFillingPage() {
                   'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
                   targetDropzone.isDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
                 )}>
-                  <ClipboardList size={18} />
+                  <Clipboard size={18} />
                 </div>
                 {targetDropzone.isDragActive ? (
                   <p className="text-primary font-medium text-sm">Drop your form here</p>

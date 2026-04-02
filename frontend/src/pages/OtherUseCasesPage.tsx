@@ -5,8 +5,8 @@ import { PublicClientApplication } from '@azure/msal-browser'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileSpreadsheet, ArrowRight, ArrowLeft, Lock,
-  CheckCircle2, ShoppingCart, ClipboardList, TrendingUp, FileText,
-  Upload, MousePointerClick, Download,
+  CheckCircle2, ShoppingCart, Clipboard, TrendingUp, FileText,
+  Upload, MousePointerClick,
   X,
 } from 'lucide-react'
 import { trackEvent } from '@/lib/analytics'
@@ -45,7 +45,7 @@ const USE_CASES = [
     fields: ['Company Name', 'Report Year', 'Operating Income', 'Total Equity', 'Employees'],
   },
   {
-    icon: ClipboardList,
+    icon: Clipboard,
     title: 'Contracts & Legal Documents',
     color: 'bg-teal-500/10 text-teal-600',
     desc: 'Extract key terms from contracts, agreements, and legal forms. Pull party names, effective dates, contract values, renewal terms, and expiry dates into a single spreadsheet for easy review.',
@@ -184,7 +184,7 @@ export default function OtherUseCasesPage() {
     </svg>
   )
 
-  const SignInButton = ({ size = 'xl' as const, label = 'Get started', className = '' }) => (
+  const SignInButton = ({ size = 'xl', label = 'Get started', className = '' }: { size?: 'default' | 'sm' | 'lg' | 'xl' | 'icon'; label?: string; className?: string }) => (
     <Button size={size} onClick={() => { trackEvent('cta_click', { label, location: 'other' }); setShowProviderDialog(true) }} disabled={loading} className={`gap-3 shadow-lg shadow-primary/20 ${className}`}>
       {loading ? <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-white rounded-full animate-spin" /> : label}
     </Button>

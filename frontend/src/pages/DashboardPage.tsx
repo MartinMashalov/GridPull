@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
-import { useDropzone } from 'react-dropzone'
+import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -11,6 +11,8 @@ import api from '@/lib/api'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 
@@ -58,6 +60,8 @@ export interface JobState {
   fields?: string[]
   cost?: number
   error?: string
+  baselineUpdateMode?: boolean
+  outputFilename?: string
 }
 
 const _ACTIVE_JOB_KEY = 'gridpull-active-job'
@@ -105,6 +109,30 @@ const _EXTENSION_TO_MIME: Record<string, string> = {
   eml: 'message/rfc822',
   emlx: 'message/rfc822',
   msg: 'application/vnd.ms-outlook',
+}
+const _DOCUMENT_ACCEPT = {
+  'application/pdf': ['.pdf'],
+  'image/png': ['.png'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/webp': ['.webp'],
+  'image/gif': ['.gif'],
+  'image/bmp': ['.bmp'],
+  'image/tiff': ['.tif', '.tiff'],
+  'text/plain': ['.txt'],
+  'text/markdown': ['.md', '.markdown'],
+  'text/html': ['.html', '.htm'],
+  'application/json': ['.json'],
+  'application/xml': ['.xml'],
+  'message/rfc822': ['.eml', '.emlx'],
+  'application/vnd.ms-outlook': ['.msg'],
+  'application/octet-stream': ['.msg'],
+  'application/zip': ['.zip'],
+  'application/x-zip-compressed': ['.zip'],
+}
+const _BASELINE_ACCEPT = {
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'text/csv': ['.csv'],
+  'application/vnd.ms-excel': ['.csv'],
 }
 
 // ── Progress bar ───────────────────────────────────────────────────────────────
@@ -172,6 +200,7 @@ export default function DashboardPage() {
   const [files, setFiles] = useState<File[]>([])
   const [baselineSpreadsheet, setBaselineSpreadsheet] = useState<File | null>(null)
   const [baselineHeaders, setBaselineHeaders] = useState<string[] | null>(null)
+  const [allowEditPastValues, setAllowEditPastValues] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [documentType, setDocumentType] = useState<DocumentType>('custom')
@@ -222,7 +251,18 @@ export default function DashboardPage() {
       setActiveJobId(null)
       trackEvent('extraction_complete', { cost: event.cost ?? 0, file_count: event.results?.length ?? 0 })
       setJob((prev) =>
-        prev ? { ...prev, status: 'complete', progress: 100, message: 'Extraction complete!', downloadUrl: event.download_url, results: event.results, fields: event.fields, cost: event.cost } : null
+        prev ? {
+          ...prev,
+          status: 'complete',
+          progress: 100,
+          message: 'Extraction complete!',
+          downloadUrl: event.download_url,
+          results: event.results,
+          fields: event.fields,
+          cost: event.cost,
+          baselineUpdateMode: !!event.baseline_update_mode,
+          outputFilename: event.output_filename,
+        } : null
       )
       if (event.cost != null && user) {
         updateBalance(Math.max(0, (user.balance ?? 0) - event.cost))
@@ -238,28 +278,26 @@ export default function DashboardPage() {
     }
   }, [event])
 
-  const documentTypeRef = useRef(documentType)
-  documentTypeRef.current = documentType
-
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const onDocumentDrop = useCallback(async (acceptedFiles: File[], fileRejections: FileRejection[]) => {
     const valid: File[] = []
     let unsupportedDirectCount = 0
+    let spreadsheetInWrongBoxCount = 0
     let oversizedZipCount = 0
     let unreadableZipCount = 0
     let ignoredZipEntryCount = 0
     let zipWithNoSupportedFilesCount = 0
-    let newSpreadsheet: File | null = null
+
+    for (const rejection of fileRejections) {
+      const rejectedName = rejection.file.name.toLowerCase()
+      const rejectedExt = rejectedName.includes('.') ? rejectedName.split('.').pop() ?? '' : ''
+      if (_SPREADSHEET_EXTENSIONS.has(rejectedExt)) spreadsheetInWrongBoxCount += 1
+      else unsupportedDirectCount += 1
+    }
 
     for (const droppedFile of acceptedFiles) {
       const fileName = droppedFile.name.toLowerCase()
       const ext = fileName.includes('.') ? fileName.split('.').pop() ?? '' : ''
       const isZip = _ZIP_MIME_TYPES.has(droppedFile.type) || ext === 'zip'
-
-      // In SOV mode, treat the first spreadsheet as the baseline
-      if (documentTypeRef.current === 'sov' && _SPREADSHEET_EXTENSIONS.has(ext)) {
-        if (!newSpreadsheet) newSpreadsheet = droppedFile
-        continue
-      }
 
       if (!isZip) {
         const isSupported = _ACCEPTED_TYPES.has(droppedFile.type) || _SUPPORTED_EXTENSIONS.has(ext)
@@ -288,7 +326,7 @@ export default function DashboardPage() {
           }
 
           const blob = await entry.async('blob')
-        const type = _EXTENSION_TO_MIME[entryExt] || 'application/octet-stream'
+          const type = _EXTENSION_TO_MIME[entryExt] || 'application/octet-stream'
           valid.push(new File([blob], entryFileName, { type, lastModified: Date.now() }))
           extractedFromThisZip += 1
         }
@@ -299,22 +337,10 @@ export default function DashboardPage() {
       }
     }
 
-    // If a new baseline spreadsheet was found in SOV mode, parse its headers
-    if (newSpreadsheet) {
-      setBaselineSpreadsheet(newSpreadsheet)
-      setBaselineHeaders(null)
-      try {
-        const fd = new FormData()
-        fd.append('file', newSpreadsheet)
-        const res = await api.post('/documents/spreadsheet-headers', fd)
-        setBaselineHeaders(res.data.headers)
-      } catch {
-        setValidationMsg('Could not read spreadsheet headers — make sure the file is a valid .xlsx or .csv')
-        setBaselineSpreadsheet(null)
-      }
-    }
-
     const issues: string[] = []
+    if (spreadsheetInWrongBoxCount > 0) {
+      issues.push(`${spreadsheetInWrongBoxCount} spreadsheet${spreadsheetInWrongBoxCount > 1 ? 's belong' : ' belongs'} in the existing spreadsheet box`)
+    }
     if (unsupportedDirectCount > 0) {
       issues.push(`${unsupportedDirectCount} unsupported file${unsupportedDirectCount > 1 ? 's' : ''} skipped`)
     }
@@ -340,57 +366,60 @@ export default function DashboardPage() {
     })
   }, [])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: documentType === 'sov'
-      ? {
-          'application/pdf': ['.pdf'],
-          'image/png': ['.png'],
-          'image/jpeg': ['.jpg', '.jpeg'],
-          'image/webp': ['.webp'],
-          'image/gif': ['.gif'],
-          'image/bmp': ['.bmp'],
-          'image/tiff': ['.tif', '.tiff'],
-          'text/plain': ['.txt'],
-          'text/markdown': ['.md', '.markdown'],
-          'text/html': ['.html', '.htm'],
-          'application/json': ['.json'],
-          'application/xml': ['.xml'],
-          'message/rfc822': ['.eml', '.emlx'],
-          'application/vnd.ms-outlook': ['.msg'],
-          'application/octet-stream': ['.msg'],
-          'application/zip': ['.zip'],
-          'application/x-zip-compressed': ['.zip'],
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-          'text/csv': ['.csv'],
-        }
-      : {
-          'application/pdf': ['.pdf'],
-          'image/png': ['.png'],
-          'image/jpeg': ['.jpg', '.jpeg'],
-          'image/webp': ['.webp'],
-          'image/gif': ['.gif'],
-          'image/bmp': ['.bmp'],
-          'image/tiff': ['.tif', '.tiff'],
-          'text/plain': ['.txt'],
-          'text/markdown': ['.md', '.markdown'],
-          'text/html': ['.html', '.htm'],
-          'application/json': ['.json'],
-          'application/xml': ['.xml'],
-          'message/rfc822': ['.eml', '.emlx'],
-          'application/vnd.ms-outlook': ['.msg'],
-          'application/octet-stream': ['.msg'],
-          'application/zip': ['.zip'],
-          'application/x-zip-compressed': ['.zip'],
-        },
+  const onBaselineDrop = useCallback(async (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+    if (fileRejections.length > 0) {
+      setValidationMsg('Existing spreadsheet must be a valid .xlsx or .csv file.')
+      return
+    }
+
+    const newSpreadsheet = acceptedFiles[0]
+    if (!newSpreadsheet) return
+
+    setValidationMsg(null)
+    setBaselineSpreadsheet(newSpreadsheet)
+    setBaselineHeaders(null)
+    setAllowEditPastValues(false)
+    setExportFormat(newSpreadsheet.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx')
+
+    try {
+      const fd = new FormData()
+      fd.append('file', newSpreadsheet)
+      const res = await api.post('/documents/spreadsheet-headers', fd)
+      setBaselineHeaders(res.data.headers)
+    } catch {
+      setValidationMsg('Could not read spreadsheet headers — make sure the file is a valid .xlsx or .csv')
+      setBaselineSpreadsheet(null)
+      setBaselineHeaders(null)
+      setAllowEditPastValues(false)
+    }
+  }, [])
+
+  const {
+    getRootProps: getDocumentRootProps,
+    getInputProps: getDocumentInputProps,
+    isDragActive: isDocumentDragActive,
+  } = useDropzone({
+    onDrop: onDocumentDrop,
+    accept: _DOCUMENT_ACCEPT,
     multiple: true,
+    noKeyboard: true,
+  })
+
+  const {
+    getRootProps: getBaselineRootProps,
+    getInputProps: getBaselineInputProps,
+    isDragActive: isBaselineDragActive,
+  } = useDropzone({
+    onDrop: onBaselineDrop,
+    accept: _BASELINE_ACCEPT,
+    multiple: false,
     noKeyboard: true,
   })
 
   const handleProcess = () => {
     if (!files.length && !baselineSpreadsheet) { setValidationMsg('Upload at least one supported file.'); return }
     if (documentType === 'sov' && baselineHeaders && baselineHeaders.length > 0) {
-      if (!files.length) { setValidationMsg('Upload at least one PDF to extract data from.'); return }
+      if (!files.length) { setValidationMsg('Upload at least one source file to update the spreadsheet.'); return }
       setValidationMsg(null)
       const fields: ExtractionField[] = baselineHeaders.map(h => ({ name: h, description: '' }))
       handleExtract(fields, exportFormat, '')
@@ -410,7 +439,14 @@ export default function DashboardPage() {
   }
 
   const handleExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
-    trackEvent('extraction_start', { field_count: fields.length, format, file_count: files.length, has_instructions: !!instructions.trim() })
+    trackEvent('extraction_start', {
+      field_count: fields.length,
+      format,
+      file_count: files.length,
+      has_instructions: !!instructions.trim(),
+      baseline_update_mode: !!baselineSpreadsheet,
+      allow_edit_past_values: !!baselineSpreadsheet && allowEditPastValues,
+    })
     setShowModal(false)
     setExportFormat(format)
     setActiveJobId(null)
@@ -423,8 +459,14 @@ export default function DashboardPage() {
     try {
       const fd = new FormData()
       files.forEach((f) => fd.append('files', f))
-      // Include the baseline spreadsheet so the backend can skip it (it uses the extension to filter)
-      if (baselineSpreadsheet) fd.append('files', baselineSpreadsheet)
+      if (baselineSpreadsheet) {
+        fd.append('baseline_spreadsheet', baselineSpreadsheet)
+        fd.append('baseline_update_mode', 'true')
+        fd.append('allow_edit_past_values', allowEditPastValues ? 'true' : 'false')
+      } else {
+        fd.append('baseline_update_mode', 'false')
+        fd.append('allow_edit_past_values', 'false')
+      }
       fd.append('fields', JSON.stringify(fields))
       fd.append('instructions', instructions.trim())
       fd.append('format', format)
@@ -433,7 +475,7 @@ export default function DashboardPage() {
       extractAbortRef.current = null
 
       const jobId = res.data.job_id
-      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format: exportFormat }))
+      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format }))
       setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
       setActiveJobId(jobId)
 
@@ -482,6 +524,7 @@ export default function DashboardPage() {
     setFiles([])
     setBaselineSpreadsheet(null)
     setBaselineHeaders(null)
+    setAllowEditPastValues(false)
     if (id) {
       void api.delete(`/documents/job/${id}`).catch(() => {})
     }
@@ -494,11 +537,13 @@ export default function DashboardPage() {
     setFiles([])
     setBaselineSpreadsheet(null)
     setBaselineHeaders(null)
+    setAllowEditPastValues(false)
     setValidationMsg(null)
     setIsPaywalled(false)
   }
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
+  const isBaselineFormatLocked = documentType === 'sov' && baselineSpreadsheet !== null
 
   const extractAbortRef = useRef<AbortController | null>(null)
   const submitBtnRef = useRef<HTMLButtonElement>(null)
@@ -668,6 +713,7 @@ export default function DashboardPage() {
                 setFiles([])
                 setBaselineSpreadsheet(null)
                 setBaselineHeaders(null)
+                setAllowEditPastValues(false)
                 setValidationMsg(null)
               }}
               className={cn(
@@ -691,8 +737,9 @@ export default function DashboardPage() {
             <button
               key={fmt}
               onClick={() => setExportFormat(fmt)}
+              disabled={isBaselineFormatLocked}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium transition-colors',
+                'px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                 exportFormat === fmt
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
@@ -703,44 +750,115 @@ export default function DashboardPage() {
           ))}
         </div>
         <span className="text-[11px] text-muted-foreground hidden sm:inline">
-          {exportFormat === 'xlsx' ? 'Excel spreadsheet — opens in Excel, Google Sheets, etc.' : 'Comma-separated values — universal format for any spreadsheet app'}
+          {isBaselineFormatLocked
+            ? 'Editable baseline mode keeps the spreadsheet\'s current file format.'
+            : exportFormat === 'xlsx'
+              ? 'Excel spreadsheet — opens in Excel, Google Sheets, etc.'
+              : 'Comma-separated values — universal format for any spreadsheet app'}
         </span>
       </div>
 
-      {/* Drop zone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-all duration-200',
-          'bg-white',
-          isDragActive
-            ? 'border-primary bg-primary/5'
-            : 'border-border hover:border-primary/40 hover:bg-accent/30'
-        )}
-      >
-        <input {...getInputProps()} />
-        <div className="flex flex-col items-center gap-3">
-          <div className={cn(
-            'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-            isDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
-          )}>
-            <Upload size={22} />
-          </div>
-          {isDragActive ? (
-            <p className="text-primary font-medium">Drop your files here</p>
-          ) : (
-            <div>
-              <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
-              <p className="text-muted-foreground text-sm mt-1">
-                {documentType === 'sov'
-                  ? 'Drop last year\'s spreadsheet (.xlsx or .csv) + new files such as PDFs, images, Outlook emails, text, HTML, JSON, or XML — headers will sync automatically'
-                  : 'Supports PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP (max 5 MB per file) — upload multiple files at once'
-                }
-              </p>
+      {/* Drop zones */}
+      {documentType === 'sov' ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Existing spreadsheet</p>
+            <div
+              {...getBaselineRootProps()}
+              className={cn(
+                'border-2 border-dashed rounded-xl p-5 sm:p-8 text-center cursor-pointer transition-all duration-200 bg-white h-full min-h-[220px] flex items-center justify-center',
+                isBaselineDragActive
+                  ? 'border-emerald-500 bg-emerald-500/5'
+                  : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
+              )}
+            >
+              <input {...getBaselineInputProps()} />
+              <div className="flex flex-col items-center gap-3">
+                <div className={cn(
+                  'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+                  isBaselineDragActive ? 'bg-emerald-500/20 text-emerald-600' : 'bg-emerald-500/10 text-emerald-600'
+                )}>
+                  <FileSpreadsheet size={22} />
+                </div>
+                {isBaselineDragActive ? (
+                  <p className="text-emerald-600 font-medium">Drop the spreadsheet here</p>
+                ) : (
+                  <div>
+                    <p className="text-foreground font-medium">Upload the existing spreadsheet</p>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      XLSX or CSV only. We use this as the workbook to update or append to.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Source documents</p>
+            <div
+              {...getDocumentRootProps()}
+              className={cn(
+                'border-2 border-dashed rounded-xl p-5 sm:p-8 text-center cursor-pointer transition-all duration-200 bg-white h-full min-h-[220px] flex items-center justify-center',
+                isDocumentDragActive
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
+              )}
+            >
+              <input {...getDocumentInputProps()} />
+              <div className="flex flex-col items-center gap-3">
+                <div className={cn(
+                  'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+                  isDocumentDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+                )}>
+                  <Upload size={22} />
+                </div>
+                {isDocumentDragActive ? (
+                  <p className="text-primary font-medium">Drop the source files here</p>
+                ) : (
+                  <div>
+                    <p className="text-foreground font-medium">Upload the documents to extract from</p>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP are supported.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div
+          {...getDocumentRootProps()}
+          className={cn(
+            'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-all duration-200',
+            'bg-white',
+            isDocumentDragActive
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:border-primary/40 hover:bg-accent/30'
+          )}
+        >
+          <input {...getDocumentInputProps()} />
+          <div className="flex flex-col items-center gap-3">
+            <div className={cn(
+              'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+              isDocumentDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+            )}>
+              <Upload size={22} />
+            </div>
+            {isDocumentDragActive ? (
+              <p className="text-primary font-medium">Drop your files here</p>
+            ) : (
+              <div>
+                <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Supports PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP (max 5 MB per file) — upload multiple files at once
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mobile-only compact security line */}
       {!job && (
@@ -773,12 +891,37 @@ export default function DashboardPage() {
               </div>
             </div>
             <button
-              onClick={() => { setBaselineSpreadsheet(null); setBaselineHeaders(null) }}
+              onClick={() => {
+                setBaselineSpreadsheet(null)
+                setBaselineHeaders(null)
+                setAllowEditPastValues(false)
+              }}
               className="text-xs text-muted-foreground hover:text-red-400 transition-colors ml-2 flex-shrink-0"
             >
               <X size={13} />
             </button>
           </div>
+          {baselineHeaders && baselineHeaders.length > 0 && (
+            <div className="mt-3 border-t border-emerald-500/15 pt-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="allow-edit-past-values"
+                  checked={allowEditPastValues}
+                  disabled={isProcessing}
+                  onCheckedChange={(checked) => setAllowEditPastValues(checked === true)}
+                  className="mt-0.5"
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="allow-edit-past-values" className="text-sm text-foreground cursor-pointer">
+                    Allow editing past values
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    When enabled, matched rows overwrite the mapped spreadsheet columns. When disabled, matched rows stay unchanged, new rows still append, and missing old rows are flagged.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -786,7 +929,7 @@ export default function DashboardPage() {
       {files.length > 0 && (
         <div className="mt-3 bg-card border border-border rounded-xl px-4 py-3 flex items-center justify-between">
           <span className="text-sm font-medium text-foreground">
-            {files.length} file{files.length > 1 ? 's' : ''} selected
+            {documentType === 'sov' ? 'Source documents' : 'Files'}: {files.length} file{files.length > 1 ? 's' : ''} selected
           </span>
           <button onClick={() => setFiles([])} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">
             Clear all
@@ -809,8 +952,8 @@ export default function DashboardPage() {
           </>
         ) : documentType === 'sov' && baselineSpreadsheet && baselineHeaders ? (
           files.length > 0
-            ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} using ${baselineSpreadsheet.name}`
-            : 'Upload PDFs to extract'
+            ? `Update ${baselineSpreadsheet.name} from ${files.length} file${files.length > 1 ? 's' : ''}`
+            : 'Upload source files to update the workbook'
         ) : files.length > 0 ? (
           documentType === 'quickbooks'
             ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} for QuickBooks`
@@ -830,9 +973,11 @@ export default function DashboardPage() {
           fields={job.fields}
           jobId={job.jobId}
           format={exportFormat}
+          outputFilename={job.outputFilename}
           onNew={handleNew}
           paywalled={isPaywalled}
           documentType={documentType}
+          baselineUpdateMode={job.baselineUpdateMode}
         />
       )}
 

@@ -18,10 +18,10 @@ from app.services.pdf_service import ParsedDocument
 logger = logging.getLogger(__name__)
 
 # Model names
-_TEXT_MODEL = "gpt-4.1-mini"
-_VISION_MODEL = "gpt-4.1-mini"
-# Post-extraction single-row polish (llm._cleanup_single_row_with_nano).
-_CLEANUP_MODEL = "openai/gpt-5.4-nano"
+_TEXT_MODEL = settings.llm_openai_fallback_model
+_VISION_MODEL = settings.llm_openai_fallback_model
+# Post-extraction single-row polish uses the same shared model.
+_CLEANUP_MODEL = settings.llm_openai_fallback_model
 _OCR_MODEL = "mistral-ocr-latest"
 
 _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
@@ -378,11 +378,11 @@ def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool
 
 
 def _extract_table_headers(tables: list) -> set[str]:
-    """Pull normalised header cell texts from parsed table markdown.
+    """Pull normalised label-like cell texts from parsed table markdown.
 
-    Handles multi-line cells by joining all lines before the separator row.
-    Filters out metadata cells (contain colons or are very long) that are
-    document-level labels rather than column headers.
+    Includes classic header rows plus short first-column labels from key/value
+    or coverage tables so cleanup can recognise valid fields on declaration
+    pages that do not use a single flat table header.
     """
     headers: set[str] = set()
     for t in tables:
@@ -390,18 +390,42 @@ def _extract_table_headers(tables: list) -> set[str]:
             continue
         lines = t.markdown.split("\n")
         header_lines: list[str] = []
+        separator_idx: int | None = None
         for line in lines:
             if re.match(r"^\|\s*-", line):
+                separator_idx = len(header_lines)
                 break
             header_lines.append(line)
-        header_text = " ".join(header_lines)
-        for cell in header_text.split("|"):
-            token = re.sub(r"\s+", " ", cell.strip()).lower()
-            if not token or token == "---":
-                continue
-            if ":" in token or len(token) > 40:
-                continue
-            headers.add(token)
+        candidate_blocks = [" ".join(header_lines)]
+        if separator_idx is not None:
+            for line in lines[separator_idx + 1 :]:
+                if not line.startswith("|"):
+                    continue
+                cells = [re.sub(r"\s+", " ", cell.strip()).lower() for cell in line.split("|")]
+                if len(cells) < 2:
+                    continue
+                first_cell = cells[1]
+                if not first_cell or first_cell == "---":
+                    continue
+                if not re.search(r"[a-z]", first_cell):
+                    continue
+                if "$" in first_cell or len(first_cell) > 50:
+                    continue
+                if ":" in first_cell and not first_cell.endswith(":"):
+                    continue
+                candidate_blocks.append(first_cell)
+        for block in candidate_blocks:
+            for cell in block.split("|"):
+                token = re.sub(r"\s+", " ", cell.strip()).lower().rstrip(":").strip()
+                if not token or token == "---":
+                    continue
+                if not re.search(r"[a-z]", token):
+                    continue
+                if "$" in token or len(token) > 60:
+                    continue
+                if ":" in token:
+                    continue
+                headers.add(token)
     return headers
 
 
@@ -469,10 +493,15 @@ def _field_name_matches_any_header(field_name: str, table_headers: set[str], doc
         return True
 
     for header in table_headers:
-        h_terms = set(re.findall(r"[a-z]{2,}", header))
+        header_terms = re.findall(r"[a-z]{2,}", header)
+        h_terms = set(header_terms)
         h_compact = re.sub(r"[^a-z]", "", header)
         if len(h_compact) >= 2:
             h_terms.add(h_compact)
+        if len(header_terms) >= 2:
+            header_initials = "".join(term[0] for term in header_terms)
+            if len(header_initials) >= 2:
+                h_terms.add(header_initials)
         for ft in fn_terms:
             for ht in h_terms:
                 if ft.startswith(ht) or ht.startswith(ft):
@@ -485,9 +514,8 @@ def _field_name_matches_any_header(field_name: str, table_headers: set[str], doc
             if _is_initialism_match(ht, fn_terms):
                 return True
 
-    check_terms = fn_terms if len(fn_terms) == 1 else [max(fn_terms, key=len)]
-    for term in check_terms:
-        if len(term) < 4:
+    for term in fn_terms:
+        if len(term) < 3:
             continue
         pos = doc_text_lower.find(term)
         if pos >= 0:
@@ -505,17 +533,10 @@ def sanitize_unmatched_field_values(
 ) -> List[Dict[str, Any]]:
     """General post-processing for multi-record extractions from tables.
 
-    Catches two patterns (no field-specific knowledge needed):
-
-    1. Uniform hallucination: all rows have the same value for a field that
-       has no matching column header or document label → null them.
-    2. Wrong-column mapping: a field has no matching header AND its values vary
-       across rows (3+ unique). Varying values in a table context can only come
-       from a table column — if the field name doesn't match any column header,
-       those values are from the wrong column → null them.
-
-    Fields whose names match a table header or appear as a label in the document
-    text are always left untouched.
+    Null only obvious uniform hallucinations for fields whose names do not match
+    any detected table/document labels. Varying row values are left alone here
+    because schedules often use row labels or per-page key/value blocks rather
+    than a single top-row header.
     """
     if not doc_text or len(rows) < 3:
         return rows
@@ -536,14 +557,6 @@ def sanitize_unmatched_field_values(
                 "Nulled uniform value '%s' for field '%s' across %d rows "
                 "(field label not found in table headers or document)",
                 filled[0], fn, len(filled),
-            )
-            for row in rows:
-                row[fn] = None
-        elif unique_count >= 2:
-            logger.info(
-                "Nulled %d varying values for field '%s' (%d unique values, "
-                "field label not in any table header — likely wrong-column mapping)",
-                len(filled), fn, unique_count,
             )
             for row in rows:
                 row[fn] = None

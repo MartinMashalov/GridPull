@@ -7,10 +7,10 @@ import {
   FileSpreadsheet, ArrowRight,
   Building2, GitBranch, Lock, Mail,
   Receipt, FileText,
-  CheckCircle2, ChevronDown,
+  CheckCircle2, ChevronDown, Clipboard,
   Upload, MousePointerClick, Download, Eye,
   ShieldCheck, Trash2, ServerCrash, KeyRound,
-  HelpCircle, Star, DollarSign, Brain, Cpu, Target, FlaskConical,
+  HelpCircle, Star, Brain, Cpu, Target, FlaskConical,
   X,
 } from 'lucide-react'
 import { trackEvent } from '@/lib/analytics'
@@ -572,7 +572,7 @@ export default function LandingPage() {
             <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
               <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">2</div>
               <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
-                <ClipboardList size={17} className="text-primary" />
+                <Clipboard size={17} className="text-primary" />
               </div>
               <h3 className="font-semibold text-sm mb-1.5">Define your extraction fields</h3>
               <p className="text-muted-foreground text-xs leading-relaxed">Tell the system exactly what data to pull — vendor name, invoice number, line items, totals, dates, or any custom field.</p>

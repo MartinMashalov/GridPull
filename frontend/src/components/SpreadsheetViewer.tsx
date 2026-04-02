@@ -11,10 +11,12 @@ export interface SpreadsheetViewerProps {
   fields: string[]
   jobId: string
   format: 'xlsx' | 'csv'
+  outputFilename?: string
   cost?: number
   onNew?: () => void
   paywalled?: boolean
   documentType?: DocumentType
+  baselineUpdateMode?: boolean
 }
 
 type SortDir = 'asc' | 'desc'
@@ -26,7 +28,18 @@ function SortIcon({ field, sortField, dir }: { field: string; sortField: string 
     : <ChevronDown size={12} className="text-primary flex-shrink-0" />
 }
 
-export default function SpreadsheetViewer({ results, fields, jobId, format, cost: _cost, onNew, paywalled, documentType }: SpreadsheetViewerProps) {
+export default function SpreadsheetViewer({
+  results,
+  fields,
+  jobId,
+  format,
+  outputFilename,
+  cost: _cost,
+  onNew,
+  paywalled,
+  documentType,
+  baselineUpdateMode,
+}: SpreadsheetViewerProps) {
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const token = useAuthStore((s) => s.token)
@@ -35,7 +48,7 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
   const handleDownload = () => {
     const a = document.createElement('a')
     a.href = `/api/documents/download/${jobId}?token=${encodeURIComponent(token ?? '')}`
-    a.download = `export.${format}`
+    a.download = outputFilename ?? `export.${format}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -83,7 +96,9 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
             <FileSpreadsheet size={14} className="text-emerald-400" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Extracted Results</span>
+            <span className="text-sm font-semibold text-foreground">
+              {baselineUpdateMode ? 'Updated Workbook Preview' : 'Extracted Results'}
+            </span>
           </div>
         </div>
 
@@ -93,7 +108,7 @@ export default function SpreadsheetViewer({ results, fields, jobId, format, cost
             variant="outline"
             className="h-8 w-8"
             onClick={paywalled ? () => navigate('/settings') : handleDownload}
-            title={paywalled ? 'Upgrade to download' : `Download ${format.toUpperCase()}`}
+            title={paywalled ? 'Upgrade to download' : `Download ${outputFilename ?? format.toUpperCase()}`}
             disabled={false}
           >
             {paywalled ? <Lock size={14} /> : <Download size={14} />}

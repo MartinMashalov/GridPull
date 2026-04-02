@@ -25,6 +25,8 @@ export interface ProgressEvent {
   fields?: string[]
   cost?: number
   error?: string
+  baseline_update_mode?: boolean
+  output_filename?: string
 }
 
 interface UseJobProgressReturn {
@@ -104,6 +106,8 @@ export function useJobProgress(jobId: string | null): UseJobProgressReturn {
             results: rData.results ?? [],
             fields: rData.fields ?? [],
             cost: data.cost,
+            baseline_update_mode: rData.baseline_update_mode ?? data.baseline_update_mode,
+            output_filename: rData.output_filename ?? data.output_filename,
           })
           stopAll()
           return
