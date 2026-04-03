@@ -263,7 +263,7 @@ export default function FormFillingPage() {
           <div
             {...targetDropzone.getRootProps()}
             className={cn(
-              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 min-h-[160px] flex flex-col items-center justify-center',
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 h-[180px] flex flex-col items-center justify-center',
               'bg-white',
               targetDropzone.isDragActive
                 ? 'border-primary bg-primary/5'
@@ -313,7 +313,7 @@ export default function FormFillingPage() {
           <div
             {...sourceDropzone.getRootProps()}
             className={cn(
-              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 min-h-[160px] flex flex-col items-center justify-center',
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 h-[180px] flex flex-col items-center justify-center',
               'bg-white',
               sourceDropzone.isDragActive
                 ? 'border-primary bg-primary/5'
@@ -324,15 +324,15 @@ export default function FormFillingPage() {
           >
             <input {...sourceDropzone.getInputProps()} />
             {sourceFiles.length > 0 ? (
-              <div className="flex flex-col items-center gap-3 w-full">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-2 w-full overflow-hidden">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Upload size={18} className="text-primary" />
                 </div>
-                <div>
+                <div className="flex-shrink-0">
                   <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to add more</p>
                 </div>
-                <div className="w-full space-y-1 max-h-20 overflow-y-auto text-left">
+                <div className="w-full space-y-1 max-h-[52px] overflow-y-auto text-left">
                   {sourceFiles.map((f, i) => (
                     <div key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between text-xs px-2 py-1 bg-muted rounded group">
                       <span className="truncate text-muted-foreground flex-1">{f.name}</span>
