@@ -19,10 +19,22 @@ def _get_openai_client() -> AsyncOpenAI:
     return _openai_client
 
 
+_MAX_COMPLETION_TOKENS_MODELS = frozenset({
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano",
+    "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini",
+})
+
+
 def _normalise_completion_kwargs(kwargs: dict[str, Any], route_profile: str) -> dict[str, Any]:
     normalised = dict(kwargs)
-    if "max_completion_tokens" in normalised and "max_tokens" not in normalised:
-        normalised["max_tokens"] = normalised.pop("max_completion_tokens")
+    model = str(normalised.get("model") or "").lower()
+    uses_max_completion = any(m in model for m in _MAX_COMPLETION_TOKENS_MODELS)
+    if uses_max_completion:
+        if "max_tokens" in normalised and "max_completion_tokens" not in normalised:
+            normalised["max_completion_tokens"] = normalised.pop("max_tokens")
+    else:
+        if "max_completion_tokens" in normalised and "max_tokens" not in normalised:
+            normalised["max_tokens"] = normalised.pop("max_completion_tokens")
     return normalised
 
 
@@ -52,9 +64,10 @@ async def routed_acompletion(
     fallback_model: str | None = None,
     **kwargs: Any,
 ) -> Any:
-    call_kwargs = _build_openai_call_kwargs(
-        _normalise_completion_kwargs(kwargs, route_profile),
-        fallback_model,
+    base = dict(kwargs)
+    base["model"] = fallback_model or settings.llm_openai_fallback_model
+    call_kwargs = _clean_provider_specific_kwargs(
+        _normalise_completion_kwargs(base, route_profile)
     )
     client = _get_openai_client()
     try:
