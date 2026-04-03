@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     hetzner_s3_endpoint_url: str = ""
     hetzner_s3_access_key_id: str = ""
     hetzner_s3_secret_access_key: str = ""
-    hetzner_s3_bucket: str = "gridpull-ingest"
+    hetzner_s3_bucket: str = "papyrafiles"
     hetzner_s3_region: str = "fsn1"
 
     # Email ingest
