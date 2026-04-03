@@ -21,7 +21,7 @@ from .core import (
     sanitize_unmatched_field_values,
 )
 from .llm import (
-    _litellm_acompletion,
+    _llm_acompletion,
     backfill_missing_row_fields_from_document,
     finalize_property_schedule_rows,
 )
@@ -105,7 +105,7 @@ async def _plan_general_extraction(
         f"Detected tables:\n{await _maybe_compress_with_bear(planner_tables, doc.page_count, usage, f'{doc.filename} planner tables')}"
     )
     try:
-        planner_resp = await _litellm_acompletion(
+        planner_resp = await _llm_acompletion(
             model=_TEXT_MODEL,
             messages=[{"role": "user", "content": planner_prompt}],
             temperature=0,

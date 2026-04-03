@@ -628,7 +628,7 @@ export default function DashboardPage() {
               Free limit reached ({usageWarning.credits_limit} credits/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 150 credits/month starting at $69/mo.
+              Upgrade to Starter for 150 credits/month starting at $49/mo.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">

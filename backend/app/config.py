@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # Shared LLM model
     openai_api_key: str = ""
     llm_openai_fallback_model: str = "gpt-4.1-mini"
+    form_fill_model: str = "gpt-4.1-nano"
 
     # Cerebras (fast inference, optional SOV reasoning mode)
     cerebras_api_key: str = ""

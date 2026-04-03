@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import litellm
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.services.llm_router import routed_acompletion
@@ -187,15 +187,21 @@ async def _cerebras_acompletion(
     model = settings.cerebras_model
     max_retries = 4
 
+    # Cerebras exposes an OpenAI-compatible API
+    cerebras_model = model.removeprefix("cerebras/")
+
     for attempt in range(max_retries):
         try:
             t0 = time.perf_counter()
-            resp = await litellm.acompletion(
-                model=model,
+            client = AsyncOpenAI(
+                base_url="https://api.cerebras.ai/v1",
+                api_key=api_key,
+            )
+            resp = await client.chat.completions.create(
+                model=cerebras_model,
                 messages=messages,
                 temperature=0,
                 max_tokens=max_tokens,
-                api_key=api_key,
             )
             elapsed_ms = (time.perf_counter() - t0) * 1000
             if resp.usage:

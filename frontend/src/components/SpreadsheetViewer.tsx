@@ -229,7 +229,7 @@ export default function SpreadsheetViewer({
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-3">
-                  Starting at $69/mo
+                  Starting at $49/mo
                 </p>
               </div>
             </div>

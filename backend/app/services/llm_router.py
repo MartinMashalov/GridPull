@@ -3,11 +3,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import litellm
+from openai import AsyncOpenAI
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client() -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _openai_client
 
 
 def _normalise_completion_kwargs(kwargs: dict[str, Any], route_profile: str) -> dict[str, Any]:
@@ -24,6 +33,7 @@ def _clean_provider_specific_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     cleaned.pop("allowed_openai_params", None)
     cleaned.pop("reasoning_effort", None)
     cleaned.pop("extra_headers", None)
+    cleaned.pop("api_key", None)
     return cleaned
 
 
@@ -33,8 +43,6 @@ def _build_openai_call_kwargs(
 ) -> dict[str, Any]:
     kwargs = _clean_provider_specific_kwargs(base_kwargs)
     kwargs["model"] = fallback_model or settings.llm_openai_fallback_model
-    if settings.openai_api_key:
-        kwargs["api_key"] = settings.openai_api_key
     return kwargs
 
 
@@ -44,23 +52,24 @@ async def routed_acompletion(
     fallback_model: str | None = None,
     **kwargs: Any,
 ) -> Any:
-    openai_kwargs = _build_openai_call_kwargs(
+    call_kwargs = _build_openai_call_kwargs(
         _normalise_completion_kwargs(kwargs, route_profile),
         fallback_model,
     )
+    client = _get_openai_client()
     try:
-        response = await litellm.acompletion(**openai_kwargs)
+        response = await client.chat.completions.create(**call_kwargs)
         logger.info(
             "OpenAI success for %s using %s",
             route_profile,
-            openai_kwargs["model"],
+            call_kwargs["model"],
         )
         return response
     except Exception as exc:
         logger.error(
             "OpenAI call failed for %s using %s: %s",
             route_profile,
-            openai_kwargs["model"],
+            call_kwargs["model"],
             exc,
         )
         raise

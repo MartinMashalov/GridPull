@@ -31,9 +31,31 @@ _MARKUP = 1.20
 _SINGLE_DOC_MIN_FFR = 0.75
 _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 
+# Per-token pricing (USD per token) for cost estimation without litellm
+_MODEL_PRICING: Dict[str, tuple[float, float]] = {
+    # (input_price_per_token, output_price_per_token)
+    "gpt-4.1-mini": (0.40e-6, 1.60e-6),
+    "gpt-4.1-nano": (0.10e-6, 0.40e-6),
+    "gpt-4.1": (2.00e-6, 8.00e-6),
+    "gpt-4o-mini": (0.15e-6, 0.60e-6),
+    "gpt-4o": (2.50e-6, 10.00e-6),
+}
+
+
+def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Estimate cost from token counts and model name."""
+    # Match on base model name (strip date suffixes like -2025-04-14)
+    for key, (inp, out) in _MODEL_PRICING.items():
+        if key in model:
+            return prompt_tokens * inp + completion_tokens * out
+    # Unknown model — use gpt-4.1-mini pricing as conservative default
+    inp, out = _MODEL_PRICING["gpt-4.1-mini"]
+    return prompt_tokens * inp + completion_tokens * out
+
+
 @dataclass
 class LLMUsage:
-    litellm_cost_usd: float = 0.0
+    llm_cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
     vision_input_tokens: int = 0
@@ -44,6 +66,15 @@ class LLMUsage:
     bear_removed_tokens: int = 0
     bear_latency_ms: float = 0.0
     bear_cache: Dict[str, str] = field(default_factory=dict)
+
+    # Backward compat alias
+    @property
+    def litellm_cost_usd(self) -> float:
+        return self.llm_cost_usd
+
+    @litellm_cost_usd.setter
+    def litellm_cost_usd(self, value: float) -> None:
+        self.llm_cost_usd = value
 
     def add(self, prompt_tokens: int, completion_tokens: int) -> None:
         self.input_tokens += prompt_tokens
@@ -67,15 +98,20 @@ class LLMUsage:
     @property
     def cost_usd(self) -> float:
         return round(
-            (self.litellm_cost_usd + self.ocr_cost_usd + self.bear_removed_tokens * _BEAR_REMOVED_TOKEN_PRICE)
+            (self.llm_cost_usd + self.ocr_cost_usd + self.bear_removed_tokens * _BEAR_REMOVED_TOKEN_PRICE)
             * _MARKUP,
             6,
         )
 
 
 def record_llm_usage_cost(usage: LLMUsage, response: Any) -> None:
-    hp = getattr(response, "_hidden_params", None) or {}
-    usage.litellm_cost_usd += float(hp.get("response_cost") or 0)
+    """Compute cost from OpenAI response usage and model name."""
+    resp_usage = getattr(response, "usage", None)
+    model = getattr(response, "model", "") or ""
+    if resp_usage:
+        prompt_tokens = getattr(resp_usage, "prompt_tokens", 0) or 0
+        completion_tokens = getattr(resp_usage, "completion_tokens", 0) or 0
+        usage.llm_cost_usd += _estimate_cost(model, prompt_tokens, completion_tokens)
 
 
 def _fields_block(fields: List[Dict[str, str]]) -> str:

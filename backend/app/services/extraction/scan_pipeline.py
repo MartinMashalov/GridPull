@@ -26,7 +26,7 @@ from .core import (
     LLMUsage,
     document_has_wide_data_grid,
 )
-from .llm import _cleanup_single_row_with_nano, _litellm_extract, _review_multi_rows
+from .llm import _cleanup_single_row_with_nano, _llm_extract_vision, _review_multi_rows
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ async def _extract_scanned_chunked(
             'Extract ALL repeated records in this chunk. '
             'Return: {"records": [...]}. No records here -> {"records": []}.'
         )
-        return await _litellm_extract(_SCAN_MULTI_SYSTEM, prompt, field_names, doc.filename, usage)
+        return await _llm_extract_vision(_SCAN_MULTI_SYSTEM, prompt, field_names, doc.filename, usage)
 
     chunk_results = await asyncio.gather(*[_chunk_task(c) for c in chunks])
     all_rows: List[Dict[str, Any]] = []
@@ -141,7 +141,7 @@ async def _extract_scanned_per_page(
                 'Extract the single record on this page. If the page has no relevant data, return {"records": []}.'
             )
             prompt = "\n".join(prompt_parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
-            return await _litellm_extract(_SCAN_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage)
+            return await _llm_extract_vision(_SCAN_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage)
 
     page_results = await asyncio.gather(*[_extract_page(page) for page in ocr_pages])
     all_rows: List[Dict[str, Any]] = []
@@ -234,7 +234,7 @@ async def extract_from_scanned_document(
             + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR planner')}"
         )
         try:
-            planner_resp = await _litellm_extract(
+            planner_resp = await _llm_extract_vision(
                 _SCAN_SINGLE_SYSTEM,
                 planner_prompt + '\n\nReturn: {"records": [{"mode": "single"}]}',
                 ["mode"],
@@ -288,7 +288,7 @@ async def extract_from_scanned_document(
         + instruction
     )
 
-    rows = await _litellm_extract(system, user_prompt, field_names, doc.filename, usage)
+    rows = await _llm_extract_vision(system, user_prompt, field_names, doc.filename, usage)
     if extraction_mode != "multi":
         if enable_retry and len(rows) == 1:
             valid, reason = _single_record_valid(rows[0], field_names)
@@ -299,7 +299,7 @@ async def extract_from_scanned_document(
                     reason,
                 )
                 retry_prompt = user_prompt + "\n\n" + _SINGLE_RETRY_INSTRUCTION + "\n\n" + instruction
-                rows = await _litellm_extract(system, retry_prompt, field_names, doc.filename, usage)
+                rows = await _llm_extract_vision(system, retry_prompt, field_names, doc.filename, usage)
                 if len(rows) == 1:
                     valid2, _ = _single_record_valid(rows[0], field_names)
                     if not valid2:
@@ -325,7 +325,7 @@ async def extract_from_scanned_document(
                     + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR missing-fields')}\n\n"
                     + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
                 )
-                retry_rows = await _litellm_extract(
+                retry_rows = await _llm_extract_vision(
                     _SCAN_SINGLE_SYSTEM,
                     retry_prompt,
                     [f["name"] for f in retry_fields],
@@ -368,7 +368,7 @@ async def extract_from_scanned_document(
                             + "\n\n"
                             + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
                         )
-                        final_retry_rows = await _litellm_extract(
+                        final_retry_rows = await _llm_extract_vision(
                             _SCAN_SINGLE_SYSTEM,
                             final_retry_prompt,
                             [f["name"] for f in final_retry_fields],

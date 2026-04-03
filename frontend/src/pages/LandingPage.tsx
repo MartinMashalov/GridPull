@@ -105,7 +105,7 @@ const PRICING_TIERS = [
   },
   {
     name: 'Starter',
-    price: '$69',
+    price: '$49',
     period: '/mo',
     desc: 'For solo agents & small agencies',
     features: ['150 credits / month', '$0.60 per credit overage', '5 MB max file size', 'Priority processing'],
@@ -123,7 +123,7 @@ const PRICING_TIERS = [
   },
   {
     name: 'Business',
-    price: '$499',
+    price: '$549',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
     features: ['1,500 credits / month', '$0.40 per credit overage', 'Automated pipelines', '5 MB max file size'],
@@ -239,7 +239,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting with 10 credits per month at no cost. Each credit covers one file up to 50 pages. When you\'re ready, plans start at $69/mo for 150 credits. Need more? Every paid plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $69.',
+    a: 'It\'s free to get started — just sign up and start extracting with 10 credits per month at no cost. Each credit covers one file up to 50 pages. When you\'re ready, plans start at $49/mo for 150 credits. Need more? Every paid plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $49.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',

@@ -9,33 +9,99 @@ import tempfile
 from email import policy
 from email.parser import BytesParser
 from html import unescape
-from litellm import ocr
+from mistralai import Mistral
 from pypdf import PdfReader, PdfWriter
 
 from app.services.llm_router import routed_acompletion
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Minimum characters from pypdf before we consider it "good enough" and skip OCR
+_MIN_PYPDF_TEXT_LEN = 200
+
+_OCR_MAX_RETRIES = 3
+_OCR_RETRY_BACKOFF = [1, 3, 6]  # seconds
+
+
+def _extract_text_pypdf(file_bytes: bytes) -> str:
+    """Try to extract text from a digital PDF using pypdf (free, no API call)."""
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        pages_text = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                pages_text.append(text)
+        return "\n\n".join(pages_text)
+    except Exception as e:
+        logger.debug("[PYPDF] Text extraction failed: %s", e)
+        return ""
+
+
+_OCR_MAX_FILE_SIZE = 1_000_000  # 1 MB — above this, split PDF into per-page chunks for OCR
+
 
 class MistralOCR:
-    """Extract text from PDF using Mistral OCR"""
+    """Extract text from PDF using Mistral OCR (for scanned documents)"""
 
     async def extract_text_async(self, file_bytes: bytes, mime_type: str = "application/pdf") -> str:
         logger.info(f"[OCR] Starting async OCR extraction for file of size {len(file_bytes)} bytes")
-        try:
-            result = await asyncio.to_thread(self._extract_text_sync, file_bytes, mime_type)
-            return result
-        except Exception as e:
-            logger.error(f"[OCR] Error during OCR extraction: {str(e)}", exc_info=True)
-            raise
+
+        # For large PDFs, split into per-page chunks to avoid Mistral overflow
+        if mime_type == "application/pdf" and len(file_bytes) > _OCR_MAX_FILE_SIZE:
+            return await self._extract_text_chunked(file_bytes)
+
+        return await self._ocr_with_retry(file_bytes, mime_type)
+
+    async def _extract_text_chunked(self, file_bytes: bytes) -> str:
+        """Split large PDF into single-page PDFs and OCR each one."""
+        reader = PdfReader(io.BytesIO(file_bytes))
+        n_pages = len(reader.pages)
+        logger.info(f"[OCR] Large PDF ({len(file_bytes)} bytes, {n_pages} pages) — splitting into per-page chunks")
+
+        page_texts = []
+        for i, page in enumerate(reader.pages):
+            writer = PdfWriter()
+            writer.add_page(page)
+            buf = io.BytesIO()
+            writer.write(buf)
+            chunk_bytes = buf.getvalue()
+            try:
+                text = await self._ocr_with_retry(chunk_bytes, "application/pdf")
+                page_texts.append(text)
+                logger.info(f"[OCR] Page {i+1}/{n_pages}: {len(text)} chars")
+            except Exception as e:
+                logger.warning(f"[OCR] Page {i+1}/{n_pages} failed: {e}")
+                page_texts.append("")
+
+        combined = "\n\n".join(t for t in page_texts if t)
+        logger.info(f"[OCR] Chunked extraction complete: {len(combined)} chars from {n_pages} pages")
+        return combined
+
+    async def _ocr_with_retry(self, file_bytes: bytes, mime_type: str) -> str:
+        last_exc = None
+        for attempt in range(_OCR_MAX_RETRIES):
+            try:
+                result = await asyncio.to_thread(self._extract_text_sync, file_bytes, mime_type)
+                return result
+            except Exception as e:
+                last_exc = e
+                if attempt < _OCR_MAX_RETRIES - 1:
+                    wait = _OCR_RETRY_BACKOFF[attempt]
+                    logger.warning("[OCR] Attempt %d failed (%s), retrying in %ds", attempt + 1, str(e)[:80], wait)
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"[OCR] All {_OCR_MAX_RETRIES} attempts failed: {str(e)}", exc_info=True)
+        raise last_exc
 
     def _extract_text_sync(self, file_bytes: bytes, mime_type: str) -> str:
         base64_file = base64.b64encode(file_bytes).decode('utf-8')
-        document = {
-            "type": "document_url",
-            "document_url": f"data:{mime_type};base64,{base64_file}"
-        }
-        response = ocr(model="mistral/mistral-ocr-latest", document=document)
+        client = Mistral(api_key=settings.mistral_api_key)
+        response = client.ocr.process(
+            model="mistral-ocr-latest",
+            document={"type": "document_url", "document_url": f"data:{mime_type};base64,{base64_file}"},
+        )
         extracted_text = "\n".join(page.markdown for page in response.pages)
         logger.info(f"[OCR] Text extraction complete, length: {len(extracted_text)} characters")
         return extracted_text
@@ -142,12 +208,16 @@ class PDFPopulator:
 
         response = await routed_acompletion(
             route_profile="form_fill",
+            fallback_model=settings.form_fill_model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
 
-        cost = response._hidden_params.get('response_cost', 0.0)
-        used_model = getattr(response, "model", "unknown")
+        used_model = getattr(response, "model", "unknown") or "unknown"
+        cost = 0.0
+        if response.usage:
+            from app.services.extraction.core import _estimate_cost
+            cost = _estimate_cost(used_model, response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0)
 
         response_text = response.choices[0].message.content
         if "```json" in response_text:
@@ -342,9 +412,17 @@ class PDFPopulator:
                     all_texts.append(text)
                     logger.info(f"[POPULATE] Read email file {filename}: {len(text)} chars")
                 elif ext == '.pdf':
-                    extracted = await ocr_extractor.extract_text_async(file_bytes, 'application/pdf')
-                    all_texts.append(extracted)
-                    logger.info(f"[POPULATE] OCR'd PDF {filename}: {len(extracted)} chars")
+                    # Try free pypdf text extraction first (works for digital PDFs)
+                    pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
+                    if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
+                        all_texts.append(pypdf_text)
+                        logger.info(f"[POPULATE] Extracted text from PDF {filename} via pypdf: {len(pypdf_text)} chars")
+                    else:
+                        # Scanned/image PDF — fall back to OCR
+                        logger.info(f"[POPULATE] pypdf got {len(pypdf_text)} chars from {filename}, falling back to OCR")
+                        extracted = await ocr_extractor.extract_text_async(file_bytes, 'application/pdf')
+                        all_texts.append(extracted)
+                        logger.info(f"[POPULATE] OCR'd PDF {filename}: {len(extracted)} chars")
                 elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
                     mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
                             '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',

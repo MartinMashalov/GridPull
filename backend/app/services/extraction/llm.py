@@ -29,8 +29,8 @@ _REVIEW_MAX_TOKENS = 32_768
 logger = logging.getLogger(__name__)
 
 
-async def _litellm_acompletion(**kwargs: Any) -> Any:
-    """All LLM chat calls go through the shared router. Mistral OCR stays in ocr_service only."""
+async def _llm_acompletion(**kwargs: Any) -> Any:
+    """All LLM chat calls go through the shared router."""
     return await routed_acompletion(route_profile="extraction", **kwargs)
 
 
@@ -47,7 +47,7 @@ async def _llm_extract(
     system_prompt = f"{_system_with_date(system)}\n\nReturn a valid JSON object only."
     for attempt in range(3):
         try:
-            resp = await _litellm_acompletion(
+            resp = await _llm_acompletion(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -79,7 +79,7 @@ async def _llm_extract(
     return _empty([filename], field_names)
 
 
-async def _litellm_extract(
+async def _llm_extract_vision(
     system: str,
     user_prompt: str,
     field_names: List[str],
@@ -476,7 +476,7 @@ async def backfill_missing_row_fields_from_document(
         "with one patch object per item; each patch uses the exact schema field names that were missing."
     )
     try:
-        resp = await _litellm_acompletion(
+        resp = await _llm_acompletion(
             model=_TEXT_MODEL,
             messages=[
                 {
@@ -543,7 +543,7 @@ async def _extract_record_count_metadata(
         'Return a JSON object exactly as: {"total_records_expected": <integer>}'
     )
     try:
-        resp = await _litellm_acompletion(
+        resp = await _llm_acompletion(
             model=_TEXT_MODEL,
             messages=[{"role": "user", "content": user_prompt}],
             response_format={"type": "json_object"},
@@ -602,7 +602,7 @@ async def _cleanup_single_row_with_nano(
         'Return exactly: {"records": [{"Field Name": "value", ...}]}'
     )
     try:
-        resp = await _litellm_acompletion(
+        resp = await _llm_acompletion(
             model=_CLEANUP_MODEL,
             messages=[{"role": "user", "content": cleanup_prompt}],
             response_format={"type": "json_object"},
