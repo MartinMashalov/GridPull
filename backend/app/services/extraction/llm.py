@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from app.config import settings
 from app.services.llm_router import routed_acompletion
 
 from .core import (
@@ -45,10 +46,12 @@ async def _llm_extract(
     vision_tokens: bool = False,
 ) -> List[Dict[str, Any]]:
     system_prompt = f"{_system_with_date(system)}\n\nReturn a valid JSON object only."
+    _RATE_LIMIT_KEYWORDS = ("rate", "429", "quota", "capacity", "overloaded", "tpm", "rpm")
+    active_model = model
     for attempt in range(3):
         try:
             resp = await _llm_acompletion(
-                model=model,
+                model=active_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -67,6 +70,17 @@ async def _llm_extract(
             result = _normalise_rows(raw, field_names, filename)
             return result if result else _empty([filename], field_names)
         except Exception as exc:
+            err_str = str(exc).lower()
+            # On first attempt, fall back to the cheaper model on rate-limit / capacity errors
+            if attempt == 0 and any(kw in err_str for kw in _RATE_LIMIT_KEYWORDS):
+                fallback = settings.llm_openai_fallback_model
+                if fallback != active_model:
+                    logger.warning(
+                        "Extraction rate-limited on %s for %s — falling back to %s",
+                        active_model, filename, fallback,
+                    )
+                    active_model = fallback
+                    continue
             if attempt == 2:
                 logger.error(
                     "%s extraction failed for %s: %s",

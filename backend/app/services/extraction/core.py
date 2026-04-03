@@ -18,10 +18,10 @@ from app.services.pdf_service import ParsedDocument
 logger = logging.getLogger(__name__)
 
 # Model names
-_TEXT_MODEL = settings.llm_openai_fallback_model
-_VISION_MODEL = settings.llm_openai_fallback_model
-# Post-extraction single-row polish uses the same shared model.
-_CLEANUP_MODEL = settings.llm_openai_fallback_model
+_TEXT_MODEL = settings.llm_extraction_model          # Primary: gpt-4.1-mini
+_VISION_MODEL = settings.llm_extraction_model        # Primary: gpt-4.1-mini
+# Post-extraction single-row polish uses the lighter fallback model.
+_CLEANUP_MODEL = settings.llm_openai_fallback_model  # Fallback: gpt-5.4-mini
 _OCR_MODEL = "mistral-ocr-latest"
 
 _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
@@ -38,8 +38,8 @@ _MODEL_PRICING: Dict[str, tuple[float, float]] = {
     "gpt-5.4-pro": (15.00e-6, 60.00e-6),   # GPT-5.4 Pro (max performance)
     "gpt-5.4-mini": (1.00e-6, 4.00e-6),    # GPT-5.4 mini (efficient)
     "gpt-5.4-nano": (0.30e-6, 1.20e-6),    # GPT-5.4 nano (speed/cost)
-    "gpt-4.1-mini": (0.40e-6, 1.60e-6),    # Legacy (retired)
-    "gpt-4.1-nano": (0.10e-6, 0.40e-6),    # Legacy (retired)
+    "gpt-4.1-mini": (0.40e-6, 1.60e-6),    # GPT-4.1 mini (primary extraction)
+    "gpt-4.1-nano": (0.10e-6, 0.40e-6),    # GPT-4.1 nano
     "gpt-4o-mini": (0.15e-6, 0.60e-6),     # Legacy
     "gpt-4o": (2.50e-6, 10.00e-6),         # Legacy
 }

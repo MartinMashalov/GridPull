@@ -65,7 +65,11 @@ async def routed_acompletion(
     **kwargs: Any,
 ) -> Any:
     base = dict(kwargs)
-    base["model"] = fallback_model or settings.llm_openai_fallback_model
+    if fallback_model:
+        base["model"] = fallback_model          # explicit override from caller
+    elif not base.get("model"):
+        base["model"] = settings.llm_openai_fallback_model  # last-resort default
+    # else: model already set in kwargs — keep it
     call_kwargs = _clean_provider_specific_kwargs(
         _normalise_completion_kwargs(base, route_profile)
     )

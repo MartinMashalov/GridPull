@@ -51,7 +51,8 @@ class Settings(BaseSettings):
 
     # Shared LLM model
     openai_api_key: str = ""
-    llm_openai_fallback_model: str = "gpt-5.4-mini"
+    llm_extraction_model: str = "gpt-4.1-mini"       # Primary extraction model
+    llm_openai_fallback_model: str = "gpt-5.4-mini"  # Fallback if primary is rate-limited
     form_fill_model: str = "gpt-5.4-mini"
     form_fill_fallback_model: str = "gpt-5.4-nano"  # Use if rate limited
 
