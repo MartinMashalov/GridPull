@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -37,10 +37,10 @@ export interface ExtractionField {
 }
 
 const DOC_TYPE_OPTIONS: { id: DocumentType; label: string }[] = [
-  { id: 'custom', label: 'Custom Fields' },
-  { id: 'quickbooks', label: 'QuickBooks' },
+  { id: 'sov', label: 'Schedules' },
   { id: 'invoices', label: 'Invoices' },
-  { id: 'sov', label: 'Statement of Values' },
+  { id: 'quickbooks', label: 'QuickBooks' },
+  { id: 'custom', label: 'Custom Fields' },
 ]
 
 const QUICKBOOKS_FIELDS: ExtractionField[] = [
@@ -204,7 +204,7 @@ export default function DashboardPage() {
   const [allowEditPastValues, setAllowEditPastValues] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
-  const [documentType, setDocumentType] = useState<DocumentType>('custom')
+  const [documentType, setDocumentType] = useState<DocumentType>('sov')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
@@ -635,7 +635,7 @@ export default function DashboardPage() {
                 variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
                 className="font-mono text-[11px]"
               >
-                {user?.subscription_tier === 'free' ? 'Free' : (user?.subscription_tier || 'Free')}
+                {(usageWarning.tier || user?.subscription_tier || 'free').charAt(0).toUpperCase() + (usageWarning.tier || user?.subscription_tier || 'free').slice(1)}
               </Badge>
             </>
           )}
@@ -814,9 +814,9 @@ export default function DashboardPage() {
             <div
               {...getBaselineRootProps()}
               className={cn(
-                'border-2 border-dashed rounded-xl p-5 sm:p-8 text-center cursor-pointer transition-all duration-200 bg-white h-full min-h-[220px] flex items-center justify-center',
+                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-150 bg-white h-[200px] flex items-center justify-center',
                 isBaselineDragActive
-                  ? 'border-emerald-500 bg-emerald-500/5'
+                  ? 'border-emerald-500 bg-emerald-500/5 scale-[1.01]'
                   : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
               )}
             >
@@ -847,9 +847,9 @@ export default function DashboardPage() {
             <div
               {...getDocumentRootProps()}
               className={cn(
-                'border-2 border-dashed rounded-xl p-5 sm:p-8 text-center cursor-pointer transition-all duration-200 bg-white h-full min-h-[220px] flex items-center justify-center',
+                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-150 bg-white h-[200px] flex items-center justify-center',
                 isDocumentDragActive
-                  ? 'border-primary bg-primary/5'
+                  ? 'border-primary bg-primary/5 scale-[1.01]'
                   : 'border-border hover:border-primary/40 hover:bg-accent/30'
               )}
             >
@@ -908,8 +908,8 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Email Inbox button */}
-      {!job && (
+      {/* Email Inbox button — only for Schedules */}
+      {!job && documentType === 'sov' && (
         <div className="mt-3 flex justify-center">
           <button
             onClick={() => setShowInbox(true)}
@@ -1040,27 +1040,6 @@ export default function DashboardPage() {
           documentType={documentType}
           baselineUpdateMode={job.baselineUpdateMode}
         />
-      )}
-
-      {/* Pipeline nudge — show when no active job */}
-      {!job && files.length === 0 && (
-        <div className="mt-8 bg-card border border-border rounded-xl p-4 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <Workflow size={15} className="text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Process documents automatically?</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Set up a Pipeline to connect a Google Drive or SharePoint folder. New documents added to that folder will be extracted automatically — no manual uploads needed.
-            </p>
-            <button
-              onClick={() => navigate('/pipelines')}
-              className="mt-2 text-xs font-medium text-primary hover:underline flex items-center gap-1"
-            >
-              Set up a Pipeline <ArrowRight size={11} />
-            </button>
-          </div>
-        </div>
       )}
 
       <ExtractionFieldsModal
