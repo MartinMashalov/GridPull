@@ -131,7 +131,7 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
             )
             return 0
 
-        # Dedup by message_id
+        # Dedup by message_id (same email forwarded twice)
         existing = await db.execute(
             select(IngestDocument.id).where(
                 IngestDocument.user_id == user.id,
@@ -140,6 +140,30 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
         )
         if existing.scalar_one_or_none():
             logger.debug("Gmail poller: duplicate message_id=%s", message_id)
+            return 0
+
+        # Extra dedup: check if same files from same sender already exist
+        # (catches re-forwards with different Message-IDs)
+        for att in attachments:
+            dup_check = await db.execute(
+                select(IngestDocument.id).where(
+                    IngestDocument.user_id == user.id,
+                    IngestDocument.sender_email == sender,
+                    IngestDocument.filename == att["filename"],
+                    IngestDocument.file_size == len(att["data"]),
+                    IngestDocument.job_id.is_(None),  # only check unprocessed docs
+                ).limit(1)
+            )
+            if dup_check.scalar_one_or_none():
+                logger.info(
+                    "Gmail poller: skipping duplicate file %s from %s (same name+size)",
+                    att["filename"], sender,
+                )
+                attachments = [a for a in attachments if not (
+                    a["filename"] == att["filename"] and len(a["data"]) == len(att["data"])
+                )]
+        if not attachments:
+            logger.info("Gmail poller: all attachments are duplicates, skipping")
             return 0
 
         expires_at = datetime.utcnow() + timedelta(days=7)
