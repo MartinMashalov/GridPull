@@ -203,7 +203,6 @@ export default function DashboardPage() {
   const [baselineHeaders, setBaselineHeaders] = useState<string[] | null>(null)
   const [allowEditPastValues, setAllowEditPastValues] = useState(false)
   const [showModal, setShowModal] = useState(false)
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [documentType, setDocumentType] = useState<DocumentType>('sov')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
@@ -224,8 +223,7 @@ export default function DashboardPage() {
     const stored = localStorage.getItem(_ACTIVE_JOB_KEY)
     if (!stored) return
     try {
-      const { jobId, format } = JSON.parse(stored)
-      setExportFormat(format as ExportFormat)
+      const { jobId } = JSON.parse(stored)
       setJob({ jobId, status: 'processing', progress: 0, message: 'Reconnecting…' })
       setActiveJobId(jobId)
     } catch {
@@ -382,7 +380,6 @@ export default function DashboardPage() {
     setBaselineSpreadsheet(newSpreadsheet)
     setBaselineHeaders(null)
     setAllowEditPastValues(false)
-    setExportFormat(newSpreadsheet.name.toLowerCase().endsWith('.csv') ? 'csv' : 'xlsx')
 
     try {
       const fd = new FormData()
@@ -425,7 +422,7 @@ export default function DashboardPage() {
       if (!files.length) { setValidationMsg('Upload at least one source file to update the spreadsheet.'); return }
       setValidationMsg(null)
       const fields: ExtractionField[] = baselineHeaders.map(h => ({ name: h, description: '' }))
-      handleExtract(fields, exportFormat, '')
+      handleExtract(fields, 'xlsx', '')
       return
     }
     if (!files.length) { setValidationMsg('Upload at least one supported file.'); return }
@@ -433,7 +430,7 @@ export default function DashboardPage() {
     if (documentType === 'quickbooks') {
       handleExtract(
         QUICKBOOKS_FIELDS,
-        exportFormat,
+        'xlsx',
         'Extract accounting-ready transaction fields from each document. Return Date, Description, and Amount. For invoices, use invoice date, vendor or purpose as Description, and total due as a negative Amount. For statements, use transaction date, payee, and amount with positive values for credits and negative values for debits. If a field is not present in the source, leave it blank.',
       )
     } else {
@@ -448,10 +445,9 @@ export default function DashboardPage() {
     setShowModal(true)  // open extraction fields modal
   }
 
-  const handleIngestExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
+  const handleIngestExtract = async (fields: ExtractionField[], _format: ExportFormat, instructions: string) => {
     if (inboxDocIds.length === 0) return
     setShowModal(false)
-    setExportFormat(format)
     setActiveJobId(null)
     setJob({ jobId: '', status: 'queued', progress: 0, message: 'Processing inbox documents…', total_docs: inboxDocIds.length, completed_docs: 0 })
 
@@ -460,11 +456,11 @@ export default function DashboardPage() {
         document_ids: inboxDocIds,
         fields: fields.map(f => ({ name: f.name, description: f.description })),
         instructions: instructions.trim(),
-        format,
+        format: 'xlsx',
       })
 
       const jobId = res.data.job_id
-      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format }))
+      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId }))
       setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
       setActiveJobId(jobId)
       setInboxDocIds([])
@@ -496,7 +492,6 @@ export default function DashboardPage() {
       allow_edit_past_values: !!baselineSpreadsheet && allowEditPastValues,
     })
     setShowModal(false)
-    setExportFormat(format)
     setActiveJobId(null)
     setJob({ jobId: '', status: 'queued', progress: 0, message: 'Uploading files…', total_docs: files.length, completed_docs: 0 })
 
@@ -517,13 +512,13 @@ export default function DashboardPage() {
       }
       fd.append('fields', JSON.stringify(fields))
       fd.append('instructions', instructions.trim())
-      fd.append('format', format)
+      fd.append('format', 'xlsx')
 
       const res = await api.post('/documents/extract', fd, { signal: ac.signal })
       extractAbortRef.current = null
 
       const jobId = res.data.job_id
-      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format }))
+      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId }))
       setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
       setActiveJobId(jobId)
 
@@ -591,7 +586,6 @@ export default function DashboardPage() {
   }
 
   const isProcessing = job !== null && job.status !== 'complete' && job.status !== 'error'
-  const isBaselineFormatLocked = documentType === 'sov' && baselineSpreadsheet !== null
 
   const extractAbortRef = useRef<AbortController | null>(null)
   const submitBtnRef = useRef<HTMLButtonElement>(null)
@@ -775,35 +769,6 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Format toggle */}
-      <div className="flex items-center gap-3 mb-4">
-        <span className="text-xs text-muted-foreground">Output format</span>
-        <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
-          {(['xlsx', 'csv'] as ExportFormat[]).map((fmt) => (
-            <button
-              key={fmt}
-              onClick={() => setExportFormat(fmt)}
-              disabled={isBaselineFormatLocked}
-              className={cn(
-                'px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                exportFormat === fmt
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {fmt.toUpperCase()}
-            </button>
-          ))}
-        </div>
-        <span className="text-[11px] text-muted-foreground hidden sm:inline">
-          {isBaselineFormatLocked
-            ? 'Editable baseline mode keeps the spreadsheet\'s current file format.'
-            : exportFormat === 'xlsx'
-              ? 'Excel spreadsheet — opens in Excel, Google Sheets, etc.'
-              : 'Comma-separated values — universal format for any spreadsheet app'}
-        </span>
       </div>
 
       {/* Drop zones */}
@@ -1035,7 +1000,7 @@ export default function DashboardPage() {
           results={job.results}
           fields={job.fields}
           jobId={job.jobId}
-          format={exportFormat}
+          format={'xlsx'}
           outputFilename={job.outputFilename}
           onNew={handleNew}
           paywalled={isPaywalled}
@@ -1048,7 +1013,7 @@ export default function DashboardPage() {
         open={showModal}
         onClose={() => { setShowModal(false); setInboxDocIds([]) }}
         onConfirm={handleExtract}
-        defaultFormat={exportFormat}
+        defaultFormat={'xlsx'}
         documentType={documentType}
       />
 
