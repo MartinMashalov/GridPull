@@ -13,7 +13,7 @@ import imaplib
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from email.header import decode_header
 
 from app.config import settings
@@ -142,7 +142,7 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
             logger.debug("Gmail poller: duplicate message_id=%s", message_id)
             return 0
 
-        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        expires_at = datetime.utcnow() + timedelta(days=7)
         doc_count = 0
 
         for att in attachments:

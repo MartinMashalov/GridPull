@@ -7,7 +7,7 @@ POST /webhooks/email-ingest  — Receive inbound email, extract attachments, sto
 import base64
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -106,7 +106,7 @@ async def email_ingest(payload: EmailIngestPayload):
             logger.info("Email ingest: no attachments from %s", parsed.sender_email)
             return {"status": "ok", "documents": 0}
 
-        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        expires_at = datetime.utcnow() + timedelta(days=7)
         doc_count = 0
 
         for att in parsed.attachments:

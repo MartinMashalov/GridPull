@@ -1,7 +1,7 @@
 """Cleanup expired ingest documents and mobile upload sessions."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def cleanup_expired_documents(session: AsyncSession) -> int:
     """Delete expired ingest documents from S3 and DB. Returns count deleted."""
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # Find expired documents not yet assigned to a job
     result = await session.execute(
