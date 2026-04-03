@@ -12,6 +12,10 @@ from html import unescape
 from mistralai import Mistral
 from pypdf import PdfReader, PdfWriter
 
+import random
+import time
+from openai import AsyncOpenAI
+
 from app.services.llm_router import routed_acompletion
 from app.config import settings
 
@@ -206,26 +210,62 @@ class PDFPopulator:
 
         Return a JSON object with ALL field names as keys and appropriate values. Every single field MUST have a value that matches its type constraints."""
 
-        # Try primary model first, fallback on rate limit
-        used_model = settings.form_fill_model
-        last_exc = None
-        for attempt, model in enumerate([settings.form_fill_model, getattr(settings, 'form_fill_fallback_model', 'gpt-5.4')]):
-            try:
-                response = await routed_acompletion(
-                    route_profile="form_fill",
-                    fallback_model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                )
-                used_model = getattr(response, "model", "unknown") or model
-                break
-            except Exception as e:
-                last_exc = e
-                err_str = str(e).lower()
-                if attempt == 0 and any(kw in err_str for kw in ("rate", "429", "quota", "capacity")):
-                    logger.warning(f"[AI] Rate limit on {model}, retrying with {model if attempt == 1 else 'fallback'}")
+        # Try Cerebras oss-120b first, then fall back to OpenAI models
+        response = None
+        used_model = "unknown"
+        cerebras_keys = [k for k in (settings.cerebras_api_key, settings.cerebras_api_key2, settings.cerebras_api_key3) if k]
+        if cerebras_keys:
+            cerebras_model_raw = settings.cerebras_model.removeprefix("cerebras/")
+            for c_attempt in range(3):
+                try:
+                    api_key = random.choice(cerebras_keys)
+                    t0 = time.perf_counter()
+                    client = AsyncOpenAI(base_url="https://api.cerebras.ai/v1", api_key=api_key)
+                    response = await client.chat.completions.create(
+                        model=cerebras_model_raw,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0,
+                        response_format={"type": "json_object"},
+                    )
+                    elapsed_ms = (time.perf_counter() - t0) * 1000
+                    used_model = settings.cerebras_model
+                    logger.info("[FORM-FILL] Cerebras %s succeeded in %.0fms (attempt %d/3)", cerebras_model_raw, elapsed_ms, c_attempt + 1)
+                    break
+                except json.JSONDecodeError:
+                    logger.warning("[FORM-FILL] Cerebras returned malformed JSON (attempt %d/3)", c_attempt + 1)
+                    response = None
                     continue
-                raise
+                except Exception as exc:
+                    err_str = str(exc).lower()
+                    is_capacity = any(kw in err_str for kw in ("capacity", "rate", "limit", "overloaded", "503", "529", "too many", "quota"))
+                    if is_capacity and c_attempt < 2:
+                        wait = 2 ** c_attempt + random.random()
+                        logger.warning("[FORM-FILL] Cerebras capacity issue (attempt %d/3), retrying in %.1fs: %s", c_attempt + 1, wait, exc)
+                        await asyncio.sleep(wait)
+                        continue
+                    logger.warning("[FORM-FILL] Cerebras failed (attempt %d/3): %s", c_attempt + 1, exc)
+                    response = None
+                    break
+
+        # Fallback to OpenAI if Cerebras didn't work
+        if response is None:
+            logger.info("[FORM-FILL] Falling back to OpenAI models")
+            for attempt, model in enumerate([settings.form_fill_model, getattr(settings, 'form_fill_fallback_model', 'gpt-5.4')]):
+                try:
+                    response = await routed_acompletion(
+                        route_profile="form_fill",
+                        fallback_model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"},
+                    )
+                    used_model = getattr(response, "model", "unknown") or model
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if attempt == 0 and any(kw in err_str for kw in ("rate", "429", "quota", "capacity")):
+                        logger.warning(f"[FORM-FILL] Rate limit on {model}, retrying with fallback")
+                        continue
+                    raise
 
         cost = 0.0
         if response.usage:

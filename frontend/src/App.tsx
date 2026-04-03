@@ -11,6 +11,7 @@ import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
 import FormFillingPage from '@/pages/FormFillingPage'
+import MobileUploadPage from '@/pages/MobileUploadPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 
@@ -105,6 +106,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/upload/:token" element={<MobileUploadPage />} />
         <Route path="/use-cases/insurance" element={<InsurancePage />} />
         <Route path="/use-cases/accounting-finance" element={<AccountingFinancePage />} />
         <Route path="/use-cases/other" element={<OtherUseCasesPage />} />

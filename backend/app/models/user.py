@@ -33,6 +33,9 @@ class User(Base):
     overage_credits_this_period = Column(Integer, default=0)
     usage_reset_at = Column(DateTime, nullable=True)
 
+    # Email ingest
+    ingest_address_key = Column(String, unique=True, nullable=True, index=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

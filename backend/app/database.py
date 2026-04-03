@@ -123,6 +123,8 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS credits_used_this_period INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS overage_credits_this_period INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS usage_reset_at TIMESTAMP",
+            # Email ingest
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS ingest_address_key VARCHAR",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
             

@@ -109,15 +109,22 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     output_dir: str = "./outputs"
 
-    # Hetzner S3 (ingest document storage)
-    hetzner_s3_endpoint: str = ""
-    hetzner_s3_access_key: str = ""
-    hetzner_s3_secret_key: str = ""
-    hetzner_s3_bucket: str = "gridpull-documents"
-    hetzner_s3_region: str = "fsn1"
+    # Hetzner Storage Box (ingest document storage via SFTP)
+    storagebox_host: str = "u570976.your-storagebox.de"
+    storagebox_username: str = "u570976"
+    storagebox_password: str = ""
+    storagebox_port: int = 23
+    storagebox_base_path: str = "/ingest"
 
     # Email ingest
     ingest_email_domain: str = "ingest.gridpull.com"
+
+    # Gmail IMAP polling (inbound email collection)
+    gmail_imap_email: str = ""
+    gmail_imap_password: str = ""
+    gmail_imap_host: str = "imap.gmail.com"
+    gmail_imap_port: int = 993
+    gmail_imap_poll_interval: int = 30  # seconds between polls
 
     openai_models: List[str] = [
         "gpt-4.1-mini",

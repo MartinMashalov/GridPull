@@ -14,7 +14,11 @@ from app.logging_config import setup_logging
 from app.routes import auth, documents, payments, users
 from app.routes import pipelines
 from app.routes import form_filling
+from app.routes import ingest as ingest_routes
+from app.routes import webhooks
 from app.workers.pipeline_poller import start_pipeline_poller
+from app.workers.ingest_cleanup import start_ingest_cleanup
+from app.workers.gmail_poller import start_gmail_poller
 from app.workers.pool import worker_pool
 
 # Initialise logging before anything else so all module-level loggers are ready
@@ -41,6 +45,14 @@ async def lifespan(app: FastAPI):
     import asyncio
     asyncio.create_task(start_pipeline_poller())
     logger.info("Pipeline poller scheduled")
+
+    logger.info("Starting ingest cleanup task…")
+    asyncio.create_task(start_ingest_cleanup())
+    logger.info("Ingest cleanup scheduled")
+
+    logger.info("Starting Gmail IMAP poller…")
+    asyncio.create_task(start_gmail_poller())
+    logger.info("Gmail poller scheduled")
 
     logger.info("GridPull API is ready to serve requests")
 
@@ -133,6 +145,8 @@ app.include_router(payments.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(pipelines.router, prefix="/api")
 app.include_router(form_filling.router, prefix="/api")
+app.include_router(ingest_routes.router, prefix="/api")
+app.include_router(webhooks.router, prefix="/api")
 
 
 @app.get("/api/health")

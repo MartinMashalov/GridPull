@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Workflow, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
+import InboxModal from '@/components/InboxModal'
 
 interface UsageWarning {
   warning: string | null
@@ -209,6 +210,8 @@ export default function DashboardPage() {
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
   const [usageWarning, setUsageWarning] = useState<UsageWarning | null>(null)
   const [isPaywalled, setIsPaywalled] = useState(false)
+  const [showInbox, setShowInbox] = useState(false)
+  const [inboxDocIds, setInboxDocIds] = useState<string[]>([])  // selected ingest doc IDs for extraction
 
   const { event, reset: resetJobProgress } = useJobProgress(activeJobId)
 
@@ -438,7 +441,52 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Ingest inbox handlers ──────────────────────────────────────────────────
+  const handleInboxSelect = (docs: { id: string; filename: string }[]) => {
+    setInboxDocIds(docs.map(d => d.id))
+    setFiles([])  // clear regular uploads when using inbox
+    setShowModal(true)  // open extraction fields modal
+  }
+
+  const handleIngestExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
+    if (inboxDocIds.length === 0) return
+    setShowModal(false)
+    setExportFormat(format)
+    setActiveJobId(null)
+    setJob({ jobId: '', status: 'queued', progress: 0, message: 'Processing inbox documents…', total_docs: inboxDocIds.length, completed_docs: 0 })
+
+    try {
+      const res = await api.post('/ingest/inbox/extract', {
+        document_ids: inboxDocIds,
+        fields: fields.map(f => ({ name: f.name, description: f.description })),
+        instructions: instructions.trim(),
+        format,
+      })
+
+      const jobId = res.data.job_id
+      localStorage.setItem(_ACTIVE_JOB_KEY, JSON.stringify({ jobId, format }))
+      setJob((p) => p ? { ...p, jobId, status: 'processing' } : null)
+      setActiveJobId(jobId)
+      setInboxDocIds([])
+
+      if (res.data.usage) {
+        updateSubscription({ credits_used_this_period: res.data.usage.credits_used })
+        api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
+      }
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : 'Failed to start extraction'
+      setJob((p) => p ? { ...p, status: 'error', message: 'Error', error: msg } : null)
+      setInboxDocIds([])
+    }
+  }
+
   const handleExtract = async (fields: ExtractionField[], format: ExportFormat, instructions: string) => {
+    // If we have inbox docs selected, use the ingest extraction path
+    if (inboxDocIds.length > 0) {
+      return handleIngestExtract(fields, format, instructions)
+    }
+
     trackEvent('extraction_start', {
       field_count: fields.length,
       format,
@@ -860,6 +908,19 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Email Inbox button */}
+      {!job && (
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => setShowInbox(true)}
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors px-3 py-1.5 rounded-lg hover:bg-primary/5"
+          >
+            <Mail size={13} />
+            Email Inbox — extract from forwarded emails
+          </button>
+        </div>
+      )}
+
       {/* Mobile-only compact security line */}
       {!job && (
         <p className="mt-2 text-center text-[11px] text-muted-foreground sm:hidden">
@@ -1004,10 +1065,16 @@ export default function DashboardPage() {
 
       <ExtractionFieldsModal
         open={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => { setShowModal(false); setInboxDocIds([]) }}
         onConfirm={handleExtract}
         defaultFormat={exportFormat}
         documentType={documentType}
+      />
+
+      <InboxModal
+        open={showInbox}
+        onClose={() => setShowInbox(false)}
+        onSelectDocuments={handleInboxSelect}
       />
     </div>
   )
