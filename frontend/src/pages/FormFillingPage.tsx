@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, Download, Clipboard, ArrowRight, Lock, Trash2, Eye, File, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -20,21 +20,9 @@ interface FormJob {
 }
 
 const _SOURCE_TYPES = new Set([
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'image/bmp',
-  'image/tiff',
-  'text/plain',
-  'text/markdown',
-  'text/html',
-  'application/json',
-  'application/xml',
-  'text/xml',
-  'message/rfc822',
-  'application/vnd.ms-outlook',
+  'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff',
+  'text/plain', 'text/markdown', 'text/html', 'application/json', 'application/xml', 'text/xml',
+  'message/rfc822', 'application/vnd.ms-outlook',
 ])
 const _SOURCE_EXTENSIONS = new Set([
   'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff',
@@ -86,7 +74,7 @@ export default function FormFillingPage() {
       }
     }
     if (skipped > 0) {
-      setValidationMsg(`${skipped} unsupported file${skipped > 1 ? 's' : ''} skipped. Supported: PDFs, images, Outlook emails, TXT, Markdown, HTML, JSON, and XML.`)
+      setValidationMsg(`${skipped} unsupported file${skipped > 1 ? 's' : ''} skipped.`)
     } else {
       setValidationMsg(null)
     }
@@ -126,7 +114,8 @@ export default function FormFillingPage() {
     noKeyboard: true,
   })
 
-  const handleFill = async () => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
     if (!targetForm || sourceFiles.length === 0) {
       setValidationMsg('Upload both a target form and at least one source file.')
       return
@@ -142,7 +131,6 @@ export default function FormFillingPage() {
     }
     setJobs(prev => [job, ...prev])
 
-    // Capture files and clear the form for next upload
     const capturedTarget = targetForm
     const capturedSources = [...sourceFiles]
     setTargetForm(null)
@@ -162,7 +150,6 @@ export default function FormFillingPage() {
       const filenameMatch = disposition.match(/filename="?([^";\n]+)"?/)
       const name = filenameMatch?.[1] || `filled_${capturedTarget.name}`
 
-      // Auto-download
       triggerDownload(res.data, name)
 
       setJobs(prev => prev.map(j =>
@@ -191,13 +178,7 @@ export default function FormFillingPage() {
   }
 
   const hasProcessing = jobs.some(j => j.status === 'processing')
-
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (targetForm && sourceFiles.length > 0 && !(user && !user.has_card)) {
-      handleFill()
-    }
-  }
+  const isFormDisabled = !targetForm || sourceFiles.length === 0 || hasProcessing || !!(user && !user.has_card)
 
   return (
     <form className="relative p-4 sm:p-8 max-w-4xl mx-auto" onSubmit={handleFormSubmit}>
@@ -274,9 +255,9 @@ export default function FormFillingPage() {
         </div>
       )}
 
-      {/* Two-column drop zones */}
+      {/* Two-column drop zones - STANDARDIZED COLORS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-        {/* Target form drop zone */}
+        {/* Target form */}
         <div>
           <span className="text-xs text-muted-foreground block mb-2">Target form (PDF)</span>
           <div
@@ -287,28 +268,31 @@ export default function FormFillingPage() {
               targetDropzone.isDragActive
                 ? 'border-primary bg-primary/5'
                 : targetForm
-                  ? 'border-emerald-300 bg-emerald-50/50'
+                  ? 'border-border bg-card'
                   : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
             <input {...targetDropzone.getInputProps()} />
             {targetForm ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                  <CheckCircle2 size={18} className="text-emerald-500" />
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <FileText size={18} className="text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">1 file uploaded</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to replace</p>
+                  <p className="text-sm font-medium text-foreground truncate max-w-[180px]">{targetForm.name}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{(targetForm.size / 1024).toFixed(0)} KB</p>
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setTargetForm(null) }}
+                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1"
+                >
+                  <X size={12} /> Remove
+                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
-                <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-                  targetDropzone.isDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
-                )}>
-                  <Clipboard size={18} />
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Clipboard size={18} className="text-primary" />
                 </div>
                 {targetDropzone.isDragActive ? (
                   <p className="text-primary font-medium text-sm">Drop your form here</p>
@@ -323,7 +307,7 @@ export default function FormFillingPage() {
           </div>
         </div>
 
-        {/* Source files drop zone */}
+        {/* Source files */}
         <div>
           <span className="text-xs text-muted-foreground block mb-2">Source documents</span>
           <div
@@ -334,35 +318,45 @@ export default function FormFillingPage() {
               sourceDropzone.isDragActive
                 ? 'border-primary bg-primary/5'
                 : sourceFiles.length > 0
-                  ? 'border-blue-300 bg-blue-50/50'
+                  ? 'border-border bg-card'
                   : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
             <input {...sourceDropzone.getInputProps()} />
             {sourceFiles.length > 0 ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                  <Upload size={18} className="text-blue-500" />
+              <div className="flex flex-col items-center gap-3 w-full">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Upload size={18} className="text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''} uploaded</p>
+                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to add more</p>
+                </div>
+                <div className="w-full space-y-1 max-h-20 overflow-y-auto text-left">
+                  {sourceFiles.map((f, i) => (
+                    <div key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between text-xs px-2 py-1 bg-muted rounded group">
+                      <span className="truncate text-muted-foreground flex-1">{f.name}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSourceFiles(prev => prev.filter((_, idx) => idx !== i)) }}
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all ml-1 flex-shrink-0"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
-                <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-                  sourceDropzone.isDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
-                )}>
-                  <Upload size={18} />
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Upload size={18} className="text-primary" />
                 </div>
                 {sourceDropzone.isDragActive ? (
                   <p className="text-primary font-medium text-sm">Drop files here</p>
                 ) : (
                   <div>
                     <p className="text-foreground font-medium text-sm">Drop source files here</p>
-                    <p className="text-muted-foreground text-[11px] mt-0.5">PDF, images, TXT, or Markdown</p>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">PDFs, images, TXT, or Markdown</p>
                   </div>
                 )}
               </div>
@@ -384,99 +378,74 @@ export default function FormFillingPage() {
         </p>
       )}
 
-      {/* CTA */}
-      <Button
-        type="submit"
-        disabled={!targetForm || sourceFiles.length === 0 || !!(user && !user.has_card)}
-        size="lg"
-        className="w-full shadow-lg shadow-primary/25"
-      >
-        {targetForm && sourceFiles.length > 0 ? (
-          `Fill form using ${sourceFiles.length} source file${sourceFiles.length > 1 ? 's' : ''}`
-        ) : (
-          'Upload files to get started'
+      {/* CTA - Button Layout */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="submit"
+          disabled={isFormDisabled}
+          size="lg"
+          className="flex-1 shadow-lg shadow-primary/25"
+        >
+          {targetForm && sourceFiles.length > 0 ? (
+            `Fill form using ${sourceFiles.length} file${sourceFiles.length > 1 ? 's' : ''}`
+          ) : (
+            'Upload files to get started'
+          )}
+        </Button>
+        {hasProcessing && (
+          <Button
+            type="button"
+            onClick={() => { setTargetForm(null); setSourceFiles([]) }}
+            size="lg"
+            variant="outline"
+            className="shadow-lg shadow-primary/25"
+          >
+            New Form
+          </Button>
         )}
-      </Button>
+      </div>
 
-      {/* Background jobs */}
+      {/* Processing Jobs - Queue */}
       {jobs.length > 0 && (
-        <div className="mt-5 space-y-3">
-          {jobs.map(job => (
-            <div
-              key={job.id}
-              className={cn(
-                'bg-card border rounded-xl overflow-hidden animate-fade-in',
-                job.status === 'processing' && 'border-border',
-                job.status === 'complete' && 'border-emerald-200',
-                job.status === 'error' && 'border-red-200',
-              )}
-            >
-              <div className="px-5 py-4">
-                {job.status === 'processing' && (
-                  <>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className="relative">
-                          <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">Filling form...</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{job.targetName}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Extracting text and filling fields with AI. You can upload another form while this one processes.
+        <div className="mt-6 space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Processing Queue</p>
+          <div className="space-y-3">
+            {jobs.map((job) => (
+              <div
+                key={job.id}
+                className={cn(
+                  'bg-card border rounded-xl p-4 flex items-center justify-between',
+                  job.status === 'processing' && 'border-border',
+                  job.status === 'complete' && 'border-emerald-200 bg-emerald-50/50',
+                  job.status === 'error' && 'border-red-200 bg-red-50/50',
+                )}
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {job.status === 'processing' && (
+                    <Loader2 size={16} className="animate-spin text-primary flex-shrink-0" />
+                  )}
+                  {job.status === 'complete' && (
+                    <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+                  )}
+                  {job.status === 'error' && (
+                    <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{job.targetName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {job.status === 'processing' ? 'Processing...' : job.status === 'complete' ? 'Complete — downloaded' : job.errorMsg}
                     </p>
-                  </>
-                )}
-
-                {job.status === 'complete' && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                        <CheckCircle2 size={16} className="text-emerald-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Form filled successfully</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {job.resultName} — {job.resultBlob ? `${(job.resultBlob.size / 1024).toFixed(0)} KB` : ''}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {job.resultBlob && job.resultName && (
-                        <Button size="sm" variant="outline" onClick={() => triggerDownload(job.resultBlob!, job.resultName!)}>
-                          <Download size={13} className="mr-1.5" />
-                          Download
-                        </Button>
-                      )}
-                      <button onClick={() => dismissJob(job.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                        <X size={14} className="text-muted-foreground" />
-                      </button>
-                    </div>
                   </div>
-                )}
-
-                {job.status === 'error' && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                        <AlertCircle size={16} className="text-red-400" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Form filling failed</p>
-                        <p className="text-xs text-red-400 mt-0.5">{job.errorMsg}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => dismissJob(job.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-                      <X size={14} className="text-muted-foreground" />
-                    </button>
-                  </div>
-                )}
+                </div>
+                <button
+                  onClick={() => dismissJob(job.id)}
+                  className="p-1.5 rounded-lg hover:bg-muted transition-colors ml-2 flex-shrink-0"
+                >
+                  <X size={14} className="text-muted-foreground" />
+                </button>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </form>
