@@ -363,7 +363,7 @@ export default function PipelinesPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="min-h-full flex flex-col bg-background">
       {/* Page header — always visible */}
       <div className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 border-b border-border">
         <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>

@@ -3,13 +3,12 @@ import { useDropzone } from 'react-dropzone'
 import {
   Upload, Loader2, CheckCircle2, AlertCircle, X, FileText,
   Download, ArrowRight, Lock, Trash2, Eye, CreditCard,
-  Sparkles, FilePlus2, ArrowRightLeft,
+  Sparkles, FilePlus2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
@@ -143,217 +142,194 @@ export default function FormFillingPage() {
 
   const dismissJob = (jobId: string) => setJobs(prev => prev.filter(j => j.id !== jobId))
   const hasProcessing = jobs.some(j => j.status === 'processing')
-  const isFormDisabled = !targetForm || sourceFiles.length === 0 || hasProcessing || !!(user && !user.has_card)
   const isReady = !!(targetForm && sourceFiles.length > 0)
+  const isFormDisabled = !isReady || hasProcessing || !!(user && !user.has_card)
 
   return (
-    <form className="p-4 sm:p-8 max-w-3xl mx-auto space-y-6" onSubmit={handleFormSubmit}>
+    <form className="relative p-4 sm:p-8 max-w-4xl mx-auto" onSubmit={handleFormSubmit}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Fill PDF Forms</h1>
-          <Badge variant="secondary" className="text-[10px] font-medium">1 credit per fill</Badge>
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Fill PDF Forms</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Upload a blank PDF form and source documents — AI fills every field automatically. 1 credit per fill.
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Drop a blank form and source documents — AI fills every field automatically.
-        </p>
       </div>
 
-      {/* ── Card required banner ────────────────────────────────── */}
+      {/* ── Security strip ───────────────────────────────────────── */}
+      <div className="mb-5 hidden sm:flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5"><Lock size={11} className="text-emerald-500" /> Encrypted in transit</span>
+        <span className="flex items-center gap-1.5"><Trash2 size={11} className="text-emerald-500" /> Files deleted after processing</span>
+        <span className="flex items-center gap-1.5"><Eye size={11} className="text-emerald-500" /> No human access to your documents</span>
+      </div>
+
+      {/* ── Card required banner ─────────────────────────────────── */}
       {user && !user.has_card && (
-        <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-            <CreditCard size={16} className="text-primary" />
+        <div className="relative mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
+            <CreditCard size={15} className="text-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground">Credit card required</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Add a card to start — you won't be charged on the free plan.</p>
+            <p className="text-sm font-medium text-foreground">Credit card required</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Add a credit card to fill forms. You won't be charged on the free plan.
+            </p>
           </div>
-          <Button size="sm" type="button" onClick={() => navigate('/settings?tab=payment')} className="flex-shrink-0 gap-1">
-            Add Card <ArrowRight size={12} />
+          <Button size="sm" type="button" onClick={() => navigate('/settings?tab=payment')} className="flex-shrink-0">
+            Add Card <ArrowRight size={12} className="ml-1" />
           </Button>
         </div>
       )}
 
-      {/* ── Drop zones ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-3 items-center">
+      {/* ── Drop zones ───────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
 
         {/* Left — Target form */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-foreground">Target form</span>
-            <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground">PDF only</Badge>
-          </div>
+        <div>
+          <p className="text-xs text-muted-foreground mb-2">Target form (PDF)</p>
           <div
             {...targetDropzone.getRootProps()}
             className={cn(
-              'relative h-[168px] rounded-xl border-2 border-dashed cursor-pointer select-none',
-              'flex flex-col items-center justify-center gap-3 px-5 text-center',
-              'transition-all duration-150',
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
               targetDropzone.isDragActive
-                ? 'border-primary bg-primary/5 scale-[1.01]'
+                ? 'border-primary bg-primary/5'
                 : targetForm
                   ? 'border-border bg-card hover:bg-muted/40'
-                  : 'border-border bg-background hover:border-primary/50 hover:bg-muted/30',
+                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
             <input {...targetDropzone.getInputProps()} />
             {targetForm ? (
-              <>
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <FileText size={18} className="text-primary" />
+              <div className="relative w-full flex flex-col items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <FileText size={22} className="text-primary" />
                 </div>
-                <div className="w-full">
-                  <p className="text-sm font-medium text-foreground truncate px-2">{targetForm.name}</p>
+                <div>
+                  <p className="text-sm font-medium text-foreground truncate max-w-[200px]">{targetForm.name}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{formatBytes(targetForm.size)}</p>
                 </div>
                 <button
                   type="button"
                   onClick={e => { e.stopPropagation(); setTargetForm(null) }}
-                  className="absolute top-2.5 right-2.5 w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  className="absolute -top-1 right-0 text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1"
                 >
-                  <X size={13} />
+                  <X size={12} /> Remove
                 </button>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="flex flex-col items-center gap-3">
                 <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-                  targetDropzone.isDragActive ? 'bg-primary/15' : 'bg-muted',
+                  'w-12 h-12 rounded-xl flex items-center justify-center',
+                  targetDropzone.isDragActive ? 'bg-primary/20' : 'bg-primary/10'
                 )}>
-                  <FilePlus2 size={18} className={targetDropzone.isDragActive ? 'text-primary' : 'text-muted-foreground'} />
+                  <FilePlus2 size={22} className="text-primary" />
                 </div>
-                <div>
-                  <p className={cn('text-sm font-medium', targetDropzone.isDragActive ? 'text-primary' : 'text-foreground')}>
-                    {targetDropzone.isDragActive ? 'Release to upload' : 'Drop PDF form here'}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">or click to browse</p>
-                </div>
-              </>
+                {targetDropzone.isDragActive ? (
+                  <p className="text-primary font-medium">Drop your form here</p>
+                ) : (
+                  <div>
+                    <p className="text-foreground font-medium">Drop a PDF form here</p>
+                    <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
+                  </div>
+                )}
+              </div>
             )}
-          </div>
-        </div>
-
-        {/* Divider arrow */}
-        <div className="hidden sm:flex flex-col items-center gap-1 self-center mt-6">
-          <div className="w-8 h-8 rounded-full border border-border bg-background flex items-center justify-center">
-            <ArrowRightLeft size={13} className="text-muted-foreground" />
           </div>
         </div>
 
         {/* Right — Source documents */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-foreground">Source documents</span>
-            <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground">
-              {sourceFiles.length > 0 ? `${sourceFiles.length} file${sourceFiles.length > 1 ? 's' : ''}` : 'PDFs, images, text'}
-            </Badge>
-          </div>
+        <div>
+          <p className="text-xs text-muted-foreground mb-2">Source documents</p>
           <div
             {...sourceDropzone.getRootProps()}
             className={cn(
-              'relative h-[168px] rounded-xl border-2 border-dashed cursor-pointer select-none',
-              'flex flex-col items-center justify-center gap-3 px-5 text-center',
-              'transition-all duration-150',
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
               sourceDropzone.isDragActive
-                ? 'border-primary bg-primary/5 scale-[1.01]'
+                ? 'border-primary bg-primary/5'
                 : sourceFiles.length > 0
                   ? 'border-border bg-card hover:bg-muted/40'
-                  : 'border-border bg-background hover:border-primary/50 hover:bg-muted/30',
+                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
             <input {...sourceDropzone.getInputProps()} />
             {sourceFiles.length > 0 ? (
-              <>
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Upload size={18} className="text-primary" />
+              <div className="flex flex-col items-center gap-2 w-full overflow-hidden">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Upload size={22} className="text-primary" />
                 </div>
-                <div className="w-full overflow-hidden">
-                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''} ready</p>
+                <div className="flex-shrink-0">
+                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to add more</p>
                 </div>
-                <div className="absolute bottom-0 left-0 right-0 h-[52px] overflow-y-auto px-3 pb-2 space-y-1">
+                <div className="w-full space-y-1 max-h-[52px] overflow-y-auto text-left">
                   {sourceFiles.map((f, i) => (
-                    <div key={`${f.name}-${f.size}-${i}`} className="flex items-center gap-1.5 text-[11px] px-2 py-0.5 bg-muted rounded-md group">
+                    <div key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between text-xs px-2 py-1 bg-muted rounded group">
                       <span className="truncate text-muted-foreground flex-1">{f.name}</span>
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); setSourceFiles(prev => prev.filter((_, idx) => idx !== i)) }}
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all flex-shrink-0"
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all ml-1 flex-shrink-0"
                       >
-                        <X size={11} />
+                        <X size={12} />
                       </button>
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="flex flex-col items-center gap-3">
                 <div className={cn(
-                  'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-                  sourceDropzone.isDragActive ? 'bg-primary/15' : 'bg-muted',
+                  'w-12 h-12 rounded-xl flex items-center justify-center',
+                  sourceDropzone.isDragActive ? 'bg-primary/20' : 'bg-primary/10'
                 )}>
-                  <Upload size={18} className={sourceDropzone.isDragActive ? 'text-primary' : 'text-muted-foreground'} />
+                  <Upload size={22} className="text-primary" />
                 </div>
-                <div>
-                  <p className={cn('text-sm font-medium', sourceDropzone.isDragActive ? 'text-primary' : 'text-foreground')}>
-                    {sourceDropzone.isDragActive ? 'Release to upload' : 'Drop source files here'}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">PDFs, images, TXT, Markdown</p>
-                </div>
-              </>
+                {sourceDropzone.isDragActive ? (
+                  <p className="text-primary font-medium">Drop files here</p>
+                ) : (
+                  <div>
+                    <p className="text-foreground font-medium">Drop source files here</p>
+                    <p className="text-muted-foreground text-sm mt-1">PDFs, images, TXT, or Markdown</p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Validation ──────────────────────────────────────────── */}
+      {/* ── Validation ───────────────────────────────────────────── */}
       {validationMsg && (
-        <p className="text-xs text-destructive flex items-center gap-1.5">
+        <p className="mb-3 text-xs text-red-500 flex items-center gap-1.5">
           <AlertCircle size={12} /> {validationMsg}
         </p>
       )}
 
-      {/* ── Submit ──────────────────────────────────────────────── */}
-      <div className="flex gap-2">
+      {/* ── Submit — only when files are ready ───────────────────── */}
+      {(isReady || hasProcessing) && (
         <Button
           type="submit"
           disabled={isFormDisabled}
           size="lg"
-          className={cn(
-            'flex-1 gap-2 font-medium transition-all',
-            isReady && !hasProcessing && 'shadow-md shadow-primary/20',
-          )}
+          className="w-full shadow-lg shadow-primary/25 gap-2"
         >
           {hasProcessing ? (
             <><Loader2 size={15} className="animate-spin" /> Processing…</>
-          ) : isReady ? (
-            <><Sparkles size={15} /> Fill form with {sourceFiles.length} source file{sourceFiles.length > 1 ? 's' : ''}</>
           ) : (
-            'Upload files to continue'
+            <><Sparkles size={15} /> Fill form using {sourceFiles.length} source file{sourceFiles.length > 1 ? 's' : ''}</>
           )}
         </Button>
-        {hasProcessing && (
-          <Button type="button" size="lg" variant="outline" onClick={() => { setTargetForm(null); setSourceFiles([]) }}>
-            New form
-          </Button>
-        )}
-      </div>
+      )}
 
-      {/* ── Security ────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5"><Lock size={10} className="text-emerald-500" /> Encrypted in transit</span>
-        <span className="flex items-center gap-1.5"><Trash2 size={10} className="text-emerald-500" /> Deleted after processing</span>
-        <span className="flex items-center gap-1.5"><Eye size={10} className="text-emerald-500" /> No human review</span>
-      </div>
-
-      {/* ── Jobs queue ──────────────────────────────────────────── */}
+      {/* ── Jobs queue ───────────────────────────────────────────── */}
       {jobs.length > 0 && (
-        <div className="space-y-3">
+        <div className="mt-6 space-y-3">
           <Separator />
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Queue</p>
+          <div className="flex items-center justify-between pt-1">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Processing Queue</p>
             <p className="text-[11px] text-muted-foreground">{jobs.length} job{jobs.length > 1 ? 's' : ''}</p>
           </div>
           <div className="space-y-2">
@@ -363,15 +339,15 @@ export default function FormFillingPage() {
                 className={cn(
                   'flex items-center gap-3 rounded-xl border p-3.5 transition-colors',
                   job.status === 'processing' && 'bg-card border-border',
-                  job.status === 'complete' && 'bg-emerald-50/60 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-800',
-                  job.status === 'error' && 'bg-red-50/60 border-red-200 dark:bg-red-950/20 dark:border-red-800',
+                  job.status === 'complete' && 'bg-emerald-50/60 border-emerald-200',
+                  job.status === 'error' && 'bg-red-50/60 border-red-200',
                 )}
               >
                 <div className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
                   job.status === 'processing' && 'bg-primary/10',
-                  job.status === 'complete' && 'bg-emerald-100 dark:bg-emerald-900/40',
-                  job.status === 'error' && 'bg-red-100 dark:bg-red-900/40',
+                  job.status === 'complete' && 'bg-emerald-100',
+                  job.status === 'error' && 'bg-red-100',
                 )}>
                   {job.status === 'processing' && <Loader2 size={14} className="animate-spin text-primary" />}
                   {job.status === 'complete' && <CheckCircle2 size={14} className="text-emerald-600" />}
