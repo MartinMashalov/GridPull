@@ -779,9 +779,9 @@ export default function DashboardPage() {
             <div
               {...getBaselineRootProps()}
               className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-150 bg-white h-[200px] flex items-center justify-center',
+                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
                 isBaselineDragActive
-                  ? 'border-emerald-500 bg-emerald-500/5 scale-[1.01]'
+                  ? 'border-emerald-500 bg-emerald-500/5'
                   : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
               )}
             >
@@ -812,9 +812,9 @@ export default function DashboardPage() {
             <div
               {...getDocumentRootProps()}
               className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-150 bg-white h-[200px] flex items-center justify-center',
+                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
                 isDocumentDragActive
-                  ? 'border-primary bg-primary/5 scale-[1.01]'
+                  ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-primary/40 hover:bg-accent/30'
               )}
             >
@@ -844,7 +844,7 @@ export default function DashboardPage() {
         <div
           {...getDocumentRootProps()}
           className={cn(
-            'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-all duration-200',
+            'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-colors',
             'bg-white',
             isDocumentDragActive
               ? 'border-primary bg-primary/5'
