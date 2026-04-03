@@ -35,6 +35,7 @@ class ExtractionJob(Base):
     baseline_update_mode = Column(Boolean, default=False, nullable=False)
     allow_edit_past_values = Column(Boolean, default=False, nullable=False)
     use_cerebras = Column(Boolean, default=False, nullable=False)
+    pipeline = Column(String, default="auto", nullable=True)  # "auto" | "sov" | "general"
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

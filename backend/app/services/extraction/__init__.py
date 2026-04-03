@@ -142,12 +142,16 @@ async def extract_from_document(
     instructions: str = "",
     batch_document_count: int = 1,
     use_cerebras: bool = False,
+    force_sov: bool = False,
+    force_general: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [f["name"] for f in fields]
+    # Explicit pipeline flag wins; fall back to field-name heuristic only when pipeline="auto"
     is_sov_schema = property_schedule_row_cleanup_matches_schema(field_names)
+    use_sov_pipeline = force_sov or (not force_general and is_sov_schema)
     has_wide_grid = document_has_wide_data_grid(doc)
 
-    if is_sov_schema:
+    if use_sov_pipeline:
         from app.services.sov import extract_sov_from_document
 
         logger.info(

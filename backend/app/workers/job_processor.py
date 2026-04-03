@@ -106,6 +106,9 @@ async def process_job(
             fields = job.fields
             instructions = (job.instructions or "").strip()
             use_cerebras = bool(getattr(job, "use_cerebras", False))
+            pipeline = str(getattr(job, "pipeline", "auto") or "auto")
+            force_sov = pipeline == "sov"
+            force_general = pipeline == "general"
             field_names = [f["name"] for f in fields]
             total_docs = len(documents)
 
@@ -174,6 +177,8 @@ async def process_job(
                                     instructions,
                                     batch_document_count=total_docs,
                                     use_cerebras=use_cerebras,
+                                    force_sov=force_sov,
+                                    force_general=force_general,
                                 ),
                                 timeout=settings.extraction_timeout_seconds,
                             )

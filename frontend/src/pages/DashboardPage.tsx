@@ -510,6 +510,7 @@ export default function DashboardPage() {
         fd.append('baseline_update_mode', 'false')
         fd.append('allow_edit_past_values', 'false')
       }
+      fd.append('pipeline', documentType === 'sov' ? 'sov' : 'general')
       fd.append('fields', JSON.stringify(fields))
       fd.append('instructions', instructions.trim())
       fd.append('format', 'xlsx')
