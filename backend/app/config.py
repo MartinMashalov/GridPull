@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_openai_fallback_model: str = "gpt-5.4-mini"
     form_fill_model: str = "gpt-5.4-mini"
-    form_fill_fallback_model: str = "gpt-5.4"  # Use if rate limited
+    form_fill_fallback_model: str = "gpt-5.4-nano"  # Use if rate limited
 
     # Cerebras (fast inference, optional SOV reasoning mode)
     cerebras_api_key: str = ""
