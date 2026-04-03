@@ -196,8 +196,15 @@ export default function FormFillingPage() {
 
   const isProcessing = status === 'uploading' || status === 'processing'
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' && status !== 'complete' && targetForm && sourceFiles.length > 0 && !isProcessing && !(user && !user.has_card)) {
+      e.preventDefault()
+      handleFill()
+    }
+  }
+
   return (
-    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto" onKeyDown={handleKeyDown}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
@@ -373,33 +380,6 @@ export default function FormFillingPage() {
           </div>
         </div>
       </div>
-
-      {/* Source file list */}
-      {sourceFiles.length > 0 && (
-        <div className="bg-card border border-border rounded-xl px-4 py-3 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-muted-foreground">{sourceFiles.length} source file{sourceFiles.length > 1 ? 's' : ''}</span>
-            <button onClick={() => setSourceFiles([])} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">Clear all</button>
-          </div>
-          <div className="space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
-            {sourceFiles.map((f, i) => (
-              <div key={`${f.name}-${f.size}-${i}`} className="flex items-center justify-between py-1 group">
-                <div className="flex items-center gap-2 min-w-0">
-                  {getFileIcon(f.name)}
-                  <span className="text-xs text-foreground truncate">{f.name}</span>
-                  <span className="text-[10px] text-muted-foreground flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
-                </div>
-                <button
-                  onClick={() => setSourceFiles(prev => prev.filter((_, idx) => idx !== i))}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all"
-                >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Validation */}
       {validationMsg && (
