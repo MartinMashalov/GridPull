@@ -260,7 +260,6 @@ export default function AccountingFinancePage() {
                     <active.icon size={14} />
                   </div>
                   <span className="text-sm font-semibold">{active.title}</span>
-                  <Badge variant="outline" className="ml-auto text-[10px] px-2 py-0">Excel output preview</Badge>
                 </div>
                 <CardContent className="p-5">
                   <p className="text-sm text-muted-foreground mb-5 leading-relaxed">{active.desc}</p>
