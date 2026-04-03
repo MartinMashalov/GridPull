@@ -998,31 +998,33 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* CTA */}
-      <Button
-        ref={submitBtnRef}
-        onClick={handleProcess}
-        disabled={(!files.length && !baselineSpreadsheet) || isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || !!(user && !user.has_card)}
-        size="lg"
-        className="mt-4 w-full shadow-lg shadow-primary/25"
-      >
-        {isProcessing ? (
-          <>
-            <Loader2 size={15} className="animate-spin" />
-            Processing…
-          </>
-        ) : documentType === 'sov' && baselineSpreadsheet && baselineHeaders ? (
-          files.length > 0
-            ? `Update ${baselineSpreadsheet.name} from ${files.length} file${files.length > 1 ? 's' : ''}`
-            : 'Upload source files to update the workbook'
-        ) : files.length > 0 ? (
-          documentType === 'quickbooks'
-            ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} for QuickBooks`
-            : `Choose fields & extract ${files.length} file${files.length > 1 ? 's' : ''}`
-        ) : (
-          'Upload files to get started'
-        )}
-      </Button>
+      {/* CTA — only render when there is something to act on or a job is active */}
+      {(files.length > 0 || baselineSpreadsheet || isProcessing) && (
+        <Button
+          ref={submitBtnRef}
+          onClick={handleProcess}
+          disabled={isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || !!(user && !user.has_card)}
+          size="lg"
+          className="mt-4 w-full shadow-lg shadow-primary/25"
+        >
+          {isProcessing ? (
+            <>
+              <Loader2 size={15} className="animate-spin" />
+              Processing…
+            </>
+          ) : documentType === 'sov' && baselineSpreadsheet && baselineHeaders ? (
+            files.length > 0
+              ? `Update ${baselineSpreadsheet.name} from ${files.length} file${files.length > 1 ? 's' : ''}`
+              : 'Upload source files to update the workbook'
+          ) : files.length > 0 ? (
+            documentType === 'quickbooks'
+              ? `Extract ${files.length} file${files.length > 1 ? 's' : ''} for QuickBooks`
+              : `Choose fields & extract ${files.length} file${files.length > 1 ? 's' : ''}`
+          ) : (
+            'Upload files to get started'
+          )}
+        </Button>
+      )}
 
       {/* Progress */}
       {job && job.status !== 'complete' && <ProgressBar job={job} onCancel={handleCancel} />}

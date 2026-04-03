@@ -18,7 +18,6 @@ from app.routes import ingest as ingest_routes
 from app.routes import webhooks
 from app.workers.pipeline_poller import start_pipeline_poller
 from app.workers.ingest_cleanup import start_ingest_cleanup
-from app.workers.gmail_poller import start_gmail_poller
 from app.workers.pool import worker_pool
 
 # Initialise logging before anything else so all module-level loggers are ready
@@ -49,10 +48,6 @@ async def lifespan(app: FastAPI):
     logger.info("Starting ingest cleanup task…")
     asyncio.create_task(start_ingest_cleanup())
     logger.info("Ingest cleanup scheduled")
-
-    logger.info("Starting Gmail IMAP poller…")
-    asyncio.create_task(start_gmail_poller())
-    logger.info("Gmail poller scheduled")
 
     logger.info("GridPull API is ready to serve requests")
 
