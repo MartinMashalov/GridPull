@@ -51,8 +51,9 @@ class Settings(BaseSettings):
 
     # Shared LLM model
     openai_api_key: str = ""
-    llm_openai_fallback_model: str = "gpt-4.1-mini"
-    form_fill_model: str = "gpt-4.1-nano"
+    llm_openai_fallback_model: str = "gpt-5.4-mini"
+    form_fill_model: str = "gpt-5.4-mini"
+    form_fill_fallback_model: str = "gpt-5.4"  # Use if rate limited
 
     # Cerebras (fast inference, optional SOV reasoning mode)
     cerebras_api_key: str = ""
@@ -107,6 +108,16 @@ class Settings(BaseSettings):
     # Dirs
     upload_dir: str = "./uploads"
     output_dir: str = "./outputs"
+
+    # Hetzner S3 (ingest document storage)
+    hetzner_s3_endpoint: str = ""
+    hetzner_s3_access_key: str = ""
+    hetzner_s3_secret_key: str = ""
+    hetzner_s3_bucket: str = "gridpull-documents"
+    hetzner_s3_region: str = "fsn1"
+
+    # Email ingest
+    ingest_email_domain: str = "ingest.gridpull.com"
 
     openai_models: List[str] = [
         "gpt-4.1-mini",

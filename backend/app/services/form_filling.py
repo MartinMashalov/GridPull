@@ -206,14 +206,27 @@ class PDFPopulator:
 
         Return a JSON object with ALL field names as keys and appropriate values. Every single field MUST have a value that matches its type constraints."""
 
-        response = await routed_acompletion(
-            route_profile="form_fill",
-            fallback_model=settings.form_fill_model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-        )
+        # Try primary model first, fallback on rate limit
+        used_model = settings.form_fill_model
+        last_exc = None
+        for attempt, model in enumerate([settings.form_fill_model, getattr(settings, 'form_fill_fallback_model', 'gpt-5.4')]):
+            try:
+                response = await routed_acompletion(
+                    route_profile="form_fill",
+                    fallback_model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+                used_model = getattr(response, "model", "unknown") or model
+                break
+            except Exception as e:
+                last_exc = e
+                err_str = str(e).lower()
+                if attempt == 0 and any(kw in err_str for kw in ("rate", "429", "quota", "capacity")):
+                    logger.warning(f"[AI] Rate limit on {model}, retrying with {model if attempt == 1 else 'fallback'}")
+                    continue
+                raise
 
-        used_model = getattr(response, "model", "unknown") or "unknown"
         cost = 0.0
         if response.usage:
             from app.services.extraction.core import _estimate_cost

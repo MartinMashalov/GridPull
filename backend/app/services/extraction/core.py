@@ -34,11 +34,14 @@ _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 # Per-token pricing (USD per token) for cost estimation without litellm
 _MODEL_PRICING: Dict[str, tuple[float, float]] = {
     # (input_price_per_token, output_price_per_token)
-    "gpt-4.1-mini": (0.40e-6, 1.60e-6),
-    "gpt-4.1-nano": (0.10e-6, 0.40e-6),
-    "gpt-4.1": (2.00e-6, 8.00e-6),
-    "gpt-4o-mini": (0.15e-6, 0.60e-6),
-    "gpt-4o": (2.50e-6, 10.00e-6),
+    "gpt-5.4": (10.00e-6, 40.00e-6),       # GPT-5.4 flagship
+    "gpt-5.4-pro": (15.00e-6, 60.00e-6),   # GPT-5.4 Pro (max performance)
+    "gpt-5.4-mini": (1.00e-6, 4.00e-6),    # GPT-5.4 mini (efficient)
+    "gpt-5.4-nano": (0.30e-6, 1.20e-6),    # GPT-5.4 nano (speed/cost)
+    "gpt-4.1-mini": (0.40e-6, 1.60e-6),    # Legacy (retired)
+    "gpt-4.1-nano": (0.10e-6, 0.40e-6),    # Legacy (retired)
+    "gpt-4o-mini": (0.15e-6, 0.60e-6),     # Legacy
+    "gpt-4o": (2.50e-6, 10.00e-6),         # Legacy
 }
 
 
