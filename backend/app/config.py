@@ -109,12 +109,12 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     output_dir: str = "./outputs"
 
-    # Hetzner Storage Box (ingest document storage via SFTP)
-    storagebox_host: str = "u570976.your-storagebox.de"
-    storagebox_username: str = "u570976"
-    storagebox_password: str = ""
-    storagebox_port: int = 23
-    storagebox_base_path: str = "/ingest"
+    # Hetzner Object Storage (S3-compatible) for ingest documents
+    hetzner_s3_endpoint_url: str = ""
+    hetzner_s3_access_key_id: str = ""
+    hetzner_s3_secret_access_key: str = ""
+    hetzner_s3_bucket: str = "gridpull-ingest"
+    hetzner_s3_region: str = "fsn1"
 
     # Email ingest
     ingest_email_domain: str = "ingest.gridpull.com"
