@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
@@ -12,7 +12,7 @@ def _uuid():
 
 
 def _utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.utcnow()
 
 
 class IngestAddress(Base):
