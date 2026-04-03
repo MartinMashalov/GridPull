@@ -239,15 +239,23 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
             </Button>
           </div>
 
-          {/* QR code */}
+          {/* QR code — full-width prominent panel */}
           {qrUrl && (
-            <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded-lg border border-border">
-              <QRCodeSVG value={qrUrl} size={100} level="M" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Scan to upload from phone</p>
-                <p className="text-xs text-muted-foreground mt-0.5">No login required. Link expires in 1 hour.</p>
-                <code className="text-[10px] text-muted-foreground mt-1 block truncate">{qrUrl}</code>
+            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col items-center gap-3 text-center">
+              <p className="text-sm font-semibold text-foreground">Scan with your phone camera</p>
+              <div className="bg-white p-3 rounded-xl border border-border shadow-sm inline-block">
+                <QRCodeSVG value={qrUrl} size={140} level="M" />
               </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Opens a camera upload page — no login required.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Link expires in 1 hour.</p>
+              </div>
+              <button
+                onClick={() => setQrUrl(null)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+              >
+                Dismiss
+              </button>
             </div>
           )}
         </div>

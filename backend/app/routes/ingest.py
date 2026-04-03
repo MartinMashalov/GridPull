@@ -16,7 +16,7 @@ import os
 import secrets
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import aiofiles
@@ -120,7 +120,7 @@ async def list_inbox(
     db: AsyncSession = Depends(get_db),
 ):
     """List non-expired, unassigned ingest documents grouped by sender."""
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     result = await db.execute(
         select(IngestDocument)
         .where(
@@ -237,7 +237,7 @@ async def extract_from_inbox(
     # Download from S3 and save locally for the extraction pipeline
     upload_dir = os.path.join(settings.upload_dir, job.id)
     os.makedirs(upload_dir, exist_ok=True)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    expires_at = datetime.utcnow() + timedelta(days=7)
 
     for idoc in ingest_docs:
         try:
@@ -311,7 +311,7 @@ async def create_mobile_session(
 ):
     """Create a short-lived token for QR code mobile upload."""
     token = secrets.token_urlsafe(16)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    expires_at = datetime.utcnow() + timedelta(hours=1)
 
     session = MobileUploadSession(
         user_id=user.id,
@@ -342,10 +342,10 @@ async def validate_mobile_session(
     if not session:
         raise HTTPException(status_code=404, detail="Invalid token")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     expires = session.expires_at
     if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
+        expires = expires.replace(tzinfo=None)
     if expires < now:
         raise HTTPException(status_code=410, detail="Token expired")
 
@@ -367,10 +367,10 @@ async def mobile_upload(
     if not session:
         raise HTTPException(status_code=404, detail="Invalid token")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     expires = session.expires_at
     if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
+        expires = expires.replace(tzinfo=None)
     if expires < now:
         raise HTTPException(status_code=410, detail="Token expired")
 
@@ -397,7 +397,7 @@ async def mobile_upload(
         content_type=content_type,
     )
 
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    expires_at = datetime.utcnow() + timedelta(days=7)
     msg_id = f"mobile-{doc_id}"
 
     doc = IngestDocument(
