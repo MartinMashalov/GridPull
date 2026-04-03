@@ -342,7 +342,6 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
             {selected.size > 0 ? `${selected.size} document${selected.size !== 1 ? 's' : ''} selected` : 'Select documents to extract'}
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
             <Button size="sm" onClick={handleUseSelected} disabled={selected.size === 0}>
               Use Selected ({selected.size})
             </Button>
