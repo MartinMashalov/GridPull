@@ -187,9 +187,12 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
         return doc_count
 
 
+_MAX_EMAILS_PER_POLL = 20  # cap per cycle to avoid overwhelming the system
+
+
 def _poll_once() -> list[tuple[str, email_lib.message.Message]]:
     """
-    Connect to Gmail IMAP, fetch UNSEEN emails, return list of (uid, message).
+    Connect to Gmail IMAP, fetch UNSEEN emails from today, return list of (uid, message).
     Runs in a thread (blocking I/O).
     """
     if not settings.gmail_imap_email or not settings.gmail_imap_password:
@@ -202,13 +205,20 @@ def _poll_once() -> list[tuple[str, email_lib.message.Message]]:
         imap.login(settings.gmail_imap_email, settings.gmail_imap_password)
         imap.select("INBOX")
 
-        # Search for unseen emails
-        status, data = imap.uid("search", None, "UNSEEN")
+        # Only fetch unseen emails from today (avoid processing years of history)
+        from datetime import date
+        today = date.today().strftime("%d-%b-%Y")
+        status, data = imap.uid("search", None, f'(UNSEEN SINCE {today})')
         if status != "OK" or not data or not data[0]:
             return []
 
         uids = data[0].split()
-        logger.info("Gmail poller: found %d unseen emails", len(uids))
+        logger.info("Gmail poller: found %d unseen emails since %s", len(uids), today)
+
+        # Only process the most recent N emails per cycle
+        if len(uids) > _MAX_EMAILS_PER_POLL:
+            logger.info("Gmail poller: capping to %d most recent", _MAX_EMAILS_PER_POLL)
+            uids = uids[-_MAX_EMAILS_PER_POLL:]
 
         for uid in uids:
             uid_str = uid.decode()
