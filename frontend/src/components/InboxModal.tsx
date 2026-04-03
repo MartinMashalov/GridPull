@@ -184,7 +184,11 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      style={{ paddingLeft: 'var(--sidebar-offset, 0px)' }}
+      onClick={onClose}
+    >
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4"
         onClick={e => e.stopPropagation()}

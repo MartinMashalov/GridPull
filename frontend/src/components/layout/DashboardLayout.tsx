@@ -63,7 +63,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div
+      className="flex h-screen bg-background overflow-hidden"
+      style={{ '--sidebar-offset': collapsed ? '4rem' : '15rem' } as React.CSSProperties}
+    >
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       <main className="flex-1 overflow-y-auto bg-background min-w-0">
         {children}
