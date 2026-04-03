@@ -772,107 +772,81 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Drop zones */}
-      {documentType === 'sov' ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Existing spreadsheet</p>
-            <div
-              {...getBaselineRootProps()}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
-                isBaselineDragActive
-                  ? 'border-emerald-500 bg-emerald-500/5'
-                  : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
-              )}
-            >
-              <input {...getBaselineInputProps()} />
-              <div className="flex flex-col items-center gap-3">
-                <div className={cn(
-                  'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-                  isBaselineDragActive ? 'bg-emerald-500/20 text-emerald-600' : 'bg-emerald-500/10 text-emerald-600'
-                )}>
-                  <FileSpreadsheet size={22} />
-                </div>
-                {isBaselineDragActive ? (
-                  <p className="text-emerald-600 font-medium">Drop the spreadsheet here</p>
-                ) : (
-                  <div>
-                    <p className="text-foreground font-medium">Upload the existing spreadsheet</p>
-                    <p className="text-muted-foreground text-sm mt-1">
-                      XLSX or CSV only. We use this as the workbook to update or append to.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+      {/* Drop zones — stable grid; baseline col hidden via CSS (not unmount) to keep doc zone mounted */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Source documents</p>
-            <div
-              {...getDocumentRootProps()}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
-                isDocumentDragActive
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
-              )}
-            >
-              <input {...getDocumentInputProps()} />
-              <div className="flex flex-col items-center gap-3">
-                <div className={cn(
-                  'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-                  isDocumentDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
-                )}>
-                  <Upload size={22} />
-                </div>
-                {isDocumentDragActive ? (
-                  <p className="text-primary font-medium">Drop the source files here</p>
-                ) : (
-                  <div>
-                    <p className="text-foreground font-medium">Upload the documents to extract from</p>
-                    <p className="text-muted-foreground text-sm mt-1">
-                      PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP are supported.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div
-          {...getDocumentRootProps()}
-          className={cn(
-            'border-2 border-dashed rounded-xl p-5 sm:p-14 text-center cursor-pointer transition-colors',
-            'bg-white',
-            isDocumentDragActive
-              ? 'border-primary bg-primary/5'
-              : 'border-border hover:border-primary/40 hover:bg-accent/30'
-          )}
-        >
-          <input {...getDocumentInputProps()} />
-          <div className="flex flex-col items-center gap-3">
-            <div className={cn(
-              'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
-              isDocumentDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
-            )}>
-              <Upload size={22} />
-            </div>
-            {isDocumentDragActive ? (
-              <p className="text-primary font-medium">Drop your files here</p>
-            ) : (
-              <div>
-                <p className="text-foreground font-medium">Drag and drop your files here, or click to browse</p>
-                <p className="text-muted-foreground text-sm mt-1">
-                  Supports PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP (max 5 MB per file) — upload multiple files at once
-                </p>
-              </div>
+        {/* Baseline spreadsheet — always in DOM, hidden for non-SOV tabs */}
+        <div className={cn(documentType !== 'sov' && 'hidden')}>
+          <p className="text-xs text-muted-foreground mb-2">Existing spreadsheet</p>
+          <div
+            {...getBaselineRootProps()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
+              isBaselineDragActive
+                ? 'border-emerald-500 bg-emerald-500/5'
+                : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
             )}
+          >
+            <input {...getBaselineInputProps()} />
+            <div className="flex flex-col items-center gap-3">
+              <div className={cn(
+                'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+                isBaselineDragActive ? 'bg-emerald-500/20 text-emerald-600' : 'bg-emerald-500/10 text-emerald-600'
+              )}>
+                <FileSpreadsheet size={22} />
+              </div>
+              {isBaselineDragActive ? (
+                <p className="text-emerald-600 font-medium">Drop the spreadsheet here</p>
+              ) : (
+                <div>
+                  <p className="text-foreground font-medium">Upload the existing spreadsheet</p>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    XLSX or CSV only. We use this as the workbook to update or append to.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
+
+        {/* Source documents — always mounted; full-width when baseline is hidden */}
+        <div className={cn(documentType !== 'sov' && 'sm:col-span-2')}>
+          <p className="text-xs text-muted-foreground mb-2">
+            {documentType === 'sov' ? 'Source documents' : 'Documents to extract from'}
+          </p>
+          <div
+            {...getDocumentRootProps()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
+              isDocumentDragActive
+                ? 'border-primary bg-primary/5'
+                : 'border-border hover:border-primary/40 hover:bg-accent/30'
+            )}
+          >
+            <input {...getDocumentInputProps()} />
+            <div className="flex flex-col items-center gap-3">
+              <div className={cn(
+                'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
+                isDocumentDragActive ? 'bg-primary/20 text-primary' : 'bg-primary/10 text-primary'
+              )}>
+                <Upload size={22} />
+              </div>
+              {isDocumentDragActive ? (
+                <p className="text-primary font-medium">Drop files here</p>
+              ) : (
+                <div>
+                  <p className="text-foreground font-medium">
+                    {documentType === 'sov' ? 'Upload the documents to extract from' : 'Drag and drop your files here'}
+                  </p>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    PDFs, images, Outlook emails, text, HTML, JSON, XML, and ZIP are supported.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Email Inbox button — only for Schedules */}
       {!job && documentType === 'sov' && (
