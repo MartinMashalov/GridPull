@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, Download, Clipboard, ArrowRight, Lock, Trash2, Eye, File, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -7,7 +7,17 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-type FormFillingStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
+type FormJobStatus = 'processing' | 'complete' | 'error'
+
+interface FormJob {
+  id: string
+  targetName: string
+  sourceCount: number
+  status: FormJobStatus
+  resultBlob?: Blob
+  resultName?: string
+  errorMsg?: string
+}
 
 const _SOURCE_TYPES = new Set([
   'application/pdf',
@@ -31,11 +41,17 @@ const _SOURCE_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'html', 'htm', 'json', 'xml', 'eml', 'emlx', 'msg',
 ])
 
-function getFileIcon(name: string) {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (ext === 'pdf') return <FileText size={14} className="text-red-400" />
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return <File size={14} className="text-blue-400" />
-  return <FileText size={14} className="text-muted-foreground" />
+let _jobCounter = 0
+
+function triggerDownload(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 export default function FormFillingPage() {
@@ -43,12 +59,8 @@ export default function FormFillingPage() {
   const navigate = useNavigate()
   const [targetForm, setTargetForm] = useState<File | null>(null)
   const [sourceFiles, setSourceFiles] = useState<File[]>([])
-  const [status, setStatus] = useState<FormFillingStatus>('idle')
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
-  const [resultBlob, setResultBlob] = useState<Blob | null>(null)
-  const [resultName, setResultName] = useState<string>('filled_form.pdf')
-  const abortRef = useRef<AbortController | null>(null)
+  const [jobs, setJobs] = useState<FormJob[]>([])
 
   const onDropTarget = useCallback((accepted: File[]) => {
     const f = accepted[0]
@@ -120,41 +132,43 @@ export default function FormFillingPage() {
       return
     }
     setValidationMsg(null)
-    setErrorMsg(null)
-    setStatus('uploading')
-    setResultBlob(null)
 
-    abortRef.current?.abort()
-    const ac = new AbortController()
-    abortRef.current = ac
+    const jobId = `form-job-${++_jobCounter}`
+    const job: FormJob = {
+      id: jobId,
+      targetName: targetForm.name,
+      sourceCount: sourceFiles.length,
+      status: 'processing',
+    }
+    setJobs(prev => [job, ...prev])
+
+    // Capture files and clear the form for next upload
+    const capturedTarget = targetForm
+    const capturedSources = [...sourceFiles]
+    setTargetForm(null)
+    setSourceFiles([])
+
+    const fd = new FormData()
+    fd.append('target_form', capturedTarget)
+    capturedSources.forEach(f => fd.append('source_files', f))
 
     try {
-      const fd = new FormData()
-      fd.append('target_form', targetForm)
-      sourceFiles.forEach(f => fd.append('source_files', f))
-
-      setStatus('processing')
       const res = await api.post('/form-filling/fill', fd, {
         responseType: 'blob',
-        signal: ac.signal,
         timeout: 300000,
       })
-      abortRef.current = null
 
       const disposition = res.headers['content-disposition'] || ''
       const filenameMatch = disposition.match(/filename="?([^";\n]+)"?/)
-      const name = filenameMatch?.[1] || `filled_${targetForm.name}`
+      const name = filenameMatch?.[1] || `filled_${capturedTarget.name}`
 
-      setResultBlob(res.data)
-      setResultName(name)
-      setStatus('complete')
+      // Auto-download
+      triggerDownload(res.data, name)
+
+      setJobs(prev => prev.map(j =>
+        j.id === jobId ? { ...j, status: 'complete' as const, resultBlob: res.data, resultName: name } : j
+      ))
     } catch (err: unknown) {
-      abortRef.current = null
-      const ae = err as { code?: string; name?: string }
-      if (ae?.code === 'ERR_CANCELED' || ae?.name === 'CanceledError') {
-        setStatus('idle')
-        return
-      }
       const e = err as { response?: { data?: Blob; status?: number } }
       let msg = 'Form filling failed — please try again'
       if (e.response?.data instanceof Blob && e.response.data.type === 'application/json') {
@@ -166,45 +180,27 @@ export default function FormFillingPage() {
       } else if (e.response?.status) {
         msg = `Form filling failed (HTTP ${e.response.status})`
       }
-      setErrorMsg(msg)
-      setStatus('error')
+      setJobs(prev => prev.map(j =>
+        j.id === jobId ? { ...j, status: 'error' as const, errorMsg: msg } : j
+      ))
     }
   }
 
-  const handleDownload = () => {
-    if (!resultBlob) return
-    const url = URL.createObjectURL(resultBlob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = resultName
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+  const dismissJob = (jobId: string) => {
+    setJobs(prev => prev.filter(j => j.id !== jobId))
   }
 
-  const handleReset = () => {
-    abortRef.current?.abort()
-    abortRef.current = null
-    setTargetForm(null)
-    setSourceFiles([])
-    setStatus('idle')
-    setErrorMsg(null)
-    setValidationMsg(null)
-    setResultBlob(null)
-  }
+  const hasProcessing = jobs.some(j => j.status === 'processing')
 
-  const isProcessing = status === 'uploading' || status === 'processing'
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter' && status !== 'complete' && targetForm && sourceFiles.length > 0 && !isProcessing && !(user && !user.has_card)) {
-      e.preventDefault()
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (targetForm && sourceFiles.length > 0 && !(user && !user.has_card)) {
       handleFill()
     }
   }
 
   return (
-    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto" onKeyDown={handleKeyDown}>
+    <form className="relative p-4 sm:p-8 max-w-4xl mx-auto" onSubmit={handleFormSubmit}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
@@ -216,7 +212,7 @@ export default function FormFillingPage() {
       </div>
 
       {/* How it works */}
-      {status === 'idle' && !targetForm && sourceFiles.length === 0 && (
+      {!targetForm && sourceFiles.length === 0 && jobs.length === 0 && (
         <div className="mb-6 hidden sm:block">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How it works</p>
           <div className="grid grid-cols-3 gap-4">
@@ -252,7 +248,7 @@ export default function FormFillingPage() {
       )}
 
       {/* Security strip */}
-      {status === 'idle' && (
+      {jobs.length === 0 && (
         <div className="mb-5 hidden sm:flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1.5"><Lock size={11} className="text-emerald-500" /> Encrypted in transit</span>
           <span className="flex items-center gap-1.5"><Trash2 size={11} className="text-emerald-500" /> Files deleted after processing</span>
@@ -302,15 +298,9 @@ export default function FormFillingPage() {
                   <CheckCircle2 size={18} className="text-emerald-500" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground truncate max-w-[200px]">{targetForm.name}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{(targetForm.size / 1024).toFixed(0)} KB</p>
+                  <p className="text-sm font-medium text-foreground">1 file uploaded</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to replace</p>
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setTargetForm(null) }}
-                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors mt-1"
-                >
-                  Remove
-                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
@@ -355,7 +345,7 @@ export default function FormFillingPage() {
                   <Upload size={18} className="text-blue-500" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''} selected</p>
+                  <p className="text-sm font-medium text-foreground">{sourceFiles.length} file{sourceFiles.length > 1 ? 's' : ''} uploaded</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">Click or drop to add more</p>
                 </div>
               </div>
@@ -387,7 +377,7 @@ export default function FormFillingPage() {
       )}
 
       {/* Mobile security */}
-      {status === 'idle' && (
+      {jobs.length === 0 && (
         <p className="mb-3 text-center text-[11px] text-muted-foreground sm:hidden">
           <Lock size={10} className="inline text-emerald-500 mr-1" />
           Encrypted · files deleted after processing · no human access
@@ -396,79 +386,99 @@ export default function FormFillingPage() {
 
       {/* CTA */}
       <Button
-        onClick={status === 'complete' ? handleReset : handleFill}
-        disabled={status === 'complete' ? false : (!targetForm || sourceFiles.length === 0 || isProcessing || !!(user && !user.has_card))}
+        type="submit"
+        disabled={!targetForm || sourceFiles.length === 0 || !!(user && !user.has_card)}
         size="lg"
         className="w-full shadow-lg shadow-primary/25"
-        variant={status === 'complete' ? 'outline' : 'default'}
       >
-        {isProcessing ? (
-          <>
-            <Loader2 size={15} className="animate-spin" />
-            {status === 'uploading' ? 'Uploading…' : 'Filling form…'}
-          </>
-        ) : status === 'complete' ? (
-          'Start new form fill'
-        ) : targetForm && sourceFiles.length > 0 ? (
+        {targetForm && sourceFiles.length > 0 ? (
           `Fill form using ${sourceFiles.length} source file${sourceFiles.length > 1 ? 's' : ''}`
         ) : (
           'Upload files to get started'
         )}
       </Button>
 
-      {/* Processing indicator */}
-      {isProcessing && (
-        <div className="mt-4 bg-card border border-border rounded-xl overflow-hidden animate-fade-in">
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Loader2 size={15} className="animate-spin text-primary" />
-              <span className="text-sm font-semibold text-foreground">Processing…</span>
-            </div>
-            <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-              <div className="h-full bg-primary rounded-full animate-pulse" style={{ width: '60%' }} />
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Extracting text from source documents and filling form fields with AI. This may take a minute.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Background jobs */}
+      {jobs.length > 0 && (
+        <div className="mt-5 space-y-3">
+          {jobs.map(job => (
+            <div
+              key={job.id}
+              className={cn(
+                'bg-card border rounded-xl overflow-hidden animate-fade-in',
+                job.status === 'processing' && 'border-border',
+                job.status === 'complete' && 'border-emerald-200',
+                job.status === 'error' && 'border-red-200',
+              )}
+            >
+              <div className="px-5 py-4">
+                {job.status === 'processing' && (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Filling form...</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{job.targetName}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Extracting text and filling fields with AI. You can upload another form while this one processes.
+                    </p>
+                  </>
+                )}
 
-      {/* Success */}
-      {status === 'complete' && resultBlob && (
-        <div className="mt-4 bg-card border border-emerald-200 rounded-xl overflow-hidden animate-fade-in">
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500" />
-                Form filled successfully!
-              </span>
-              <span className="text-xs text-muted-foreground">{(resultBlob.size / 1024).toFixed(0)} KB</span>
-            </div>
-            <p className="text-xs text-muted-foreground mb-4">Your PDF form has been populated with data from the source documents.</p>
-            <Button onClick={handleDownload} className="w-full">
-              <Download size={14} className="mr-1.5" />
-              Download {resultName}
-            </Button>
-          </div>
-        </div>
-      )}
+                {job.status === 'complete' && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                        <CheckCircle2 size={16} className="text-emerald-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Form filled successfully</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {job.resultName} — {job.resultBlob ? `${(job.resultBlob.size / 1024).toFixed(0)} KB` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {job.resultBlob && job.resultName && (
+                        <Button size="sm" variant="outline" onClick={() => triggerDownload(job.resultBlob!, job.resultName!)}>
+                          <Download size={13} className="mr-1.5" />
+                          Download
+                        </Button>
+                      )}
+                      <button onClick={() => dismissJob(job.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                        <X size={14} className="text-muted-foreground" />
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-      {/* Error */}
-      {status === 'error' && errorMsg && (
-        <div className="mt-4 bg-card border border-red-200 rounded-xl overflow-hidden animate-fade-in">
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle size={15} className="text-red-400" />
-              <span className="text-sm font-semibold text-foreground">Form filling failed</span>
+                {job.status === 'error' && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                        <AlertCircle size={16} className="text-red-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Form filling failed</p>
+                        <p className="text-xs text-red-400 mt-0.5">{job.errorMsg}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => dismissJob(job.id)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                      <X size={14} className="text-muted-foreground" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{errorMsg}</p>
-            <Button onClick={handleReset} variant="outline" size="sm" className="mt-3">
-              Try again
-            </Button>
-          </div>
+          ))}
         </div>
       )}
-    </div>
+    </form>
   )
 }
