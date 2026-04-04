@@ -243,12 +243,12 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
           {qrUrl && (
             <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col items-center gap-3 text-center">
               <p className="text-sm font-semibold text-foreground">Scan with your phone camera</p>
-              <div className="bg-white p-3 rounded-xl border border-border shadow-sm inline-block">
+              <a href={qrUrl} target="_blank" rel="noopener noreferrer" className="bg-white p-3 rounded-xl border border-border shadow-sm inline-block cursor-pointer hover:shadow-md transition-shadow">
                 <QRCodeSVG value={qrUrl} size={140} level="M" />
-              </div>
+              </a>
               <div>
                 <p className="text-xs text-muted-foreground">Opens a camera upload page — no login required.</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Link expires in 1 hour.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Link expires in 1 hour. <a href={qrUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open link</a></p>
               </div>
               <button
                 onClick={() => setQrUrl(null)}
