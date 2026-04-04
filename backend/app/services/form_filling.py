@@ -99,6 +99,14 @@ def _pdf_form_fields_as_text(file_bytes: bytes) -> str:
         return ""
 
 
+def _first_n_words(text: str, n: int) -> str:
+    """Return text truncated to the first n words (≈ n tokens)."""
+    words = text.split()
+    if len(words) <= n:
+        return text
+    return " ".join(words[:n])
+
+
 async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR) -> str:
     """Return a rich text representation of a source file for the LLM."""
     ext = os.path.splitext(filename.lower())[1]
@@ -191,12 +199,11 @@ async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR
         # No form fields — fall back to text/OCR
         pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
         if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
-            # Cap at 20000 chars (~5K tokens) to keep costs reasonable
-            return pypdf_text[:20000]
+            return _first_n_words(pypdf_text, 15000)
 
         # Scanned PDF — OCR it
         ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
-        return ocr_text[:20000] if ocr_text else ""
+        return _first_n_words(ocr_text, 15000) if ocr_text else ""
 
     if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
         mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
