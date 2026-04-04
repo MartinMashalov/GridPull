@@ -191,12 +191,12 @@ async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR
         # No form fields — fall back to text/OCR
         pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
         if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
-            # Cap at 8000 chars to keep tokens low
-            return pypdf_text[:8000]
+            # Cap at 20000 chars (~5K tokens) to keep costs reasonable
+            return pypdf_text[:20000]
 
         # Scanned PDF — OCR it
         ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
-        return ocr_text[:8000] if ocr_text else ""
+        return ocr_text[:20000] if ocr_text else ""
 
     if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
         mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -309,20 +309,19 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
             "Do NOT leave fields blank if there is ANY relevant information available."
         )
 
-    return f"""You are filling out an insurance form. Extract values from the source data below and fill every field.
+    return f"""You are filling out a form. Extract values from the source data below and fill every field you can.
 
 RULES:
 1. Return a single flat JSON object with field names as keys and string values.
 2. For checkbox fields: return "Yes" or "No" only.
-3. For dropdown fields: return exactly one of the listed options (no "Please Select...").
-4. For text fields: fill with the best matching value. Use inference and reasonable defaults:
-   - If a field can be inferred from related data, infer it (e.g., expiration date = effective date + 12 months, revenue ≈ gross sales).
-   - Leave "" ONLY if truly impossible to determine even with reasonable inference.
-5. NEVER return null, None, or "N/A" — use "" for genuinely unknowable fields.
-6. CRITICAL — always fill these field types if ANY related data exists: names, addresses, phones, emails, dates, agents, producers, premiums, carriers, coverage limits.
-7. For financial/revenue fields: use the closest monetary value from the source (gross sales, total payroll, premium, etc.).
-8. For safety/operations text fields: compose a reasonable answer based on the business description in the source.
-9. For "yes/no" questions about prior losses, cancellations, etc.: default to "No" unless the source shows otherwise.
+3. For dropdown fields: return exactly one of the listed options.
+4. For text fields: fill with the best matching value from the source. Use inference when an exact match isn't present:
+   - Derive related values where logical (e.g., end date from start date + duration, totals from line items).
+   - Leave "" ONLY if the information is genuinely absent and cannot be reasonably inferred.
+5. NEVER return null, None, or "N/A" — use "" for fields that truly cannot be determined.
+6. CRITICAL — always fill these if ANY matching data exists: names, addresses, phone numbers, emails, dates, monetary amounts, ID numbers, organization names.
+7. For open-ended text questions where no exact match exists, compose a concise answer from the most relevant context available in the source.
+8. For yes/no eligibility or history questions where the source contains no contrary evidence, use "No" as the conservative default.
 
 SOURCE DATA:
 {source_context}{prior_block}{focus_note}
