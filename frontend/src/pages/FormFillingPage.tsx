@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Loader2, CheckCircle2, AlertCircle, X, FileText,
@@ -141,9 +141,29 @@ export default function FormFillingPage() {
   }
 
   const dismissJob = (jobId: string) => setJobs(prev => prev.filter(j => j.id !== jobId))
+
+  useEffect(() => {
+    const timers = jobs
+      .filter(j => j.status === 'complete')
+      .map(j => setTimeout(() => dismissJob(j.id), 2000))
+    return () => timers.forEach(clearTimeout)
+  }, [jobs.map(j => `${j.id}:${j.status}`).join(',')])
+
   const hasProcessing = jobs.some(j => j.status === 'processing')
   const isReady = !!(targetForm && sourceFiles.length > 0)
   const isFormDisabled = !isReady || hasProcessing || !!(user && !user.has_card)
+
+  const submitRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey && !isFormDisabled) {
+        e.preventDefault()
+        submitRef.current?.click()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isFormDisabled])
 
   return (
     <form className="relative p-4 sm:p-8 max-w-4xl mx-auto" onSubmit={handleFormSubmit}>
@@ -203,7 +223,7 @@ export default function FormFillingPage() {
           >
             <input {...targetDropzone.getInputProps()} />
             {targetForm ? (
-              <div className="relative w-full flex flex-col items-center gap-3">
+              <div className="flex flex-col items-center gap-3 w-full">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
                   <FileText size={22} className="text-primary" />
                 </div>
@@ -214,7 +234,7 @@ export default function FormFillingPage() {
                 <button
                   type="button"
                   onClick={e => { e.stopPropagation(); setTargetForm(null) }}
-                  className="absolute -top-1 right-0 text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1"
+                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1 mt-1"
                 >
                   <X size={12} /> Remove
                 </button>
@@ -311,6 +331,7 @@ export default function FormFillingPage() {
       {/* ── Submit — only when files are ready ───────────────────── */}
       {(isReady || hasProcessing) && (
         <Button
+          ref={submitRef}
           type="submit"
           disabled={isFormDisabled}
           size="lg"
