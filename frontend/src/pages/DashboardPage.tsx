@@ -34,6 +34,8 @@ export type DocumentType = 'custom' | 'quickbooks' | 'invoices' | 'sov'
 export interface ExtractionField {
   name: string
   description: string
+  format?: string
+  numeric?: boolean
 }
 
 const DOC_TYPE_OPTIONS: { id: DocumentType; label: string }[] = [
@@ -816,6 +818,12 @@ export default function DashboardPage() {
           </p>
           <div
             {...getDocumentRootProps()}
+            onClick={(e) => {
+              if (documentType === 'sov') {
+                e.stopPropagation()
+                setShowInbox(true)
+              }
+            }}
             className={cn(
               'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
               isDocumentDragActive
@@ -823,7 +831,7 @@ export default function DashboardPage() {
                 : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
-            <input {...getDocumentInputProps()} />
+            {documentType !== 'sov' && <input {...getDocumentInputProps()} />}
             <div className="flex flex-col items-center gap-3">
               <div className={cn(
                 'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
@@ -847,19 +855,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Email Inbox button — only for Schedules */}
-      {!job && documentType === 'sov' && (
-        <div className="mt-3 flex justify-center">
-          <button
-            onClick={() => setShowInbox(true)}
-            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors px-3 py-1.5 rounded-lg hover:bg-primary/5"
-          >
-            <Mail size={13} />
-            Email Inbox — extract from forwarded emails
-          </button>
-        </div>
-      )}
 
       {/* Mobile-only compact security line */}
       {!job && (

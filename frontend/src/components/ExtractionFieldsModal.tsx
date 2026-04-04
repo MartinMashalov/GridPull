@@ -5,6 +5,7 @@ import { X, Plus, Trash2, Pencil } from 'lucide-react'
 import { ExtractionField, ExportFormat, DocumentType } from '@/pages/DashboardPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
 const PRESET_FIELDS = [
@@ -106,6 +107,14 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
 
   const updateDescription = (index: number, desc: string) => {
     setFields(prev => prev.map((f, i) => i === index ? { ...f, description: desc } : f))
+  }
+
+  const updateFormat = (index: number, fmt: string) => {
+    setFields(prev => prev.map((f, i) => i === index ? { ...f, format: fmt } : f))
+  }
+
+  const updateNumeric = (index: number, numeric: boolean) => {
+    setFields(prev => prev.map((f, i) => i === index ? { ...f, numeric } : f))
   }
 
   const toggleDesc = (index: number) => {
@@ -218,7 +227,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                       </div>
                     </div>
                     {expandedDesc === i && (
-                      <div className="px-3 py-2 bg-primary/5 border-t border-border">
+                      <div className="px-3 py-2.5 bg-primary/5 border-t border-border space-y-2">
                         <textarea
                           autoFocus
                           rows={2}
@@ -227,6 +236,21 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                           placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income ÷ Revenue × 100')…"
                           className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
                         />
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <Input
+                            value={field.format || ''}
+                            onChange={e => updateFormat(i, e.target.value)}
+                            placeholder="Format (e.g. MM/DD/YYYY)"
+                            className="text-xs h-7 flex-1"
+                          />
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+                            <Checkbox
+                              checked={!!field.numeric}
+                              onCheckedChange={(checked) => updateNumeric(i, !!checked)}
+                            />
+                            <span className="text-xs text-muted-foreground">Numeric</span>
+                          </label>
+                        </div>
                       </div>
                     )}
                   </div>

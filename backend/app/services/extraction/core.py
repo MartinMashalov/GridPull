@@ -124,13 +124,20 @@ def _fields_block(fields: List[Dict[str, str]]) -> str:
     for f in fields:
         name = f["name"]
         desc = f.get("description", "")
+        fmt = (f.get("format") or "").strip()
+        numeric = bool(f.get("numeric")) or f.get("type") == "float"
+
+        parts = []
         if desc and desc != name:
-            lines.append(f"  - {name}\n    description: {desc}")
+            parts.append(f"    description: {desc}")
         else:
-            lines.append(
-                f"  - {name}\n"
-                "    description: use the best semantic match from document context; return null if genuinely not present"
-            )
+            parts.append("    description: use the best semantic match from document context; return null if genuinely not present")
+        if fmt:
+            parts.append(f"    format: {fmt}")
+        if numeric:
+            parts.append("    type: float — return a bare number with no currency symbols, commas, or units")
+
+        lines.append(f"  - {name}\n" + "\n".join(parts))
     return "\n".join(lines)
 
 
