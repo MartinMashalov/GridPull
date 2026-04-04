@@ -619,7 +619,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Extract Data from PDFs & Images</h1>
+          <h1 className="text-xl font-semibold text-foreground">Upload Data from any File</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 5 MB each) — 1 credit covers one file up to 50 pages</p>
         </div>
         <div className="flex items-center gap-2">
