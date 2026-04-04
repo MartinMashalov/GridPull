@@ -331,11 +331,13 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
               <div className="space-y-1 mb-4 max-h-64 overflow-y-auto scrollbar-thin pr-0.5">
                 {fields.map((field, i) => (
                   <div key={i} className="rounded-lg border border-border overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 bg-secondary">
+                    <div
+                      className="flex items-center justify-between px-3 py-2 bg-secondary cursor-pointer hover:bg-secondary/80 transition-colors"
+                      onClick={() => toggleDesc(i)}
+                    >
                       <span className="text-sm text-foreground flex-1 min-w-0 truncate">{field.name}</span>
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                        <button
-                          onClick={() => toggleDesc(i)}
+                        <span
                           title="Add details to guide the AI for this field"
                           className={cn(
                             'flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors',
@@ -348,8 +350,11 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                         >
                           <Pencil size={11} />
                           <span>{field.description ? 'Edit' : 'Details'}</span>
-                        </button>
-                        <button onClick={() => removeField(i)} className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors">
+                        </span>
+                        <button
+                          onClick={e => { e.stopPropagation(); removeField(i) }}
+                          className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors"
+                        >
                           <Trash2 size={13} />
                         </button>
                       </div>
