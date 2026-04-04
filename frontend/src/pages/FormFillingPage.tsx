@@ -6,23 +6,13 @@ import {
   Sparkles, FilePlus2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { useFormJobStore } from '@/store/formJobStore'
 import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
-type FormJobStatus = 'processing' | 'complete' | 'error'
-
-interface FormJob {
-  id: string
-  targetName: string
-  sourceCount: number
-  status: FormJobStatus
-  resultBlob?: Blob
-  resultName?: string
-  errorMsg?: string
-}
 
 const _SOURCE_TYPES = new Set([
   'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff',
@@ -55,11 +45,11 @@ function formatBytes(bytes: number) {
 
 export default function FormFillingPage() {
   const { user } = useAuthStore()
+  const { jobs, addJob, updateJob, dismissJob } = useFormJobStore()
   const navigate = useNavigate()
   const [targetForm, setTargetForm] = useState<File | null>(null)
   const [sourceFiles, setSourceFiles] = useState<File[]>([])
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
-  const [jobs, setJobs] = useState<FormJob[]>([])
 
   const onDropTarget = useCallback((accepted: File[]) => {
     const f = accepted[0]
@@ -115,7 +105,7 @@ export default function FormFillingPage() {
     }
     setValidationMsg(null)
     const jobId = `form-job-${++_jobCounter}`
-    setJobs(prev => [{ id: jobId, targetName: targetForm.name, sourceCount: sourceFiles.length, status: 'processing' }, ...prev])
+    addJob({ id: jobId, targetName: targetForm.name, sourceCount: sourceFiles.length, status: 'processing' })
     const capturedTarget = targetForm
     const capturedSources = [...sourceFiles]
     setTargetForm(null)
@@ -129,23 +119,21 @@ export default function FormFillingPage() {
       const filenameMatch = disposition.match(/filename="?([^";\n]+)"?/)
       const name = filenameMatch?.[1] || `filled_${capturedTarget.name}`
       triggerDownload(res.data, name)
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'complete' as const, resultBlob: res.data, resultName: name } : j))
+      useFormJobStore.getState().updateJob(jobId, { status: 'complete', resultBlob: res.data, resultName: name })
     } catch (err: unknown) {
       const e = err as { response?: { data?: Blob; status?: number } }
       let msg = 'Form filling failed — please try again'
       if (e.response?.data instanceof Blob && e.response.data.type === 'application/json') {
         try { const text = await e.response.data.text(); const json = JSON.parse(text); msg = json.detail?.message || json.detail || msg } catch { /* ignore */ }
       } else if (e.response?.status) msg = `Form filling failed (HTTP ${e.response.status})`
-      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'error' as const, errorMsg: msg } : j))
+      useFormJobStore.getState().updateJob(jobId, { status: 'error', errorMsg: msg })
     }
   }
-
-  const dismissJob = (jobId: string) => setJobs(prev => prev.filter(j => j.id !== jobId))
 
   useEffect(() => {
     const timers = jobs
       .filter(j => j.status === 'complete')
-      .map(j => setTimeout(() => dismissJob(j.id), 2000))
+      .map(j => setTimeout(() => useFormJobStore.getState().dismissJob(j.id), 2000))
     return () => timers.forEach(clearTimeout)
   }, [jobs.map(j => `${j.id}:${j.status}`).join(',')])
 
