@@ -612,7 +612,9 @@ async def extract_per_page(
                         retry_prompt += f"\n--- Detected Tables ---\n{tables_md}\n"
                     retry_prompt += (
                         f"\n{_MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION}\n\n"
-                        f'Return exactly: {{"records": [{{{", ".join(f\'"{fn}": "value"\' for fn in missing)}}}]}}'
+                        'Return exactly: {"records": [{'
+                        + ", ".join(f'"{fn}": "value"' for fn in missing)
+                        + "}]}"
                     )
                     retry_rows = await _llm_extract(
                         _SINGLE_SYSTEM, retry_prompt, missing, doc.filename, usage, _TEXT_MODEL,

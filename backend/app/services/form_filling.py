@@ -183,22 +183,20 @@ async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR
             return file_bytes.decode('utf-8', errors='replace')
 
     if ext == '.pdf':
-        # For PDFs: form field values are the richest source — put them first
+        # For PDFs: form field values are the richest source — use them exclusively when available
         field_text = await asyncio.to_thread(_pdf_form_fields_as_text, file_bytes)
-        pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
-
-        parts = []
         if field_text:
-            parts.append(f"[PDF Form Fields]\n{field_text}")
-        if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
-            parts.append(f"[PDF Text Content]\n{pypdf_text}")
-        elif not field_text:
-            # Scanned PDF with no fields and no text — OCR it
-            ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
-            if ocr_text:
-                parts.append(f"[OCR Text]\n{ocr_text}")
+            return f"[PDF Form Fields]\n{field_text}"
 
-        return "\n\n".join(parts)
+        # No form fields — fall back to text/OCR
+        pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
+        if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
+            # Cap at 8000 chars to keep tokens low
+            return pypdf_text[:8000]
+
+        # Scanned PDF — OCR it
+        ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
+        return ocr_text[:8000] if ocr_text else ""
 
     if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
         mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -335,23 +333,24 @@ FIELDS TO FILL ({n_fields} total):
 Respond with ONLY the JSON object. No markdown, no explanation."""
 
 
+_FORM_FILL_MODEL = "gpt-4.1-mini"
+
+
 async def _call_llm(prompt: str) -> tuple[dict, float, str]:
     """Call GPT-4.1-mini with json_object response format. Returns (values_dict, cost, model)."""
-    model = getattr(settings, 'form_fill_model', 'gpt-4.1-mini')
-
     response = await routed_acompletion(
         route_profile="form_fill",
-        fallback_model=model,
+        fallback_model=_FORM_FILL_MODEL,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         temperature=0,
     )
 
-    used_model = getattr(response, "model", None) or model
+    used_model = getattr(response, "model", None) or _FORM_FILL_MODEL
     cost = 0.0
     if response.usage:
-        from app.services.extraction.core import _estimate_cost
-        cost = _estimate_cost(used_model, response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0)
+        # gpt-4.1-mini: $0.40/1M input, $1.60/1M output
+        cost = (response.usage.prompt_tokens or 0) * 0.40e-6 + (response.usage.completion_tokens or 0) * 1.60e-6
 
     raw = response.choices[0].message.content or "{}"
     # Strip markdown fences if present
