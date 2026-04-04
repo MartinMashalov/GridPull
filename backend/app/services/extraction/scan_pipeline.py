@@ -1,37 +1,24 @@
+"""OCR wrapper for scanned documents.
+
+Runs Mistral OCR and returns the text + pages for use by strategy modules.
+The old extraction logic has been moved into strategy_individual, strategy_multi_record,
+and strategy_page_per_row.
+"""
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
-from typing import Any, Dict, List
+from typing import Any
 
 from app.config import settings
 from app.services.pdf_service import ParsedDocument
 
-from .core import (
-    _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION,
-    _SCAN_MULTI_SYSTEM,
-    _SCAN_SINGLE_SYSTEM,
-    _SINGLE_DOC_MIN_FFR,
-    _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS,
-    _SINGLE_RETRY_INSTRUCTION,
-    _empty,
-    _error,
-    _fields_block,
-    _is_filled_value,
-    _maybe_compress_with_bear,
-    _single_quality_gate,
-    _single_record_valid,
-    build_table_column_hint,
-    LLMUsage,
-    document_has_wide_data_grid,
-)
-from .llm import _cleanup_single_row_with_nano, _llm_extract_vision, _review_multi_rows
+from .core import _error, LLMUsage
 
 logger = logging.getLogger(__name__)
 
 
 def _ocr_page_text(page: Any) -> str:
+    """Format an OCR page into text with headers/tables."""
     parts = [f"=== Page {page.page_num} ==="]
     if getattr(page, "header", None):
         parts.append(f"--- Header ---\n{page.header}")
@@ -44,354 +31,53 @@ def _ocr_page_text(page: Any) -> str:
     return "\n".join(parts)
 
 
-async def _extract_scanned_chunked(
-    ocr_pages: List[Any],
-    ocr_text: str,
+async def run_ocr_for_document(
     doc: ParsedDocument,
-    fields: List[Dict[str, str]],
-    field_names: List[str],
-    fblock: str,
     usage: LLMUsage,
-    instructions: str = "",
-) -> List[Dict[str, Any]]:
-    inject_global_tables = document_has_wide_data_grid(doc)
-    table_prefix = ""
-    if inject_global_tables and doc.tables:
-        table_parts = [
-            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
-            for t in doc.tables
-        ]
-        raw_tables = "\n\n".join(table_parts)
-        if raw_tables.strip():
-            table_prefix = await _maybe_compress_with_bear(
-                raw_tables, doc.page_count, usage, f"{doc.filename} OCR SOV tables",
-            )
+) -> tuple[str, list] | None:
+    """Run Mistral OCR on the document.
 
-    pages = [_ocr_page_text(page) for page in ocr_pages] or [ocr_text]
+    Returns (full_text, ocr_pages) or None on failure.
+    """
+    from app.services.ocr_service import run_mistral_ocr
 
-    cs = settings.extraction_chunk_size
-    chunks = [pages[i : i + cs] for i in range(0, len(pages), cs)]
+    if not settings.mistral_api_key:
+        logger.error("Scanned doc detected (%s) but MISTRAL_API_KEY not set", doc.filename)
+        return None
 
-    async def _chunk_task(chunk_pages: list) -> List[Dict]:
-        chunk_text = await _maybe_compress_with_bear(
-            "\n\n".join(chunk_pages),
-            doc.page_count,
-            usage,
-            f"{doc.filename} OCR chunk",
+    logger.info("OCR starting: %s (%d pages)", doc.filename, doc.page_count)
+
+    try:
+        ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+        usage.add_ocr_cost(ocr_result.cost_usd)
+        logger.info(
+            "OCR complete: %s - %d pages, %d chars, $%.4f",
+            doc.filename, ocr_result.page_count, len(ocr_result.text), ocr_result.cost_usd,
         )
-        sov_note = ""
-        if inject_global_tables and table_prefix:
-            sov_note = (
-                "--- Table priority ---\n"
-                "If parser-detected Tables include a primary data table with repeated rows matching the requested fields, "
-                "emit one record per table row and copy all values from it; use this OCR chunk text "
-                "only to fill fields the table omits. Do not overwrite table values with supplementary text.\n\n"
-            )
-        prompt = (
-            f"--- Document Info ---\n"
-            f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
-            f"Source: Scanned document (OCR by Mistral)\n\n"
-            f"--- Fields (one object per repeated record) ---\n{fblock}\n\n"
-            + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-            + (f"{build_table_column_hint(doc.tables)}\n\n" if doc.tables else "")
-            + sov_note
-            + (f"--- Parser-detected tables (full file) ---\n{table_prefix}\n\n" if table_prefix else "")
-            + f"--- OCR Text (this chunk) ---\n{chunk_text}\n\n"
-            'Extract ALL repeated records in this chunk. '
-            'Return: {"records": [...]}. No records here -> {"records": []}.'
-        )
-        return await _llm_extract_vision(_SCAN_MULTI_SYSTEM, prompt, field_names, doc.filename, usage)
+    except Exception as exc:
+        logger.error("OCR failed for %s: %s", doc.filename, exc)
+        return None
 
-    chunk_results = await asyncio.gather(*[_chunk_task(c) for c in chunks])
-    all_rows: List[Dict[str, Any]] = []
-    for rows in chunk_results:
-        all_rows.extend(r for r in rows if any(r.get(fn) for fn in field_names))
+    if not ocr_result.text.strip():
+        logger.error("OCR returned empty text for %s", doc.filename)
+        return None
 
-    if not all_rows:
-        return _empty([doc.filename], field_names)
-    return await _review_multi_rows(all_rows, field_names, doc.filename, usage, ocr_text, instructions)
+    return ocr_result.text, ocr_result.pages
 
 
-async def _extract_scanned_per_page(
-    ocr_pages: List[Any],
-    doc: ParsedDocument,
-    fields: List[Dict[str, str]],
-    usage: LLMUsage,
-    instructions: str = "",
-) -> List[Dict[str, Any]]:
-    field_names = [f["name"] for f in fields]
-    fblock = _fields_block(fields)
-    semaphore = asyncio.Semaphore(4)
-
-    async def _extract_page(page: Any) -> List[Dict[str, Any]]:
-        async with semaphore:
-            prompt_parts = [
-                "--- Document Info ---\n"
-                f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
-                f"Extracting from: page {page.page_num}",
-                f"\n--- Fields to Extract ---\n{fblock}",
-            ]
-            if instructions.strip():
-                prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
-            prompt_parts.append(f"\n--- OCR Page ---\n{_ocr_page_text(page)}")
-            prompt_parts.append(
-                "\n--- Extraction Mode ---\n"
-                "This page is one of many independent records in a compiled document. "
-                'Extract the single record on this page. If the page has no relevant data, return {"records": []}.'
-            )
-            prompt = "\n".join(prompt_parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
-            return await _llm_extract_vision(_SCAN_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage)
-
-    page_results = await asyncio.gather(*[_extract_page(page) for page in ocr_pages])
-    all_rows: List[Dict[str, Any]] = []
-    empty_markers = {"", "n/a", "na", "none", "null", "-", "—"}
-    for rows in page_results:
-        for row in rows:
-            filled = sum(
-                1
-                for fn in field_names
-                if row.get(fn) is not None and str(row[fn]).strip().lower() not in empty_markers
-            )
-            if filled > 0:
-                all_rows.append(row)
-
-    logger.info(
-        "SCAN per-page extraction for %s: %d OCR pages -> %d non-empty records",
-        doc.filename,
-        len(ocr_pages),
-        len(all_rows),
-    )
-    return all_rows if all_rows else _empty([doc.filename], field_names)
-
-
+# Keep backward compat for SOV pipeline which may import this
 async def extract_from_scanned_document(
     doc: ParsedDocument,
-    fields: List[Dict[str, str]],
+    fields: list,
     usage: LLMUsage,
     instructions: str = "",
     forced_mode: str | None = None,
     enable_retry: bool = True,
-) -> List[Dict[str, Any]]:
-    from app.services.ocr_service import run_mistral_ocr
-
-    field_names = [f["name"] for f in fields]
-
-    if not settings.mistral_api_key:
-        msg = "Scanned OCR unavailable: MISTRAL_API_KEY not set"
-        logger.error(
-            "Scanned doc detected (%s) but MISTRAL_API_KEY not set - returning error row",
-            doc.filename,
-        )
-        return _error([doc.filename], field_names, msg)
-
-    logger.info("SCAN pipeline - Mistral OCR starting: %s (%d pages)", doc.filename, doc.page_count)
-
-    try:
-        ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
-        ocr_text = ocr_result.text
-        usage.add_ocr_cost(ocr_result.cost_usd)
-        logger.info(
-            "SCAN pipeline - OCR complete: %s - %d pages, %d chars, $%.4f",
-            doc.filename,
-            ocr_result.page_count,
-            len(ocr_text),
-            ocr_result.cost_usd,
-        )
-    except Exception as exc:
-        msg = f"Scanned OCR failed: {exc}"
-        logger.error("SCAN pipeline - OCR failed for %s: %s - returning error row", doc.filename, exc)
-        return _error([doc.filename], field_names, msg)
-
-    if not ocr_text.strip():
-        msg = "Scanned OCR failed: empty OCR text"
-        logger.error("SCAN pipeline - OCR returned empty text for %s", doc.filename)
-        return _error([doc.filename], field_names, msg)
-
-    fblock = _fields_block(fields)
-    extraction_mode = "single"
-    if forced_mode in {"single", "multi", "per_page"}:
-        extraction_mode = forced_mode
-        logger.info("SCAN pipeline - forced %s extraction: %s", extraction_mode, doc.filename)
-    else:
-        planner_prompt = (
-            "Decide whether this OCR document should produce ONE output object or MANY output objects "
-            "for the requested schema.\n\n"
-            "Reply with exactly one word:\n"
-            "- single: the requested fields describe the document as a whole, so there should be one row per file\n"
-            "- multi: the same requested fields can be filled repeatedly from the same file, so there should be many rows from one file\n\n"
-            "Rules:\n"
-            "- Base the decision on the requested fields plus the OCR structure\n"
-            "- Repeated records may appear across rows, columns, repeated sections, or repeated line items\n"
-            "- Financial reports / annual reports / 10-K filings: when the requested fields include a "
-            "date, year, or period field alongside financial metrics, classify as multi — comparative "
-            "financial statements show the same metrics for multiple fiscal years.\n"
-            "- If unsure, reply single\n\n"
-            f"Filename: {doc.filename}\n"
-            f"Total pages: {doc.page_count}\n"
-            f"Requested fields:\n{fblock}\n\n"
-            + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
-            + f"OCR text:\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR planner')}"
-        )
-        try:
-            planner_resp = await _llm_extract_vision(
-                _SCAN_SINGLE_SYSTEM,
-                planner_prompt + '\n\nReturn: {"records": [{"mode": "single"}]}',
-                ["mode"],
-                doc.filename,
-                usage,
-            )
-            planner_mode = (planner_resp[0].get("mode", "") if planner_resp else "").strip().lower()
-            extraction_mode = "multi" if planner_mode == "multi" else "single"
-            logger.info("SCAN pipeline - planned %s extraction: %s", extraction_mode, doc.filename)
-        except Exception as exc:
-            markdown_table_lines = len(re.findall(r"^\|.+\|", ocr_text, re.M))
-            extraction_mode = "multi" if markdown_table_lines >= 6 else "single"
-            logger.warning("SCAN planner failed for %s: %s - falling back to %s", doc.filename, exc, extraction_mode)
-
-    if forced_mode is None and extraction_mode == "single" and document_has_wide_data_grid(doc):
-        logger.info(
-            "SCAN pipeline - overriding single -> multi for %s (wide parsed table grid)",
-            doc.filename,
-        )
-        extraction_mode = "multi"
-
-    if extraction_mode == "per_page":
-        return await _extract_scanned_per_page(ocr_result.pages, doc, fields, usage, instructions)
-
-    if extraction_mode == "multi" and doc.page_count > settings.extraction_chunk_threshold_pages:
-        logger.info("SCAN pipeline - chunked multi-record: %s", doc.filename)
-        return await _extract_scanned_chunked(ocr_result.pages, ocr_text, doc, fields, field_names, fblock, usage, instructions)
-
-    ctx = (
-        f"Filename: {doc.filename}\n"
-        f"Total pages: {doc.page_count}\n"
-        f"Source: Scanned document (OCR by Mistral)"
+) -> list:
+    """Legacy entry point — routes through the new strategy system."""
+    from . import extract_from_document
+    return await extract_from_document(
+        doc, fields, usage, instructions,
+        batch_document_count=1,
+        force_general=True,
     )
-
-    if extraction_mode == "multi":
-        logger.info("SCAN pipeline - single-call multi-record: %s", doc.filename)
-        system = _SCAN_MULTI_SYSTEM
-        instruction = 'Return: {"records": [{"Field": "value"}, ...]}'
-    else:
-        logger.info("SCAN pipeline - single-record: %s", doc.filename)
-        system = _SCAN_SINGLE_SYSTEM
-        instruction = 'Return: {"records": [{"Field Name": "value", ...}]}'
-
-    scan_col_hint = build_table_column_hint(doc.tables) if doc.tables and extraction_mode == "multi" else ""
-    user_prompt = (
-        f"--- Document Info ---\n{ctx}\n\n"
-        f"--- Fields to Extract ---\n{fblock}\n\n"
-        + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-        + (f"{scan_col_hint}\n\n" if scan_col_hint else "")
-        + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR extract')}\n\n"
-        + instruction
-    )
-
-    rows = await _llm_extract_vision(system, user_prompt, field_names, doc.filename, usage)
-    if extraction_mode != "multi":
-        if enable_retry and len(rows) == 1:
-            valid, reason = _single_record_valid(rows[0], field_names)
-            if not valid:
-                logger.info(
-                    "SCAN single-record validation failed for %s: %s; retrying with stronger guidance",
-                    doc.filename,
-                    reason,
-                )
-                retry_prompt = user_prompt + "\n\n" + _SINGLE_RETRY_INSTRUCTION + "\n\n" + instruction
-                rows = await _llm_extract_vision(system, retry_prompt, field_names, doc.filename, usage)
-                if len(rows) == 1:
-                    valid2, _ = _single_record_valid(rows[0], field_names)
-                    if not valid2:
-                        logger.warning("SCAN single-record retry still invalid for %s", doc.filename)
-        if enable_retry and len(rows) == 1:
-            gate_ok, fill_rate, missing_fields = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
-            if not gate_ok and len(missing_fields) >= _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS:
-                logger.info(
-                    "SCAN per-doc gate failed for %s (FFR=%.1f%%, missing=%d); running missing-fields retry",
-                    doc.filename,
-                    fill_rate * 100,
-                    len(missing_fields),
-                )
-                retry_fields = [f for f in fields if f["name"] in missing_fields]
-                retry_fblock = _fields_block(retry_fields)
-                retry_prompt = (
-                    f"--- Document Info ---\n{ctx}\n\n"
-                    f"--- Missing Fields Only ---\n{retry_fblock}\n\n"
-                    + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-                    + "--- Retry Objective ---\n"
-                    + "Fill only the listed missing fields using the OCR text. "
-                    + "Do not rewrite fields that already have values.\n\n"
-                    + f"--- OCR Text (Mistral OCR) ---\n{await _maybe_compress_with_bear(ocr_text, doc.page_count, usage, f'{doc.filename} OCR missing-fields')}\n\n"
-                    + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
-                )
-                retry_rows = await _llm_extract_vision(
-                    _SCAN_SINGLE_SYSTEM,
-                    retry_prompt,
-                    [f["name"] for f in retry_fields],
-                    doc.filename,
-                    usage,
-                )
-                if retry_rows:
-                    merged = dict(rows[0])
-                    retry_row = retry_rows[0]
-                    for fn in missing_fields:
-                        old = merged.get(fn)
-                        new_val = retry_row.get(fn)
-                        if not _is_filled_value(old) and _is_filled_value(new_val):
-                            merged[fn] = new_val
-                    rows = [merged]
-                    gate_ok2, fill_rate2, missing2 = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
-                    logger.info(
-                        "SCAN per-doc gate result for %s after retry: pass=%s FFR=%.1f%% missing=%d",
-                        doc.filename,
-                        gate_ok2,
-                        fill_rate2 * 100,
-                        len(missing2),
-                    )
-                    if missing2:
-                        final_retry_fields = [f for f in fields if f["name"] in missing2]
-                        final_retry_fblock = _fields_block(final_retry_fields)
-                        final_retry_prompt = (
-                            f"--- Document Info ---\n{ctx}\n\n"
-                            f"--- Missing Fields Only ---\n{final_retry_fblock}\n\n"
-                            + (f"--- User Instructions ---\n{instructions.strip()}\n\n" if instructions.strip() else "")
-                            + "--- Retry Objective ---\n"
-                            + _MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION
-                            + "\n--- OCR Text (Mistral OCR) ---\n"
-                            + await _maybe_compress_with_bear(
-                                ocr_text,
-                                doc.page_count,
-                                usage,
-                                f"{doc.filename} OCR final missing-fields",
-                            )
-                            + "\n\n"
-                            + 'Return exactly: {"records": [{"Field Name": "value", ...}]}'
-                        )
-                        final_retry_rows = await _llm_extract_vision(
-                            _SCAN_SINGLE_SYSTEM,
-                            final_retry_prompt,
-                            [f["name"] for f in final_retry_fields],
-                            doc.filename,
-                            usage,
-                        )
-                        if final_retry_rows:
-                            merged2 = dict(rows[0])
-                            final_retry_row = final_retry_rows[0]
-                            for fn in missing2:
-                                old = merged2.get(fn)
-                                new_val = final_retry_row.get(fn)
-                                if not _is_filled_value(old) and _is_filled_value(new_val):
-                                    merged2[fn] = new_val
-                            rows = [merged2]
-                            gate_ok3, fill_rate3, missing3 = _single_quality_gate(rows[0], field_names, _SINGLE_DOC_MIN_FFR)
-                            logger.info(
-                                "SCAN per-doc final retry result for %s: pass=%s FFR=%.1f%% missing=%d",
-                                doc.filename,
-                                gate_ok3,
-                                fill_rate3 * 100,
-                                len(missing3),
-                            )
-        if len(rows) == 1:
-            rows = [await _cleanup_single_row_with_nano(rows[0], fields, doc.filename, usage)]
-        return rows
-    return await _review_multi_rows(rows, field_names, doc.filename, usage, ocr_text, instructions)

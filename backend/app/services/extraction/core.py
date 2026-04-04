@@ -27,9 +27,7 @@ _OCR_MODEL = "mistral-ocr-latest"
 _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
 _MARKUP = 1.20
 
-# Extraction routing constants
-_SINGLE_DOC_MIN_FFR = 0.95
-_SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
+# (Thresholds removed — strategies always retry for any missing fields)
 
 # Per-token pricing (USD per token) for cost estimation without litellm
 _MODEL_PRICING: Dict[str, tuple[float, float]] = {
