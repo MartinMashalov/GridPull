@@ -197,11 +197,11 @@ async def extract_from_document(
     if doc.is_scanned:
         if strategy == "per_page":
             rows = await extract_from_scanned_document(
-                doc, fields, usage, instructions, forced_mode="per_page", enable_retry=False,
+                doc, fields, usage, instructions, forced_mode="per_page", enable_retry=True,
             )
         elif strategy == "single_document":
             rows = await extract_from_scanned_document(
-                doc, fields, usage, instructions, forced_mode="single", enable_retry=False,
+                doc, fields, usage, instructions, forced_mode="single", enable_retry=True,
             )
         else:
             rows = await extract_from_scanned_document(
@@ -213,7 +213,7 @@ async def extract_from_document(
             rows = await extract_per_page(doc, fields, usage, instructions)
         elif strategy == "single_document":
             logger.info("TEXT single-document extraction: %s", doc.filename)
-            rows = await extract_single_record(doc, fields, usage, instructions, enable_retry=False)
+            rows = await extract_single_record(doc, fields, usage, instructions, enable_retry=True)
         elif scan_mode == "multi":
             if doc.page_count > settings.extraction_chunk_threshold_pages:
                 n_chunks = -(-doc.page_count // settings.extraction_chunk_size)
@@ -254,7 +254,7 @@ async def extract_from_document(
     if rows and run_schedule_cleanup:
         rows = finalize_property_schedule_rows(rows, field_names)
 
-    if rows and (run_schedule_cleanup or has_wide_grid) and len(rows) > 1:
+    if rows and len(rows) >= 1:
         text_for_backfill = doc_full_text.strip()
         for _ in range(3):
             if not text_for_backfill:

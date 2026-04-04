@@ -586,7 +586,45 @@ async def extract_per_page(
                 'data for the requested fields, return: {"records": []}.'
             )
             prompt = "\n".join(parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
-            return await _llm_extract(_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage, _TEXT_MODEL)
+            rows = await _llm_extract(_SINGLE_SYSTEM, prompt, field_names, doc.filename, usage, _TEXT_MODEL)
+
+            # Retry for missing fields on this page
+            if rows and len(rows) == 1:
+                row = rows[0]
+                empty_vals = {"", "n/a", "na", "none", "null", "-", "—"}
+                missing = [
+                    fn for fn in field_names
+                    if row.get(fn) is None
+                    or str(row[fn]).strip().lower() in empty_vals
+                ]
+                if missing and len(missing) < len(field_names):
+                    missing_fblock = "\n".join(
+                        f"  - {f['name']}" + (f"\n    description: {f['description']}" if f.get("description") else "")
+                        for f in fields if f["name"] in missing
+                    )
+                    retry_prompt = (
+                        f"The following fields were not found in the first pass. "
+                        f"Search the document text more carefully for these missing fields.\n\n"
+                        f"--- Missing Fields ---\n{missing_fblock}\n\n"
+                        f"--- Document Text ---\n{page_text}\n"
+                    )
+                    if tables_md:
+                        retry_prompt += f"\n--- Detected Tables ---\n{tables_md}\n"
+                    retry_prompt += (
+                        f"\n{_MISSING_FIELDS_FOCUSED_RETRY_INSTRUCTION}\n\n"
+                        f'Return exactly: {{"records": [{{{", ".join(f\'"{fn}": "value"\' for fn in missing)}}}]}}'
+                    )
+                    retry_rows = await _llm_extract(
+                        _SINGLE_SYSTEM, retry_prompt, missing, doc.filename, usage, _TEXT_MODEL,
+                    )
+                    if retry_rows:
+                        for fn in missing:
+                            val = retry_rows[0].get(fn)
+                            if val is not None and str(val).strip().lower() not in empty_vals:
+                                row[fn] = val
+                    rows = [row]
+
+            return rows
 
     page_results = await asyncio.gather(*[_extract_page(p) for p in doc.pages])
 

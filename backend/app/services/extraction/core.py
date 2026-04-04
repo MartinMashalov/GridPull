@@ -28,7 +28,7 @@ _BEAR_REMOVED_TOKEN_PRICE = 0.05 / 1_000_000
 _MARKUP = 1.20
 
 # Extraction routing constants
-_SINGLE_DOC_MIN_FFR = 0.75
+_SINGLE_DOC_MIN_FFR = 0.95
 _SINGLE_DOC_RETRY_MIN_MISSING_FIELDS = 1
 
 # Per-token pricing (USD per token) for cost estimation without litellm
