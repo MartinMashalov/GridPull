@@ -674,8 +674,12 @@ async def extract_sov_from_document(
     is_spreadsheet = filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
 
     # ── Routing: OCR for scanned or large docs; LiteParse for small digital docs ──
+    # Emails and HTML files are already parsed into text by parse_pdf — never OCR them
+    _NO_OCR_EXTS = {".eml", ".emlx", ".msg", ".html", ".htm"}
+    is_text_only = any(filename_lower.endswith(ext) for ext in _NO_OCR_EXTS)
     use_ocr = (
         not is_spreadsheet
+        and not is_text_only
         and (doc.is_scanned or doc.page_count > _SOV_LITEPARSE_THRESHOLD_PAGES)
         and bool(settings.mistral_api_key and doc.file_path)
     )

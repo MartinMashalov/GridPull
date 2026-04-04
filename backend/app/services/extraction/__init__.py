@@ -184,7 +184,7 @@ async def extract_from_document(
             "Routing %s -> SOV pipeline (pages=%d, tables=%d, scanned=%s)",
             doc.filename, doc.page_count, len(doc.tables), doc.is_scanned,
         )
-        rows = await extract_sov_from_document(doc, fields, usage, instructions, use_cerebras=use_cerebras)
+        rows = await extract_sov_from_document(doc, fields, usage, instructions)
         doc_full_text = doc.content_text or ""
         rows = sanitize_duplicate_column_values(rows, field_names, doc.tables)
         rows = sanitize_unmatched_field_values(rows, field_names, doc_full_text, doc.tables)
@@ -297,9 +297,11 @@ async def extract_from_document(
     if not rows:
         rows = _empty([doc.filename], field_names)
 
+    cache_pct = (usage.cached_input_tokens / usage.input_tokens * 100) if usage.input_tokens else 0
     logger.info(
-        "extract_from_document done: filename=%s rows=%d cost=%.6f input_tokens=%d output_tokens=%d",
+        "extract_from_document done: filename=%s rows=%d cost=%.6f input_tokens=%d output_tokens=%d cached=%d (%.0f%%)",
         doc.filename, len(rows), usage.cost_usd, usage.input_tokens, usage.output_tokens,
+        usage.cached_input_tokens, cache_pct,
     )
     return rows
 
