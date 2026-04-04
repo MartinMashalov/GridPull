@@ -79,13 +79,20 @@ async def execute(
     reporting_unit = _detect_reporting_unit(doc) if doc.has_tables and not is_scan else None
     ctx = _doc_context_block(doc)
 
-    # -- Build prompt --
+    # -- Build prompt (static prefix first for OpenAI prompt caching) --
+    # Fields + instructions go first (identical across batch) → cached after first call
     parts = [
-        f"--- Document Info ---\n{ctx}",
-        f"\n--- Fields to Extract ---\n{_fields_block(fields)}",
+        f"--- Fields to Extract ---\n{_fields_block(fields)}",
     ]
     if instructions.strip():
         parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    parts.append(
+        "\n--- Extraction Mode ---\n"
+        "Extract exactly one record from this document. "
+        'If the document has no relevant data, return: {"records": [{}]}.'
+    )
+    # Variable content comes after the static prefix
+    parts.append(f"\n--- Document Info ---\n{ctx}")
     if reporting_unit:
         parts.append(
             f"\n--- Reporting Unit ---\n"

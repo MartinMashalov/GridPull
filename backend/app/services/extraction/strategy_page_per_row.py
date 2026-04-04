@@ -2,6 +2,10 @@
 
 Each page in the PDF is one independent record. Used for compiled invoices,
 multi-statement PDFs, etc.
+
+Prompt structure is optimized for OpenAI prompt caching:
+  System message: identical across all pages (cached after first call)
+  User message: static prefix (fields, instructions, mode) THEN variable page content
 """
 from __future__ import annotations
 
@@ -45,26 +49,36 @@ async def execute(
     extract_fn = _llm_extract_vision if is_scan else _llm_extract
     semaphore = asyncio.Semaphore(_PER_PAGE_CONCURRENCY)
 
+    # ── Build static prefix (cacheable across all pages) ──────────────────
+    # OpenAI caches the longest matching prefix (≥1024 tokens).
+    # By putting fields + instructions + mode BEFORE the per-page content,
+    # all 129 pages share the same cached prefix → 75% discount on input tokens.
+    static_parts = [
+        f"--- Fields to Extract ---\n{fblock}",
+    ]
+    if instructions.strip():
+        static_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
+    static_parts.append(
+        "\n--- Extraction Mode ---\n"
+        "This page is one of many independent records in a compiled PDF. "
+        "Extract the single record on this page. If the page has no relevant "
+        'data for the requested fields, return: {"records": []}.'
+    )
+    static_prefix = "\n".join(static_parts)
+
     async def _extract_page(page_content: str, page_tables_md: str, page_num: int) -> List[Dict[str, Any]]:
         async with semaphore:
-            parts = [
-                f"--- Document Info ---\n"
+            # Variable content comes AFTER the static prefix
+            variable_parts = [
+                f"\n--- Document Info ---\n"
                 f"Filename: {doc.filename}\nTotal pages: {doc.page_count}\n"
                 f"Extracting from: page {page_num}",
-                f"\n--- Fields to Extract ---\n{fblock}",
+                f"\n--- Document Text ---\n{page_content}",
             ]
-            if instructions.strip():
-                parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
-            parts.append(f"\n--- Document Text ---\n{page_content}")
             if page_tables_md:
-                parts.append(f"\n--- Detected Tables ---\n{page_tables_md}")
-            parts.append(
-                "\n--- Extraction Mode ---\n"
-                "This page is one of many independent records in a compiled PDF. "
-                "Extract the single record on this page. If the page has no relevant "
-                'data for the requested fields, return: {"records": []}.'
-            )
-            prompt = "\n".join(parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
+                variable_parts.append(f"\n--- Detected Tables ---\n{page_tables_md}")
+
+            prompt = static_prefix + "\n".join(variable_parts) + '\n\nReturn exactly: {"records": [{"Field Name": "value", ...}]}'
             rows = await extract_fn(system, prompt, field_names, doc.filename, usage, _TEXT_MODEL)
 
             # Per-page missing-fields retry

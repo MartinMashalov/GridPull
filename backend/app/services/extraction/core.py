@@ -30,30 +30,32 @@ _MARKUP = 1.20
 # (Thresholds removed — strategies always retry for any missing fields)
 
 # Per-token pricing (USD per token) for cost estimation without litellm
-_MODEL_PRICING: Dict[str, tuple[float, float]] = {
-    # (input_price_per_token, output_price_per_token)
-    "gpt-5.4": (10.00e-6, 40.00e-6),       # GPT-5.4 flagship
-    "gpt-5.4-pro": (15.00e-6, 60.00e-6),   # GPT-5.4 Pro (max performance)
-    "gpt-5.4-mini": (1.00e-6, 4.00e-6),    # GPT-5.4 mini (efficient)
-    "gpt-5.4-nano": (0.30e-6, 1.20e-6),    # GPT-5.4 nano (speed/cost)
-    "gpt-4.1-mini": (0.40e-6, 1.60e-6),    # GPT-4.1 mini (primary extraction)
-    "gpt-4.1-nano": (0.10e-6, 0.40e-6),    # GPT-4.1 nano
-    "gpt-4o-mini": (0.15e-6, 0.60e-6),     # Legacy
-    "gpt-4o": (2.50e-6, 10.00e-6),         # Legacy
-    # Cerebras (cerebras.ai/pricing, verified 2026-04-04)
-    "gpt-oss-120b": (0.35e-6, 0.75e-6),    # Cerebras OpenAI GPT OSS 120B
+# Tuple: (input_price, cached_input_price, output_price)
+# OpenAI prompt caching gives 75% discount on cached input tokens (automatic, ≥1024 token prefix)
+_MODEL_PRICING: Dict[str, tuple[float, float, float]] = {
+    "gpt-5.4": (10.00e-6, 2.50e-6, 40.00e-6),       # GPT-5.4 flagship
+    "gpt-5.4-pro": (15.00e-6, 3.75e-6, 60.00e-6),   # GPT-5.4 Pro (max performance)
+    "gpt-5.4-mini": (1.00e-6, 0.25e-6, 4.00e-6),    # GPT-5.4 mini (efficient)
+    "gpt-5.4-nano": (0.30e-6, 0.075e-6, 1.20e-6),   # GPT-5.4 nano (speed/cost)
+    "gpt-4.1-mini": (0.40e-6, 0.10e-6, 1.60e-6),    # GPT-4.1 mini (primary extraction)
+    "gpt-4.1-nano": (0.10e-6, 0.025e-6, 0.40e-6),   # GPT-4.1 nano
+    "gpt-4o-mini": (0.15e-6, 0.0375e-6, 0.60e-6),   # Legacy
+    "gpt-4o": (2.50e-6, 0.625e-6, 10.00e-6),        # Legacy
+    # Cerebras (no caching — cached price = full price)
+    "gpt-oss-120b": (0.35e-6, 0.35e-6, 0.75e-6),    # Cerebras OpenAI GPT OSS 120B
 }
 
 
-def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Estimate cost from token counts and model name."""
-    # Match on base model name (strip date suffixes like -2025-04-14)
-    for key, (inp, out) in _MODEL_PRICING.items():
+def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> float:
+    """Estimate cost from token counts and model name, accounting for cached input tokens."""
+    for key, (inp, cached_inp, out) in _MODEL_PRICING.items():
         if key in model:
-            return prompt_tokens * inp + completion_tokens * out
+            uncached = max(0, prompt_tokens - cached_tokens)
+            return uncached * inp + cached_tokens * cached_inp + completion_tokens * out
     # Unknown model — use gpt-4.1-mini pricing as conservative default
-    inp, out = _MODEL_PRICING["gpt-4.1-mini"]
-    return prompt_tokens * inp + completion_tokens * out
+    inp, cached_inp, out = _MODEL_PRICING["gpt-4.1-mini"]
+    uncached = max(0, prompt_tokens - cached_tokens)
+    return uncached * inp + cached_tokens * cached_inp + completion_tokens * out
 
 
 @dataclass
@@ -61,6 +63,7 @@ class LLMUsage:
     llm_cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_input_tokens: int = 0
     vision_input_tokens: int = 0
     vision_output_tokens: int = 0
     cleanup_input_tokens: int = 0
@@ -108,13 +111,19 @@ class LLMUsage:
 
 
 def record_llm_usage_cost(usage: LLMUsage, response: Any) -> None:
-    """Compute cost from OpenAI response usage and model name."""
+    """Compute cost from OpenAI response usage and model name, accounting for cached tokens."""
     resp_usage = getattr(response, "usage", None)
     model = getattr(response, "model", "") or ""
     if resp_usage:
         prompt_tokens = getattr(resp_usage, "prompt_tokens", 0) or 0
         completion_tokens = getattr(resp_usage, "completion_tokens", 0) or 0
-        usage.llm_cost_usd += _estimate_cost(model, prompt_tokens, completion_tokens)
+        # Extract cached token count from OpenAI's prompt_tokens_details
+        cached_tokens = 0
+        details = getattr(resp_usage, "prompt_tokens_details", None)
+        if details:
+            cached_tokens = getattr(details, "cached_tokens", 0) or 0
+        usage.cached_input_tokens += cached_tokens
+        usage.llm_cost_usd += _estimate_cost(model, prompt_tokens, completion_tokens, cached_tokens)
 
 
 def _fields_block(fields: List[Dict[str, str]]) -> str:

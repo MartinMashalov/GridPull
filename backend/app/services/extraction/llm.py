@@ -65,6 +65,15 @@ async def _llm_extract(
                     usage.add_vision(resp.usage.prompt_tokens, resp.usage.completion_tokens)
                 else:
                     usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+                # Log cache hit rate for prompt caching optimization
+                details = getattr(resp.usage, "prompt_tokens_details", None)
+                cached = getattr(details, "cached_tokens", 0) if details else 0
+                if cached > 0:
+                    pct = cached / resp.usage.prompt_tokens * 100 if resp.usage.prompt_tokens else 0
+                    logger.info(
+                        "Cache hit: %d/%d input tokens (%.0f%%) for %s",
+                        cached, resp.usage.prompt_tokens, pct, filename,
+                    )
             record_llm_usage_cost(usage, resp)
             raw = json.loads(resp.choices[0].message.content)
             result = _normalise_rows(raw, field_names, filename)
