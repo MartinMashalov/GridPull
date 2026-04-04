@@ -817,13 +817,12 @@ export default function DashboardPage() {
             {documentType === 'sov' ? 'Source documents' : 'Documents to extract from'}
           </p>
           <div
-            {...getDocumentRootProps()}
-            onClick={(e) => {
-              if (documentType === 'sov') {
+            {...getDocumentRootProps({
+              onClick: documentType === 'sov' ? (e: React.MouseEvent) => {
                 e.stopPropagation()
                 setShowInbox(true)
-              }
-            }}
+              } : undefined,
+            } as any)}
             className={cn(
               'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
               isDocumentDragActive
