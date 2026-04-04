@@ -42,6 +42,8 @@ _MODEL_PRICING: Dict[str, tuple[float, float]] = {
     "gpt-4.1-nano": (0.10e-6, 0.40e-6),    # GPT-4.1 nano
     "gpt-4o-mini": (0.15e-6, 0.60e-6),     # Legacy
     "gpt-4o": (2.50e-6, 10.00e-6),         # Legacy
+    # Cerebras (cerebras.ai/pricing, verified 2026-04-04)
+    "gpt-oss-120b": (0.35e-6, 0.75e-6),    # Cerebras OpenAI GPT OSS 120B
 }
 
 
