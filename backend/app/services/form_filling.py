@@ -17,470 +17,484 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Minimum characters from pypdf before we consider it "good enough" and skip OCR
 _MIN_PYPDF_TEXT_LEN = 200
-
 _OCR_MAX_RETRIES = 3
-_OCR_RETRY_BACKOFF = [1, 3, 6]  # seconds
+_OCR_RETRY_BACKOFF = [1, 3, 6]
+_OCR_MAX_FILE_SIZE = 1_000_000
 
+
+# ─── OCR ───────────────────────────────────────────────────────────────────────
 
 def _extract_text_pypdf(file_bytes: bytes) -> str:
-    """Try to extract text from a digital PDF using pypdf (free, no API call)."""
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
-        pages_text = []
+        pages = []
         for page in reader.pages:
-            text = page.extract_text() or ""
-            if text.strip():
-                pages_text.append(text)
-        return "\n\n".join(pages_text)
+            t = page.extract_text() or ""
+            if t.strip():
+                pages.append(t)
+        return "\n\n".join(pages)
     except Exception as e:
-        logger.debug("[PYPDF] Text extraction failed: %s", e)
+        logger.debug("[PYPDF] %s", e)
         return ""
 
 
-_OCR_MAX_FILE_SIZE = 1_000_000  # 1 MB — above this, split PDF into per-page chunks for OCR
-
-
 class MistralOCR:
-    """Extract text from PDF using Mistral OCR (for scanned documents)"""
-
     async def extract_text_async(self, file_bytes: bytes, mime_type: str = "application/pdf") -> str:
-        logger.info(f"[OCR] Starting async OCR extraction for file of size {len(file_bytes)} bytes")
-
-        # For large PDFs, split into per-page chunks to avoid Mistral overflow
         if mime_type == "application/pdf" and len(file_bytes) > _OCR_MAX_FILE_SIZE:
-            return await self._extract_text_chunked(file_bytes)
+            return await self._chunked(file_bytes)
+        return await self._retry(file_bytes, mime_type)
 
-        return await self._ocr_with_retry(file_bytes, mime_type)
-
-    async def _extract_text_chunked(self, file_bytes: bytes) -> str:
-        """Split large PDF into single-page PDFs and OCR each one."""
+    async def _chunked(self, file_bytes: bytes) -> str:
         reader = PdfReader(io.BytesIO(file_bytes))
-        n_pages = len(reader.pages)
-        logger.info(f"[OCR] Large PDF ({len(file_bytes)} bytes, {n_pages} pages) — splitting into per-page chunks")
-
-        page_texts = []
+        texts = []
         for i, page in enumerate(reader.pages):
-            writer = PdfWriter()
-            writer.add_page(page)
+            w = PdfWriter()
+            w.add_page(page)
             buf = io.BytesIO()
-            writer.write(buf)
-            chunk_bytes = buf.getvalue()
+            w.write(buf)
             try:
-                text = await self._ocr_with_retry(chunk_bytes, "application/pdf")
-                page_texts.append(text)
-                logger.info(f"[OCR] Page {i+1}/{n_pages}: {len(text)} chars")
+                texts.append(await self._retry(buf.getvalue(), "application/pdf"))
             except Exception as e:
-                logger.warning(f"[OCR] Page {i+1}/{n_pages} failed: {e}")
-                page_texts.append("")
+                logger.warning("[OCR] page %d failed: %s", i + 1, e)
+                texts.append("")
+        return "\n\n".join(t for t in texts if t)
 
-        combined = "\n\n".join(t for t in page_texts if t)
-        logger.info(f"[OCR] Chunked extraction complete: {len(combined)} chars from {n_pages} pages")
-        return combined
-
-    async def _ocr_with_retry(self, file_bytes: bytes, mime_type: str) -> str:
-        last_exc = None
+    async def _retry(self, file_bytes: bytes, mime_type: str) -> str:
+        last = None
         for attempt in range(_OCR_MAX_RETRIES):
             try:
-                result = await asyncio.to_thread(self._extract_text_sync, file_bytes, mime_type)
-                return result
+                return await asyncio.to_thread(self._sync, file_bytes, mime_type)
             except Exception as e:
-                last_exc = e
+                last = e
                 if attempt < _OCR_MAX_RETRIES - 1:
-                    wait = _OCR_RETRY_BACKOFF[attempt]
-                    logger.warning("[OCR] Attempt %d failed (%s), retrying in %ds", attempt + 1, str(e)[:80], wait)
-                    await asyncio.sleep(wait)
-                else:
-                    logger.error(f"[OCR] All {_OCR_MAX_RETRIES} attempts failed: {str(e)}", exc_info=True)
-        raise last_exc
+                    await asyncio.sleep(_OCR_RETRY_BACKOFF[attempt])
+        raise last
 
-    def _extract_text_sync(self, file_bytes: bytes, mime_type: str) -> str:
-        base64_file = base64.b64encode(file_bytes).decode('utf-8')
+    def _sync(self, file_bytes: bytes, mime_type: str) -> str:
+        b64 = base64.b64encode(file_bytes).decode()
         client = Mistral(api_key=settings.mistral_api_key)
-        response = client.ocr.process(
+        resp = client.ocr.process(
             model="mistral-ocr-latest",
-            document={"type": "document_url", "document_url": f"data:{mime_type};base64,{base64_file}"},
+            document={"type": "document_url", "document_url": f"data:{mime_type};base64,{b64}"},
         )
-        extracted_text = "\n".join(page.markdown for page in response.pages)
-        logger.info(f"[OCR] Text extraction complete, length: {len(extracted_text)} characters")
-        return extracted_text
+        return "\n".join(p.markdown for p in resp.pages)
 
+
+# ─── Source extraction ─────────────────────────────────────────────────────────
+
+def _pdf_form_fields_as_text(file_bytes: bytes) -> str:
+    """Extract filled PDF form fields as 'Key: Value' lines — primary data source."""
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        fields = reader.get_fields() or {}
+        lines = []
+        for name, field in fields.items():
+            val = field.get("/V", "")
+            if val and str(val).strip() not in ("", " ", "Please Select...", "/Off"):
+                lines.append(f"{name}: {val}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("[FORM-FIELDS] %s", e)
+        return ""
+
+
+async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR) -> str:
+    """Return a rich text representation of a source file for the LLM."""
+    ext = os.path.splitext(filename.lower())[1]
+
+    if ext in ('.txt', '.md', '.markdown', '.json', '.xml'):
+        return file_bytes.decode('utf-8', errors='replace')
+
+    if ext in ('.html', '.htm'):
+        text = file_bytes.decode('utf-8', errors='replace')
+        text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
+        text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+        text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", text)
+        text = unescape(re.sub(r"<[^>]+>", " ", text))
+        return re.sub(r"[ \t]+", " ", re.sub(r"\n{3,}", "\n\n", text)).strip()
+
+    if ext == '.msg':
+        try:
+            import extract_msg
+            with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+            try:
+                msg = extract_msg.Message(tmp_path)
+                try:
+                    parts = []
+                    for label, val in [("Subject", msg.subject), ("From", msg.sender),
+                                       ("To", msg.to), ("Date", str(msg.date) if msg.date else None)]:
+                        if val:
+                            parts.append(f"{label}: {val}")
+                    body = str(msg.body or "").strip()
+                    if body:
+                        parts.append(body)
+                    return "\n\n".join(parts)
+                finally:
+                    msg.close()
+            finally:
+                os.unlink(tmp_path)
+        except Exception:
+            return file_bytes.decode('utf-8', errors='replace')
+
+    if ext in ('.eml', '.emlx'):
+        email_bytes = file_bytes
+        if ext == '.emlx':
+            first, _, rest = file_bytes.partition(b"\n")
+            if first.strip().isdigit() and rest:
+                email_bytes = rest
+        try:
+            msg = BytesParser(policy=policy.default).parsebytes(email_bytes)
+            parts = []
+            for label, val in [("Subject", msg.get("subject")), ("From", msg.get("from")),
+                                ("To", msg.get("to")), ("Date", msg.get("date"))]:
+                if val:
+                    parts.append(f"{label}: {val}")
+            plain, html_parts = [], []
+            for part in (msg.walk() if msg.is_multipart() else [msg]):
+                if part.get_content_disposition() == 'attachment':
+                    continue
+                ct = part.get_content_type()
+                try:
+                    t = part.get_content()
+                except Exception:
+                    payload = part.get_payload(decode=True) or b""
+                    t = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                if not isinstance(t, str) or not t.strip():
+                    continue
+                if ct == 'text/plain':
+                    plain.append(t)
+                elif ct == 'text/html':
+                    html_parts.append(t)
+            body = "\n\n".join(c.strip() for c in plain if c.strip())
+            if not body and html_parts:
+                h = "\n\n".join(html_parts)
+                h = re.sub(r"(?is)<(script|style).*?</\1>", " ", h)
+                h = re.sub(r"(?i)<br\s*/?>", "\n", h)
+                h = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", h)
+                body = unescape(re.sub(r"<[^>]+>", " ", h))
+                body = re.sub(r"[ \t]+", " ", re.sub(r"\n{3,}", "\n\n", body)).strip()
+            if body:
+                parts.append(body)
+            return "\n\n".join(p for p in parts if p)
+        except Exception:
+            return file_bytes.decode('utf-8', errors='replace')
+
+    if ext == '.pdf':
+        # For PDFs: form field values are the richest source — put them first
+        field_text = await asyncio.to_thread(_pdf_form_fields_as_text, file_bytes)
+        pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
+
+        parts = []
+        if field_text:
+            parts.append(f"[PDF Form Fields]\n{field_text}")
+        if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
+            parts.append(f"[PDF Text Content]\n{pypdf_text}")
+        elif not field_text:
+            # Scanned PDF with no fields and no text — OCR it
+            ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
+            if ocr_text:
+                parts.append(f"[OCR Text]\n{ocr_text}")
+
+        return "\n\n".join(parts)
+
+    if ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
+        mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
+                '.tif': 'image/tiff', '.tiff': 'image/tiff'}.get(ext, 'image/png')
+        return await ocr.extract_text_async(file_bytes, mime)
+
+    return file_bytes.decode('utf-8', errors='replace')
+
+
+# ─── Target field schema ───────────────────────────────────────────────────────
+
+def _extract_target_schema(reader: PdfReader) -> dict:
+    """
+    Returns dict of field_name -> field_meta where field_meta has:
+      type: 'text' | 'checkbox' | 'dropdown' | 'radio'
+      options: list (for dropdown/radio)
+      appearance_states: dict (for checkbox)
+    """
+    raw = reader.get_fields()
+    if not raw:
+        raise ValueError("No form fields found in target PDF")
+
+    schema = {}
+    for name, fd in raw.items():
+        ft = fd.get('/FT', '')
+        if ft == '/Tx':
+            schema[name] = {"type": "text"}
+        elif ft == '/Btn':
+            opts = fd.get('/Opt', [])
+            if opts and len(opts) > 2:
+                schema[name] = {"type": "radio", "options": [str(o) for o in opts]}
+            else:
+                schema[name] = {"type": "checkbox", "appearance_states": _get_checked_state(fd)}
+        elif ft == '/Ch':
+            opts = fd.get('/Opt', [])
+            clean = [str(o) for o in opts if str(o) not in ('Please Select...', '')]
+            schema[name] = {"type": "dropdown", "options": clean}
+        elif ft == '/Sig':
+            pass  # skip signature fields
+        else:
+            # unknown type — treat as text
+            schema[name] = {"type": "text"}
+
+    return schema
+
+
+def _get_checked_state(fd) -> dict:
+    try:
+        kids = fd.get('/Kids', [])
+        if kids:
+            widget = kids[0].get_object()
+            ap = widget.get('/AP', {})
+            if ap and '/N' in ap:
+                normal = ap['/N']
+                if hasattr(normal, 'keys'):
+                    states = list(normal.keys())
+                    checked = [s for s in states if s != '/Off']
+                    return {'checked': checked[0] if checked else '/Yes', 'unchecked': '/Off'}
+    except Exception:
+        pass
+    return {'checked': '/Yes', 'unchecked': '/Off'}
+
+
+# ─── LLM fill ─────────────────────────────────────────────────────────────────
+
+def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
+    """Build the field descriptions block for the prompt."""
+    lines = []
+    names = focus_names if focus_names else list(schema.keys())
+    for name in names:
+        meta = schema.get(name)
+        if not meta:
+            continue
+        t = meta["type"]
+        if t == "text":
+            lines.append(f'  "{name}": text')
+        elif t == "checkbox":
+            lines.append(f'  "{name}": checkbox — respond with "Yes" or "No"')
+        elif t == "dropdown":
+            opts = meta.get("options", [])
+            opts_str = " | ".join(opts) if opts else "any value"
+            lines.append(f'  "{name}": dropdown — choose one of: {opts_str}')
+        elif t == "radio":
+            opts = meta.get("options", [])
+            opts_str = " | ".join(opts) if opts else "any value"
+            lines.append(f'  "{name}": radio — choose one of: {opts_str}')
+    return "\n".join(lines)
+
+
+def _build_prompt(source_context: str, schema: dict, focus_names: list | None = None,
+                  prior_values: dict | None = None) -> str:
+    n_fields = len(focus_names) if focus_names else len(schema)
+    field_block = _build_field_lines(schema, focus_names)
+
+    prior_block = ""
+    if prior_values:
+        prior_lines = [f'  "{k}": {json.dumps(v)}' for k, v in prior_values.items() if v]
+        if prior_lines:
+            prior_block = (
+                "\n\nFIELDS ALREADY FILLED (do not change these, include them in output):\n"
+                + "\n".join(prior_lines)
+            )
+
+    focus_note = ""
+    if focus_names:
+        focus_note = (
+            f"\n\nFOCUS: The {len(focus_names)} fields below were left blank in a prior attempt. "
+            "Look harder at the source data — use any reasonable inference or partial match. "
+            "Do NOT leave fields blank if there is ANY relevant information available."
+        )
+
+    return f"""You are filling out an insurance form. Extract values from the source data below and fill every field.
+
+RULES:
+1. Return a single flat JSON object with field names as keys and string values.
+2. For checkbox fields: return "Yes" or "No" only.
+3. For dropdown fields: return exactly one of the listed options (no "Please Select...").
+4. For text fields: fill with the best matching value. Use inference and reasonable defaults:
+   - If a field can be inferred from related data, infer it (e.g., expiration date = effective date + 12 months, revenue ≈ gross sales).
+   - Leave "" ONLY if truly impossible to determine even with reasonable inference.
+5. NEVER return null, None, or "N/A" — use "" for genuinely unknowable fields.
+6. CRITICAL — always fill these field types if ANY related data exists: names, addresses, phones, emails, dates, agents, producers, premiums, carriers, coverage limits.
+7. For financial/revenue fields: use the closest monetary value from the source (gross sales, total payroll, premium, etc.).
+8. For safety/operations text fields: compose a reasonable answer based on the business description in the source.
+9. For "yes/no" questions about prior losses, cancellations, etc.: default to "No" unless the source shows otherwise.
+
+SOURCE DATA:
+{source_context}{prior_block}{focus_note}
+
+FIELDS TO FILL ({n_fields} total):
+{field_block}
+
+Respond with ONLY the JSON object. No markdown, no explanation."""
+
+
+async def _call_llm(prompt: str) -> tuple[dict, float, str]:
+    """Call GPT-4.1-mini with json_object response format. Returns (values_dict, cost, model)."""
+    model = getattr(settings, 'form_fill_model', 'gpt-4.1-mini')
+
+    response = await routed_acompletion(
+        route_profile="form_fill",
+        fallback_model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+
+    used_model = getattr(response, "model", None) or model
+    cost = 0.0
+    if response.usage:
+        from app.services.extraction.core import _estimate_cost
+        cost = _estimate_cost(used_model, response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0)
+
+    raw = response.choices[0].message.content or "{}"
+    # Strip markdown fences if present
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0].strip()
+
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error("[FORM-FILL] JSON parse error: %s — raw: %s", e, raw[:200])
+        values = {}
+
+    return values, cost, used_model
+
+
+def _is_blank(val) -> bool:
+    if val is None:
+        return True
+    s = str(val).strip()
+    return s in ("", "Please Select...", "N/A", "n/a", "null", "None")
+
+
+def _normalize_checkbox(raw_val: str, appearance_states: dict) -> str:
+    """Convert Yes/No LLM answer to the correct PDF appearance state."""
+    v = str(raw_val).strip().lower()
+    checked = appearance_states.get('checked', '/Yes')
+    unchecked = appearance_states.get('unchecked', '/Off')
+    if v in ("yes", "y", "true", "1", "checked", "on"):
+        return checked
+    return unchecked
+
+
+def _normalize_values(raw: dict, schema: dict) -> dict:
+    """Convert LLM output to PDF-ready values."""
+    out = {}
+    for name, meta in schema.items():
+        val = raw.get(name, "")
+        t = meta["type"]
+        if t == "checkbox":
+            out[name] = _normalize_checkbox(str(val), meta.get("appearance_states", {}))
+        elif t in ("dropdown", "radio"):
+            opts = meta.get("options", [])
+            # If LLM returned an invalid option, pick the closest or leave blank
+            if opts and val not in opts:
+                # Case-insensitive match
+                val_lower = str(val).strip().lower()
+                match = next((o for o in opts if o.lower() == val_lower), None)
+                out[name] = match if match else ""
+            else:
+                out[name] = val if val else ""
+        else:
+            out[name] = "" if _is_blank(val) else str(val)
+    return out
+
+
+# ─── PDF write ────────────────────────────────────────────────────────────────
+
+def _write_pdf(reader: PdfReader, field_values: dict) -> bytes:
+    writer = PdfWriter()
+    writer.append(reader)
+    for name, val in field_values.items():
+        try:
+            writer.update_page_form_field_values(None, {name: val})
+        except Exception as e:
+            logger.debug("[WRITE] field '%s' failed: %s", name, str(e)[:60])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+# ─── Main entry point ─────────────────────────────────────────────────────────
 
 class PDFPopulator:
-    """Read PDF fields, generate values with AI, and populate PDF"""
-
-    def extract_field_info(self, reader: PdfReader) -> tuple:
-        all_fields = reader.get_fields()
-        if not all_fields:
-            raise ValueError("No form fields found in target PDF")
-
-        logger.info(f"[FIELDS] Found {len(all_fields)} fields in target PDF")
-        field_info = {}
-        pydantic_fields = {}
-
-        for field_name, field_data in all_fields.items():
-            field_type = field_data.get('/FT', 'unknown')
-            current_value = field_data.get('/V', '')
-
-            if field_type == '/Tx':
-                field_info[field_name] = {"type": "text", "current": current_value}
-            elif field_type == '/Btn':
-                options = field_data.get('/Opt', [])
-                appearance_states = self._get_appearance_states(field_data)
-                if options and len(options) > 2:
-                    field_info[field_name] = {"type": "radio", "options": options, "current": current_value}
-                else:
-                    field_info[field_name] = {
-                        "type": "checkbox",
-                        "values": "Yes/No",
-                        "current": current_value,
-                        "appearance_states": appearance_states
-                    }
-            elif field_type == '/Ch':
-                options = field_data.get('/Opt', [])
-                field_info[field_name] = {"type": "dropdown", "options": options, "current": current_value}
-            else:
-                field_info[field_name] = {"type": "text", "current": current_value}
-
-            pydantic_fields[field_name] = (str, ...)
-
-        return field_info, pydantic_fields
-
-    def _get_appearance_states(self, field_data):
-        try:
-            kids = field_data.get('/Kids', [])
-            if kids:
-                widget = kids[0].get_object()
-                ap = widget.get('/AP', {})
-                if ap and '/N' in ap:
-                    normal_ap = ap['/N']
-                    if hasattr(normal_ap, 'keys'):
-                        states = list(normal_ap.keys())
-                        checked_states = [s for s in states if s != '/Off']
-                        return {
-                            'checked': checked_states[0] if checked_states else '/Yes',
-                            'unchecked': '/Off'
-                        }
-        except Exception:
-            pass
-        return {'checked': '/Yes', 'unchecked': '/Off'}
-
-    async def generate_field_values_async(self, text: str, field_info: dict, pydantic_fields: dict) -> tuple:
-        logger.info(f"[AI] Generating field values for {len(field_info)} fields (async)")
-
-        field_descriptions = []
-        for fname, finfo in field_info.items():
-            current = finfo['current'] if finfo['current'] else '[empty]'
-            if finfo["type"] == "text":
-                field_descriptions.append(f'  "{fname}": "[TEXT] {current}"')
-            elif finfo["type"] == "checkbox":
-                field_descriptions.append(f'  "{fname}": "[CHECKBOX - use Yes/No]"')
-            elif finfo["type"] == "dropdown":
-                options_str = ', '.join([str(opt) for opt in finfo['options']]) if finfo['options'] else 'any value'
-                field_descriptions.append(f'  "{fname}": "[DROPDOWN - options: {options_str}]"')
-            elif finfo["type"] == "radio":
-                options_str = ', '.join([str(opt) for opt in finfo['options']]) if finfo['options'] else 'any value'
-                field_descriptions.append(f'  "{fname}": "[RADIO - options: {options_str}]"')
-
-        prompt = f"""You are a PDF form filling assistant. Your task is to extract relevant information from the provided text and fill in ALL available PDF form fields.
-
-        CRITICAL REQUIREMENTS:
-        1. Fill in EVERY field - attempt to populate ALL {len(field_info)} fields listed below
-        2. Use information from the text to populate fields accurately
-        3. For CHECKBOX fields: use ONLY "Yes" or "No"
-        4. For DROPDOWN/RADIO fields: use ONLY values from the provided options list, or pick the most appropriate option
-        5. For TEXT fields: use any appropriate string value
-        6. If exact information is not available, infer reasonable values based on context
-        7. For fields where no information exists, use appropriate defaults:
-        - Checkboxes: "No"
-        - Text fields: "N/A" or contextually appropriate value
-        - Dropdowns: first available option or most appropriate from options list
-        8. Match field names precisely as listed
-
-        SOURCE TEXT:
-        {text}
-
-        FIELDS TO FILL (all required):
-        {chr(10).join(field_descriptions)}
-
-        Return a JSON object with ALL field names as keys and appropriate values. Every single field MUST have a value that matches its type constraints."""
-
-        response = None
-        used_model = "unknown"
-        for attempt, model in enumerate([settings.form_fill_model, getattr(settings, 'form_fill_fallback_model', 'gpt-5.4-mini')]):
-            try:
-                response = await routed_acompletion(
-                    route_profile="form_fill",
-                    fallback_model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                )
-                used_model = getattr(response, "model", "unknown") or model
-                break
-            except Exception as e:
-                err_str = str(e).lower()
-                if attempt == 0 and any(kw in err_str for kw in ("rate", "429", "quota", "capacity")):
-                    logger.warning(f"[FORM-FILL] Rate limit on {model}, retrying with fallback")
-                    continue
-                raise
-
-        cost = 0.0
-        if response.usage:
-            from app.services.extraction.core import _estimate_cost
-            cost = _estimate_cost(used_model, response.usage.prompt_tokens or 0, response.usage.completion_tokens or 0)
-
-        response_text = response.choices[0].message.content
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-
-        field_values = json.loads(response_text)
-
-        for field_name, field_data in field_info.items():
-            if field_data["type"] == "checkbox" and field_name in field_values:
-                val = field_values[field_name].strip().lower()
-                appearance_states = field_data.get("appearance_states", {'checked': '/Yes', 'unchecked': '/Off'})
-                checked_state = appearance_states['checked']
-
-                if checked_state == '/No':
-                    if val in ["no", "n", "false", "0", "n/a"]:
-                        field_values[field_name] = checked_state
-                    else:
-                        field_values[field_name] = appearance_states['unchecked']
-                elif checked_state in ['/0', '/Choice1', '/Trust', '/Agent']:
-                    if val in ["yes", "y", "true", "1", "checked", "on"]:
-                        field_values[field_name] = checked_state
-                    else:
-                        field_values[field_name] = appearance_states['unchecked']
-                else:
-                    if val in ["yes", "y", "true", "1", "checked", "on"]:
-                        field_values[field_name] = checked_state
-                    else:
-                        field_values[field_name] = appearance_states['unchecked']
-
-        return field_values, cost, used_model
-
-    async def populate_async(self, source_files_bytes: list[tuple[str, bytes]], target_pdf_bytes: bytes) -> tuple[bytes, float, list]:
-        """
-        Async PDF population.
-        source_files_bytes: list of (filename, bytes) tuples — PDFs, images, or text files.
-        Returns (output_pdf_bytes, total_cost, model_breakdown).
-        """
-        logger.info("=" * 80)
-        logger.info("[POPULATE] Starting async PDF population process")
+    async def populate_async(
+        self,
+        source_files_bytes: list[tuple[str, bytes]],
+        target_pdf_bytes: bytes,
+    ) -> tuple[bytes, float, list]:
+        logger.info("[FORM-FILL] Starting — %d source file(s)", len(source_files_bytes))
         total_cost = 0.0
+        ocr = MistralOCR()
 
-        try:
-            ocr_extractor = MistralOCR()
-            all_texts = []
+        # 1. Extract source data
+        source_parts = []
+        for filename, file_bytes in source_files_bytes:
+            text = await _extract_source_text(filename, file_bytes, ocr)
+            if text.strip():
+                source_parts.append(f"=== {filename} ===\n{text}")
+                logger.info("[FORM-FILL] Source '%s': %d chars", filename, len(text))
+        source_context = "\n\n".join(source_parts)
+        logger.info("[FORM-FILL] Total source context: %d chars", len(source_context))
 
-            for idx, (filename, file_bytes) in enumerate(source_files_bytes):
-                ext = os.path.splitext(filename.lower())[1]
-                if ext in ('.txt', '.md', '.markdown', '.json', '.xml'):
-                    text = file_bytes.decode('utf-8', errors='replace')
-                    all_texts.append(text)
-                    logger.info(f"[POPULATE] Read text file {filename}: {len(text)} chars")
-                elif ext in ('.html', '.htm'):
-                    text = file_bytes.decode('utf-8', errors='replace')
-                    text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
-                    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-                    text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", text)
-                    text = unescape(re.sub(r"<[^>]+>", " ", text))
-                    text = re.sub(r"[ \t]+", " ", text)
-                    text = re.sub(r"\n{3,}", "\n\n", text).strip()
-                    all_texts.append(text)
-                    logger.info(f"[POPULATE] Read HTML file {filename}: {len(text)} chars")
-                elif ext == '.msg':
-                    try:
-                        import extract_msg
+        # 2. Extract target schema
+        reader = await asyncio.to_thread(PdfReader, io.BytesIO(target_pdf_bytes))
+        schema = await asyncio.to_thread(_extract_target_schema, reader)
+        logger.info("[FORM-FILL] Target schema: %d fillable fields", len(schema))
 
-                        with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as tmp:
-                            tmp.write(file_bytes)
-                            tmp_path = tmp.name
-                        try:
-                            message = extract_msg.Message(tmp_path)
-                            try:
-                                text_parts = []
-                                header_lines = []
-                                for label, value in (
-                                    ("Subject", message.subject),
-                                    ("From", message.sender),
-                                    ("To", message.to),
-                                    ("Cc", message.cc),
-                                    ("Bcc", message.bcc),
-                                    ("Date", str(message.date) if message.date else None),
-                                ):
-                                    if value:
-                                        header_lines.append(f"{label}: {value}")
-                                if header_lines:
-                                    text_parts.append("\n".join(header_lines))
+        # 3. Three-pass fill
+        filled: dict = {}
+        used_model = "unknown"
 
-                                body_text = str(message.body or "").strip()
-                                if not body_text and message.htmlBody:
-                                    html_text = message.htmlBody
-                                    if isinstance(html_text, bytes):
-                                        html_text = html_text.decode('utf-8', errors='replace')
-                                    html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
-                                    html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
-                                    html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
-                                    body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
-                                    body_text = re.sub(r"[ \t]+", " ", body_text)
-                                    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
-                                if body_text:
-                                    text_parts.append(body_text)
+        for pass_num in range(1, 4):
+            # Determine which fields to focus on this pass
+            if pass_num == 1:
+                focus = None  # all fields
+            else:
+                focus = [n for n in schema if _is_blank(filled.get(n))]
+                if not focus:
+                    logger.info("[FORM-FILL] Pass %d: all fields filled, stopping", pass_num)
+                    break
+                logger.info("[FORM-FILL] Pass %d: %d blank fields remain", pass_num, len(focus))
 
-                                attachment_names = []
-                                for attachment in message.attachments:
-                                    attachment_name = (
-                                        getattr(attachment, 'longFilename', None)
-                                        or getattr(attachment, 'shortFilename', None)
-                                        or getattr(attachment, 'displayName', None)
-                                        or getattr(attachment, 'name', None)
-                                    )
-                                    if attachment_name:
-                                        attachment_names.append(str(attachment_name))
-                                if attachment_names:
-                                    text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
-                                text = "\n\n".join(part for part in text_parts if part).strip() or file_bytes.decode('utf-8', errors='replace')
-                            finally:
-                                message.close()
-                        finally:
-                            try:
-                                os.unlink(tmp_path)
-                            except OSError:
-                                pass
-                    except Exception:
-                        text = file_bytes.decode('utf-8', errors='replace')
-                    all_texts.append(text)
-                    logger.info(f"[POPULATE] Read Outlook MSG file {filename}: {len(text)} chars")
-                elif ext in ('.eml', '.emlx'):
-                    email_bytes = file_bytes
-                    if ext == '.emlx':
-                        first_line, _, remainder = file_bytes.partition(b"\n")
-                        if first_line.strip().isdigit() and remainder:
-                            email_bytes = remainder
-                    try:
-                        message = BytesParser(policy=policy.default).parsebytes(email_bytes)
-                        text_parts = []
-                        header_lines = []
-                        for label, value in (
-                            ("Subject", message.get("subject")),
-                            ("From", message.get("from")),
-                            ("To", message.get("to")),
-                            ("Cc", message.get("cc")),
-                            ("Date", message.get("date")),
-                        ):
-                            if value:
-                                header_lines.append(f"{label}: {value}")
-                        if header_lines:
-                            text_parts.append("\n".join(header_lines))
+            prompt = _build_prompt(
+                source_context=source_context,
+                schema=schema,
+                focus_names=focus,
+                prior_values={k: v for k, v in filled.items() if not _is_blank(v)} if pass_num > 1 else None,
+            )
 
-                        plain_parts = []
-                        html_parts = []
-                        attachment_names = []
-                        for part in (message.walk() if message.is_multipart() else [message]):
-                            disposition = part.get_content_disposition()
-                            content_type = part.get_content_type()
-                            if disposition == 'attachment':
-                                attachment_name = part.get_filename()
-                                if attachment_name:
-                                    attachment_names.append(attachment_name)
-                                continue
-                            if not content_type.startswith('text/'):
-                                continue
-                            try:
-                                part_text = part.get_content()
-                            except Exception:
-                                payload = part.get_payload(decode=True) or b""
-                                charset = part.get_content_charset() or 'utf-8'
-                                part_text = payload.decode(charset, errors='replace')
-                            if not isinstance(part_text, str) or not part_text.strip():
-                                continue
-                            if content_type == 'text/plain':
-                                plain_parts.append(part_text)
-                            elif content_type == 'text/html':
-                                html_parts.append(part_text)
+            values, cost, model = await _call_llm(prompt)
+            total_cost += cost
+            used_model = model
+            logger.info("[FORM-FILL] Pass %d complete — model=%s cost=$%.6f", pass_num, model, cost)
 
-                        body_text = "\n\n".join(chunk.strip() for chunk in plain_parts if chunk.strip()).strip()
-                        if not body_text and html_parts:
-                            html_text = "\n\n".join(html_parts)
-                            html_text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_text)
-                            html_text = re.sub(r"(?i)<br\s*/?>", "\n", html_text)
-                            html_text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html_text)
-                            body_text = unescape(re.sub(r"<[^>]+>", " ", html_text))
-                            body_text = re.sub(r"[ \t]+", " ", body_text)
-                            body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+            # Merge: new values fill in blanks, don't overwrite good existing values
+            for name in schema:
+                existing = filled.get(name)
+                new_val = values.get(name)
+                if _is_blank(existing) and not _is_blank(new_val):
+                    filled[name] = new_val
 
-                        if body_text:
-                            text_parts.append(body_text)
-                        if attachment_names:
-                            text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
-                        text = "\n\n".join(part for part in text_parts if part).strip() or file_bytes.decode('utf-8', errors='replace')
-                    except Exception:
-                        text = file_bytes.decode('utf-8', errors='replace')
-                    all_texts.append(text)
-                    logger.info(f"[POPULATE] Read email file {filename}: {len(text)} chars")
-                elif ext == '.pdf':
-                    # Try free pypdf text extraction first (works for digital PDFs)
-                    pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
-                    if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
-                        all_texts.append(pypdf_text)
-                        logger.info(f"[POPULATE] Extracted text from PDF {filename} via pypdf: {len(pypdf_text)} chars")
-                    else:
-                        # Scanned/image PDF — fall back to OCR
-                        logger.info(f"[POPULATE] pypdf got {len(pypdf_text)} chars from {filename}, falling back to OCR")
-                        extracted = await ocr_extractor.extract_text_async(file_bytes, 'application/pdf')
-                        all_texts.append(extracted)
-                        logger.info(f"[POPULATE] OCR'd PDF {filename}: {len(extracted)} chars")
-                elif ext in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff'):
-                    mime = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                            '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
-                            '.tif': 'image/tiff', '.tiff': 'image/tiff'}.get(ext, 'image/png')
-                    img_text = await ocr_extractor.extract_text_async(file_bytes, mime)
-                    all_texts.append(img_text)
-                    logger.info(f"[POPULATE] Extracted text from image {filename}: {len(img_text)} chars")
-                else:
-                    text = file_bytes.decode('utf-8', errors='replace')
-                    all_texts.append(text)
+            # Log fill rate
+            n_filled = sum(1 for n in schema if not _is_blank(filled.get(n)))
+            logger.info("[FORM-FILL] Pass %d fill rate: %d/%d (%.0f%%)",
+                        pass_num, n_filled, len(schema), 100 * n_filled / len(schema) if schema else 0)
 
-            combined_text = "\n\n--- Next Source Document ---\n\n".join(all_texts)
-            logger.info(f"[POPULATE] Combined text: {len(combined_text)} characters from {len(source_files_bytes)} files")
+        # 4. Normalize to PDF values
+        pdf_values = _normalize_values(filled, schema)
 
-            reader = await asyncio.to_thread(PdfReader, io.BytesIO(target_pdf_bytes))
-            field_info, pydantic_fields = await asyncio.to_thread(self.extract_field_info, reader)
+        # 5. Write output PDF
+        output_bytes = await asyncio.to_thread(_write_pdf, reader, pdf_values)
+        logger.info("[FORM-FILL] Done — output %d bytes, cost $%.6f", len(output_bytes), total_cost)
 
-            field_values, llm_cost, llm_model = await self.generate_field_values_async(combined_text, field_info, pydantic_fields)
-            total_cost += llm_cost
-
-            provider = llm_model.split("/")[0] if "/" in llm_model else llm_model
-            model_breakdown = [{
-                "model": llm_model,
-                "provider": provider,
-                "cost_usd": llm_cost,
-            }]
-
-            output_bytes = await asyncio.to_thread(self._write_pdf_sync, reader, field_values, field_info)
-
-            logger.info(f"[POPULATE] Output PDF size: {len(output_bytes)} bytes, cost: ${total_cost:.6f}")
-            logger.info("=" * 80)
-            return output_bytes, total_cost, model_breakdown
-
-        except Exception as e:
-            logger.error(f"[POPULATE] ERROR: {str(e)}", exc_info=True)
-            raise
-
-    def _write_pdf_sync(self, reader: PdfReader, field_values: dict, field_info: dict) -> bytes:
-        writer = PdfWriter()
-        writer.append(reader)
-
-        for field_name, field_value in field_values.items():
-            try:
-                writer.update_page_form_field_values(None, {field_name: field_value})
-            except Exception as e:
-                logger.warning(f"[POPULATE] Failed to update field '{field_name}': {str(e)[:50]}")
-
-        output = io.BytesIO()
-        writer.write(output)
-        return output.getvalue()
+        return output_bytes, total_cost, [{"model": used_model, "provider": used_model.split("/")[0] if "/" in used_model else used_model, "cost_usd": total_cost}]
