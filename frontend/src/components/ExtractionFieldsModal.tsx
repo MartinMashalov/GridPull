@@ -26,12 +26,13 @@ const INVOICE_DEFAULTS: ExtractionField[] = [
 
 // ── Schedule subtypes ────────────────────────────────────────────────────────
 
-export type ScheduleSubtype = 'locations' | 'vehicles' | 'employees'
+export type ScheduleSubtype = 'locations' | 'vehicles' | 'drivers' | 'other'
 
 const SCHEDULE_SUBTYPE_OPTIONS: { id: ScheduleSubtype; label: string }[] = [
-  { id: 'locations', label: 'Locations / SOV' },
+  { id: 'locations', label: 'Locations' },
   { id: 'vehicles', label: 'Vehicles' },
-  { id: 'employees', label: 'Employees' },
+  { id: 'drivers', label: 'Drivers' },
+  { id: 'other', label: 'Other' },
 ]
 
 const SOV_LOCATIONS: ExtractionField[] = [
@@ -136,7 +137,8 @@ const SOV_EMPLOYEES: ExtractionField[] = [
 function getSOVFieldsForSubtype(subtype: ScheduleSubtype): ExtractionField[] {
   switch (subtype) {
     case 'vehicles': return SOV_VEHICLES.map(f => ({ ...f }))
-    case 'employees': return SOV_EMPLOYEES.map(f => ({ ...f }))
+    case 'drivers': return SOV_EMPLOYEES.map(f => ({ ...f }))
+    case 'other': return CUSTOM_DEFAULTS.map(f => ({ ...f }))
     default: return SOV_LOCATIONS.map(f => ({ ...f }))
   }
 }
