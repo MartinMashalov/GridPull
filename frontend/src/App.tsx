@@ -14,6 +14,7 @@ import FormFillingPage from '@/pages/FormFillingPage'
 import MobileUploadPage from '@/pages/MobileUploadPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
+import AutoLoginPage from '@/pages/AutoLoginPage'
 
 const ResourcesHub = lazy(() => import('@/pages/resources/ResourcesHub'))
 const ResourcePage = lazy(() => import('@/pages/resources/ResourcePage'))
@@ -106,6 +107,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/auto-login" element={<AutoLoginPage />} />
         <Route path="/upload/:token" element={<MobileUploadPage />} />
         <Route path="/use-cases/insurance" element={<InsurancePage />} />
         <Route path="/use-cases/accounting-finance" element={<AccountingFinancePage />} />

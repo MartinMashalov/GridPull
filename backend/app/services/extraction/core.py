@@ -214,13 +214,16 @@ _SINGLE_SYSTEM = (
     "containing an array of extracted objects.\n"
     "Rules:\n"
     "- records array has exactly ONE object for single-document extraction\n"
-    "- Use null for fields genuinely not present and cannot be computed\n"
+    "- Use null for fields genuinely not present and cannot be inferred from context\n"
     "- For money: report the value EXACTLY as it appears in the table cell. "
     "Do NOT append unit words (million/billion/thousand) from table headers or footnotes - "
     "only include the unit if it is literally written inside the cell itself. "
     "Example: cell says '37,531' in a table headed 'in millions' -> output '$37,531'; "
     "cell says '$37.5 billion' -> output '$37.5 billion'.\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
+    "- For a due date not stated explicitly: if payment terms are present (e.g. 'Net 30') and an invoice date is known, compute the due date.\n"
+    "- If a field asks for a currency, denomination, or unit that is not labeled per-row but is clearly implied document-wide "
+    "(e.g., all amounts use $ symbols, or the document header states a currency), return that value rather than null.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
@@ -249,15 +252,18 @@ _MULTI_SYSTEM = (
     "corresponding metric values from that column.\n"
     "- Skip pure headers and decorative content that are not actual records\n"
     "- Never emit blank spacer records (objects where every field is null, empty, or a dash). "
-    "Each object must be one real schedule row (e.g. one insured location).\n"
-    "- For property schedules and appraisal reports: ONE row per location; merge summary and "
-    "detail lines for the same site into a single object\n"
-    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
-    "narrative appraisal subtotals exist for the same site\n"
-    "- Use null for fields not present in a given record\n"
+    "Each object must be one real data record.\n"
+    "- When multiple detail lines refer to the same logical entity (same ID, name, or address), "
+    "merge them into a single object\n"
+    "- Prefer values from the primary structured table over supplementary narrative text "
+    "when both are present for the same entity\n"
+    "- Use null for fields not present in a given record and not inferable from context\n"
     "- For money: report the value exactly as it appears in the cell; do NOT append "
     "unit words (million/billion) from table headers - only include units literally in the cell\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
+    "- For a due date not stated explicitly: if payment terms are present (e.g. 'Net 30') and an invoice date is known, compute the due date.\n"
+    "- If a field asks for a currency, denomination, or unit not labeled per-row but clearly implied document-wide "
+    "(e.g., all amounts use $ symbols, or the document header states a currency), return that inferred value rather than null.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
     "If a field clearly asks for a spreadsheet scalar such as a number, date, year, or revision date, "
     "return only that value with no extra labels, currency codes, or commentary unless the description requires them\n"
@@ -310,10 +316,11 @@ _SCAN_MULTI_SYSTEM = (
     "- For comparative financial statements that show the same metrics across multiple fiscal "
     "years/periods as separate columns: emit one object per fiscal year/period column\n"
     "- Skip pure headers and decorative content that are not actual records\n"
-    "- Never emit blank spacer records (all fields empty). One row per real location in the schedule.\n"
-    "- For appraisal/property schedules merge summary and detail for the same site into one record.\n"
-    "- Prefer amounts from a master schedule-of-values / location table when both that table and "
-    "narrative appraisal subtotals exist for the same site\n"
+    "- Never emit blank spacer records (all fields empty). One row per real data record.\n"
+    "- When multiple detail lines refer to the same logical entity (same ID, name, or address), "
+    "merge them into one record.\n"
+    "- Prefer values from the primary structured table over supplementary narrative text "
+    "when both are present for the same entity\n"
     "- Use null for fields not present in a given record\n"
     "- For dates: use American format (MM/DD/YYYY, e.g. 03/15/2024). Convert from other formats if needed.\n"
     "- Treat each field description as the primary extraction intent and expected output shape. "
@@ -397,23 +404,33 @@ def _is_filled_value(value: Any) -> bool:
 
 
 def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool:
-    """True when the field set looks like a multi-location property / SOV template."""
+    """True when the field set looks like a multi-row schedule (property, vehicle, employee, etc.).
+
+    Detection uses generic structural cues only — identifier fields paired with
+    descriptive or value fields — with no domain-specific keyword lists.
+    """
+    if len(field_names) < 4:
+        return False
+
     blob = " ".join(n.lower() for n in field_names)
-    has_location_id = any(kw in blob for kw in (
-        "location number", "loc #", "loc#", "location #", "location#",
-        "loc no", "site #", "site no", "premises",
+
+    # Identifier cues: fields that label individual records
+    has_identifier = bool(re.search(
+        r"\b(id|no|num|code|name|number|index|ref|serial|account)\b|#",
+        blob,
     ))
-    has_address = any(kw in blob for kw in (
-        "address line", "street address", "address", "street",
+    # Location/entity descriptor cues
+    has_descriptor = bool(re.search(
+        r"\b(address|street|city|state|zip|postal|location|site|description|type|class|category)\b",
+        blob,
     ))
-    has_geo = any(kw in blob for kw in (
-        "zip code", "zip", "postal", "city", "state",
+    # Value/quantity cues
+    has_value = bool(re.search(
+        r"\b(value|amount|cost|total|premium|rate|quantity|count|area|size|sq\s*ft|sq\.?\s*ft|square)\b",
+        blob,
     ))
-    has_values = any(kw in blob for kw in (
-        "tiv", "insurable value", "building value", "bpp", "contents",
-        "business income", "replacement cost",
-    ))
-    return (has_location_id and has_address) or (has_address and has_geo and has_values)
+
+    return has_identifier or (has_descriptor and has_value)
 
 
 def _extract_table_headers(tables: list) -> set[str]:
@@ -484,9 +501,8 @@ def build_table_column_hint(tables: list) -> str:
         "The source table(s) contain these column headers (normalised):\n  "
         + ", ".join(sorted_headers)
         + "\nUse this list to map each requested field to its correct source column. "
-        "Column headers are commonly abbreviated (e.g. 'const' = Construction, "
-        "'spr' = Sprinklered, 'bi/ee' = Business Income / Extra Expense, "
-        "'yr' = Year, 'bpp' = Business Personal Property). Match by meaning, not exact text. "
+        "Column headers are often abbreviated — match by meaning, not exact text. "
+        "Use any legend, footnote, or key present in the document to resolve abbreviations. "
         "If a requested field has NO plausible column match above AND is not mentioned "
         "elsewhere in the document, return null. "
         "Never map two different requested fields to the same source column."
@@ -638,6 +654,13 @@ def sanitize_duplicate_column_values(
             matching = sum(1 for a, b in filled_pairs if a == b)
             if matching / len(filled_pairs) < 0.8:
                 continue
+            # Skip if the overlap is driven by a shared dominant value (e.g. both fields are
+            # mostly "n" or "0%" — coincidental similarity, not the same source column).
+            match_vals = [a for a, b in filled_pairs if a == b]
+            if match_vals:
+                top_val = max(set(match_vals), key=match_vals.count)
+                if match_vals.count(top_val) / len(filled_pairs) > 0.65:
+                    continue
             a_match = _field_name_matches_any_header(fn_a, table_headers, "")
             b_match = _field_name_matches_any_header(fn_b, table_headers, "")
             if a_match and not b_match:

@@ -1,9 +1,13 @@
 import logging
+import secrets as _secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
+from app.config import settings
 from app.database import get_db
+from app.models.user import User
 from app.services.auth_service import (
     create_access_token,
     get_or_create_user,
@@ -26,6 +30,47 @@ class MicrosoftAuthRequest(BaseModel):
 class AuthResponse(BaseModel):
     access_token: str
     user: dict
+
+
+class DevLoginRequest(BaseModel):
+    secret: str
+
+
+@router.post("/dev-login")
+async def dev_login(body: DevLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Bypass OAuth for dev/test. Disabled unless DEV_LOGIN_SECRET is set in env."""
+    dev_secret = (settings.dev_login_secret or "").strip()
+    if not dev_secret:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _secrets.compare_digest(body.secret, dev_secret):
+        raise HTTPException(status_code=401, detail="Invalid secret")
+
+    user_id = (settings.dev_login_user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=503, detail="Dev login user not configured")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    token = create_access_token(user.id)
+    period_end = user.current_period_end.isoformat() if user.current_period_end else None
+    return {
+        "access_token": token,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "picture": user.picture,
+            "balance": user.balance,
+            "has_card": bool(user.stripe_payment_method_id),
+            "subscription_tier": user.subscription_tier or "free",
+            "subscription_status": user.subscription_status or "active",
+            "credits_used_this_period": user.credits_used_this_period or 0,
+            "current_period_end": period_end,
+        },
+    }
 
 
 @router.post("/google", response_model=AuthResponse)

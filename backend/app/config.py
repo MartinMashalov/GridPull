@@ -49,6 +49,17 @@ class Settings(BaseSettings):
         description="Existing users.id UUID (e.g. from DB or after one OAuth login); must match a row in users",
     )
 
+    # Dev bypass login — POST /api/auth/dev-login with {"secret": <value>}
+    # Leave empty (default) to disable the endpoint entirely.
+    dev_login_secret: str = Field(
+        default="",
+        description="Secret for bypassing OAuth in dev/test. Set in .env, never expose in prod.",
+    )
+    dev_login_user_id: str = Field(
+        default="",
+        description="User ID to log in as when dev_login_secret is used.",
+    )
+
     # Shared LLM model
     openai_api_key: str = ""
     llm_extraction_model: str = "gpt-4.1-mini"       # Primary extraction model

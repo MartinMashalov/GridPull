@@ -246,8 +246,8 @@ async def extract_multi_record(
         "the same metrics across multiple fiscal years/periods as separate columns, emit one object "
         "per fiscal year/period. Each object should have the date/year and corresponding metric "
         "values from that column.\n"
-        "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
-        "exactly one object per insured location; merge fragmented lines for the same location."
+        "Do NOT output completely empty objects between real rows. "
+        "When multiple lines refer to the same logical entity (same ID, name, or address), merge them into one object."
     )
     if full_tables_md:
         parts.append(f"\n--- Detected Tables ---\n{full_tables_md}")
@@ -303,13 +303,11 @@ async def extract_multi_record_chunked(
             parts.append(f"\n{col_hint}")
         if inject_global_tables:
             parts.append(
-                "\n--- Schedule priority ---\n"
-                "If Tables include a master schedule of values, property schedule, or location listing with monetary "
-                "columns (building, BPP/contents, business income, TIV), emit one output record per location row from "
-                "that schedule and copy every monetary value from that row. Use the Text on these pages only to fill "
-                "fields the schedule omits (e.g. construction class, occupancy, protection class). "
-                "Do not use replacement-cost component subtotals from a narrative appraisal page as the schedule "
-                "Building value when the master row already lists building/BPP/BI/TIV for that location.\n"
+                "\n--- Table priority ---\n"
+                "If Tables include a primary data table with repeated rows matching the requested fields, "
+                "emit one output record per data row from that table and copy every value from it. "
+                "Use the Text only to fill fields the table omits. "
+                "Do not overwrite a value already present in a table row with a supplementary value from narrative text.\n"
             )
         if tables_md:
             parts.append(f"\n--- Tables ({tables_scope}) ---\n{tables_md}")
@@ -391,8 +389,8 @@ def _build_multi_cacheable_prefix(
         "the same metrics across multiple fiscal years/periods as separate columns, emit one object "
         "per fiscal year/period. Each object should have the date/year and corresponding metric "
         "values from that column.\n"
-        "Do NOT output completely empty objects between real rows. For property or appraisal schedules, "
-        "exactly one object per insured location; merge fragmented lines for the same location."
+        "Do NOT output completely empty objects between real rows. "
+        "When multiple lines refer to the same logical entity (same ID, name, or address), merge them into one object."
     )
     parts.append(f"\n--- Document Info ---\n{ctx}")
     if full_tables_md:

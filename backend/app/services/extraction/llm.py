@@ -208,11 +208,10 @@ def _merge_rows_by_identifier(
     rows: List[Dict[str, Any]],
     field_names: List[str],
 ) -> List[Dict[str, Any]]:
-    """Merge rows that share the same location identifier, combining non-null fields.
+    """Merge rows that share the same entity identifier, combining non-null fields.
 
-    Documents like appraisal reports emit both a summary row (with financial values) and a
-    detail row (with construction attributes) for the same location. This merges them into
-    a single complete row per location.
+    Some documents emit multiple rows for the same entity (a summary row and one or more detail
+    rows). This merges them into a single complete row per entity.
 
     Merging strategy (in order of priority):
     1. Primary key: base numeric ID (e.g. "1" from "1 - Building 1") + address (first 40 chars)
@@ -373,7 +372,7 @@ def finalize_property_schedule_rows(
         out.append(row)
     if len(out) < len(rows):
         logger.info(
-            "Property schedule cleanup: %d rows -> %d (filename context: schedule dedupe)",
+            "Schedule deduplication: %d rows -> %d",
             len(rows), len(out),
         )
     return out

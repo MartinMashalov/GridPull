@@ -82,11 +82,10 @@ async def _extract_scanned_chunked(
         sov_note = ""
         if inject_global_tables and table_prefix:
             sov_note = (
-                "--- Schedule priority ---\n"
-                "If parser-detected Tables include a master schedule of values with monetary columns, "
-                "emit one record per schedule row with all $ fields from that row; use this OCR chunk text "
-                "to fill fields the table omits. Do not use narrative component subtotals as schedule "
-                "amounts when the table row already lists building/BPP/BI/TIV for that location.\n\n"
+                "--- Table priority ---\n"
+                "If parser-detected Tables include a primary data table with repeated rows matching the requested fields, "
+                "emit one record per table row and copy all values from it; use this OCR chunk text "
+                "only to fill fields the table omits. Do not overwrite table values with supplementary text.\n\n"
             )
         prompt = (
             f"--- Document Info ---\n"

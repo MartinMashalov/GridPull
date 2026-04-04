@@ -193,10 +193,12 @@ async def _ocr_file(file_path: str, api_key: str) -> tuple[list[OCRPage], float]
 
 # ── Public async API ──────────────────────────────────────────────────────────
 
-async def run_mistral_ocr(file_path: str, api_key: str) -> OCRResult:
+async def run_mistral_ocr(file_path: str, api_key: str, max_pages: int | None = None) -> OCRResult:
     """
     Run Mistral OCR on a PDF, automatically splitting if the file exceeds the
     1,000-page or 50 MB limits.
+
+    max_pages: if set, only the first max_pages pages are OCR'd (truncation).
 
     Returns OCRResult:
       text      — full text with page markers, plus extracted headers/footers/tables
@@ -208,6 +210,26 @@ async def run_mistral_ocr(file_path: str, api_key: str) -> OCRResult:
     page_count = len(src)
     src.close()
 
+    # Truncate to max_pages if requested
+    tmp_truncated: str | None = None
+    if max_pages and page_count > max_pages:
+        logger.info("OCR truncating %s: %d → %d pages", os.path.basename(file_path), page_count, max_pages)
+        tmp_truncated = await asyncio.to_thread(_extract_chunk_to_tempfile, file_path, 0, max_pages)
+        file_path = tmp_truncated
+        page_count = max_pages
+
+    try:
+        return await _run_mistral_ocr_inner(file_path, api_key, page_count)
+    finally:
+        if tmp_truncated:
+            try:
+                os.unlink(tmp_truncated)
+            except OSError:
+                pass
+
+
+async def _run_mistral_ocr_inner(file_path: str, api_key: str, page_count: int) -> OCRResult:
+    """Internal implementation — called after any truncation is applied."""
     chunk_size = _compute_chunk_size(file_path, page_count)
 
     if page_count <= chunk_size:

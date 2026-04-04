@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9/&().,#:%-]*")
 _SECTION_SELECTOR_MAX_TOKENS = 1_200
 _SOV_EXTRACT_MAX_TOKENS = 12_000
-_SOV_LITEPARSE_THRESHOLD_PAGES = 15
+_SOV_LITEPARSE_THRESHOLD_PAGES = 0   # always OCR — LiteParse silently drops table rows
+_SOV_OCR_MAX_PAGES = 80          # truncate large docs before OCR
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 
 
@@ -305,13 +306,13 @@ async def _select_sections(
         for section in sections
     ]
     selector_prompt = (
-        "Pick only the OCR pages worth keeping for insurance schedule extraction.\n\n"
+        "Pick only the OCR pages worth keeping for repeated-record schedule extraction.\n\n"
         "Keep pages that are likely to contain:\n"
-        "- statement of values / schedule of values / location or premises schedules\n"
-        "- property schedules, appraisal summaries, site listings, building value tables\n"
-        "- vehicle schedules, auto schedules, employee or payroll schedules when they appear as repeated rows\n"
-        "- underwriting notes that can fill row-level gaps such as occupancy, construction, protection, sprinklers, valuation, year built\n\n"
-        "Drop pages like cover pages, table of contents, letters, signatures, policy wording, forms, endorsements, disclaimers, claims language, and generic narrative that does not help fill repeated schedule rows.\n\n"
+        "- primary data tables with repeated rows matching the requested fields\n"
+        "- schedules, listings, or summaries where each row represents one entity (location, vehicle, person, item, etc.)\n"
+        "- supplementary notes or detail sections that can fill field gaps for entities already in the schedule\n\n"
+        "Drop pages that clearly contain no relevant data: cover pages, table of contents, signature pages, "
+        "boilerplate forms, and generic narrative that does not help fill schedule rows.\n\n"
         "Use only the provided OCR headers from Mistral. Do not invent or assume extra headers.\n\n"
         f"Filename: {doc.filename}\n"
         f"Requested fields:\n{_fields_block(fields)}\n\n"
@@ -382,25 +383,33 @@ def _table_header_signature(markdown: str) -> tuple[str, ...]:
 
 
 def _expected_rows_from_text(text: str) -> int | None:
+    """Extract an explicit row count stated anywhere in the document text.
+
+    Patterns are intentionally generic — they match any 'total N <things>'
+    or 'N <thing> X of Y' phrasing so the function works across document
+    types without domain-specific keyword lists.
+    """
     if not text:
         return None
     patterns = (
-        r"\btotal\s+(?:locations?|premises|sites|properties|buildings|vehicles?|autos?)\s*[:#-]?\s*(\d{1,4})\b",
-        r"\bschedule\s+of\s+(\d{1,4})\s+(?:vehicles?|autos?|locations?|sites?)\b",
-        r"\blocation\s+\d+\s+of\s+(\d{1,4})\b",
+        # "Total: 22" / "Total 22" at a table footer
+        r"\btotal\s*[:#-]?\s*(\d{1,4})\b",
+        # "22 of 22" / "record 3 of 15"
+        r"\b\d+\s+of\s+(\d{1,4})\b",
+        # "Schedule of 15 ..." / "List of 8 ..."
+        r"\b(?:schedule|list|index)\s+of\s+(\d{1,4})\b",
     )
+    best: int | None = None
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-    
-        if not match:
-            continue
-        try:
-            value = int(match.group(1))
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            return value
-    return None
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            try:
+                value = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 1 < value <= 9999:
+                if best is None or value > best:
+                    best = value
+    return best
 
 
 def _estimate_expected_rows(doc: ParsedDocument, kept_pages: set[int]) -> int | None:
@@ -474,41 +483,6 @@ def _sov_extract_token_budget(field_count: int, expected_rows: int | None) -> in
     return min(32_768, max(_SOV_EXTRACT_MAX_TOKENS, estimated))
 
 
-def _vehicle_schedule_guidance(source_text: str) -> str:
-    lower = source_text.lower()
-    if not (
-        ("vin" in lower or "garaging location" in lower)
-        and ("vehicle" in lower or "veh#" in lower or "veh #" in lower or "covered autos" in lower)
-    ):
-        return ""
-    return (
-        "--- Vehicle Schedule Guidance ---\n"
-        "This file is a vehicle schedule.\n"
-        "- Emit one row per vehicle, even when multiple vehicles share the same garaging location.\n"
-        "- Use vehicle/unit number fields for location-like identifiers when the schema asks for a generic row identifier.\n"
-        "- Split Garaging Location into City/State/Zip when possible.\n"
-        "- If the garaging location is only available as one combined city/state/zip string, still use that full string for address-like fields instead of leaving them blank.\n"
-        "- When the schema asks for a generic year field, use the vehicle model year.\n"
-        "- When the schema asks for a generic insured value or total value field, use Cost New, Stated Amount, Scheduled Value, or the closest per-vehicle value column.\n"
-        "- Leave clearly property-only fields null when the vehicle schedule does not provide a truthful match."
-    )
-
-
-def _repeated_location_form_guidance(source_text: str) -> str:
-    lower = source_text.lower()
-    if not (
-        re.search(r"\blocation\s+\d+\s+of\s+\d+\b", lower)
-        and "premises address" in lower
-        and "coverage limits" in lower
-    ):
-        return ""
-    return (
-        "--- Repeated Location Guidance ---\n"
-        "This file repeats one insured location per page/section.\n"
-        "- Emit one row per location/page block.\n"
-        "- Merge the premises/address block, building information block, and coverage limits block from the same location into one row.\n"
-        "- Do not drop ZIP or coverage values just because they appear in labels or row-wise key/value sections instead of a single flat table."
-    )
 
 
 async def _extract_rows(
@@ -525,9 +499,6 @@ async def _extract_rows(
     use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
-    source_text = "\n".join(part for part in (selected_headers, tables_markdown, trimmed_text) if part)
-    vehicle_guidance = _vehicle_schedule_guidance(source_text)
-    repeated_location_guidance = _repeated_location_form_guidance(source_text)
     prompt_parts = [
         f"--- Document Info ---\nFilename: {doc.filename}\nTotal pages: {doc.page_count}\nPipeline: Dedicated SOV extraction",
         f"\n--- Fields to Extract ---\n{_fields_block(fields)}",
@@ -541,10 +512,6 @@ async def _extract_rows(
         prompt_parts.append(f"\n--- User Instructions ---\n{instructions.strip()}")
     if retry_note:
         prompt_parts.append(f"\n--- Retry Guidance ---\n{retry_note}")
-    if vehicle_guidance:
-        prompt_parts.append(f"\n{vehicle_guidance}")
-    if repeated_location_guidance:
-        prompt_parts.append(f"\n{repeated_location_guidance}")
     if table_hint:
         prompt_parts.append(f"\n{table_hint}")
     if tables_markdown:
@@ -552,6 +519,9 @@ async def _extract_rows(
     prompt_parts.append(f"\n--- Trimmed OCR Text ---\n{trimmed_text}")
     prompt_parts.append(
         "\n--- Extraction Rules ---\n"
+        "COMPLETENESS IS CRITICAL — read every page of the OCR text in full before outputting anything.\n"
+        "Schedules often continue across pages with the same column headers repeated; include ALL rows from ALL pages.\n"
+        "Before writing output: count the data rows visible in the schedule table(s) and return that exact count.\n"
         "Return one object per real repeated schedule row.\n"
         "Prefer master schedules and structured tables over narrative duplicates.\n"
         "Merge detail from the selected source context into the correct row only when the location/entity match is clear.\n"
@@ -564,8 +534,11 @@ async def _extract_rows(
     )
 
     system_prompt = (
-        "You extract statement-of-values style schedules from selected document context.\n"
-        "Focus on repeated rows for insured locations, premises, vehicles, or employees.\n"
+        "You extract repeated records from document schedules and tables.\n"
+        "Focus on repeated rows for locations, vehicles, employees, or any other entity type present.\n"
+        "Column headers are often abbreviated or use domain-specific shorthand. "
+        "Match each requested field to the most semantically equivalent column — "
+        "do not require an exact label match. Use document footnotes and legend text to resolve abbreviations.\n"
         "Return valid JSON only."
     )
     try:
@@ -586,6 +559,122 @@ async def _extract_rows(
         return _error([doc.filename], field_names, str(exc))
 
 
+async def _two_pass_extract(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    trimmed_text: str,
+    selected_headers: str,
+    tables_markdown: str,
+    table_hint: str,
+    usage: LLMUsage,
+    expected_rows: int | None,
+    instructions: str,
+    use_cerebras: bool,
+) -> List[Dict[str, Any]]:
+    """
+    Pass 1 — full extraction: get as many rows as possible.
+    Pass 2 — enrichment: fill in missing values from the same source.
+    Skips Pass 2 if fill rate is already ≥85%.
+    """
+    field_names = [f["name"] for f in fields]
+
+    # Pass 1: full extraction
+    rows = await _extract_rows(
+        doc, fields, trimmed_text, selected_headers,
+        tables_markdown, table_hint, usage, expected_rows,
+        instructions, use_cerebras=use_cerebras,
+    )
+
+    real_rows = [r for r in rows if not r.get("_error")]
+    if not real_rows:
+        return rows
+
+    total_cells = len(real_rows) * max(1, len(field_names))
+    missing = sum(
+        1 for row in real_rows for fn in field_names
+        if row.get(fn) is None or str(row.get(fn, "")).strip().lower() in _EMPTY_VALUES
+    )
+    fill_rate = (total_cells - missing) / total_cells
+
+    logger.info(
+        "SOV pass 1 for %s: %d rows, fill_rate=%.0f%%, missing=%d/%d cells",
+        doc.filename, len(real_rows), fill_rate * 100, missing, total_cells,
+    )
+
+    if missing == 0:
+        return rows
+
+    # Pass 2: enrichment — fill missing values, do not change existing ones
+    current_json = json.dumps(
+        [{fn: row.get(fn) for fn in field_names} for row in real_rows],
+        ensure_ascii=True,
+    )
+    enrich_note = (
+        f"REVIEW PASS — {len(real_rows)} rows extracted so far but the schedule likely contains more.\n"
+        f"{missing} of {total_cells} fields are still empty (fill rate {fill_rate:.0%}).\n"
+        "Re-read the ENTIRE source document carefully and:\n"
+        "1. Add any rows present in the document that are missing from the current data.\n"
+        "2. Fill in empty/null fields in the existing rows.\n"
+        "3. Do NOT remove or change values that are already filled in.\n"
+        "Return ALL rows ordered as they appear in the document (existing + any newly found).\n\n"
+        f"Current extracted rows:\n{current_json}"
+    )
+    enriched = await _extract_rows(
+        doc, fields, trimmed_text, selected_headers,
+        tables_markdown, table_hint, usage, expected_rows,
+        instructions, retry_note=enrich_note, use_cerebras=use_cerebras,
+    )
+
+    enriched_real = [r for r in enriched if not r.get("_error")]
+    if not enriched_real:
+        return rows
+
+    # If Pass 2 found more rows, use it as the base and fill any gaps from Pass 1
+    if len(enriched_real) >= len(real_rows):
+        # Build a lookup from Pass 1 by first non-null identifying value
+        def _row_key(row: dict) -> str:
+            for fn in field_names:
+                v = row.get(fn)
+                if v is not None and str(v).strip().lower() not in _EMPTY_VALUES:
+                    return str(v).strip().lower()
+            return ""
+
+        pass1_by_key = {_row_key(r): r for r in real_rows if _row_key(r)}
+        merged = []
+        for enriched_row in enriched_real:
+            key = _row_key(enriched_row)
+            base = pass1_by_key.get(key, {})
+            combined = {**enriched_row}
+            # Prefer Pass 1 values (they came from a clean extraction, not a review pass)
+            for fn in field_names:
+                v1 = base.get(fn)
+                if v1 is not None and str(v1).strip().lower() not in _EMPTY_VALUES:
+                    combined[fn] = v1
+            merged.append(combined)
+    else:
+        # Pass 2 returned fewer rows — just use it to fill gaps in Pass 1
+        merged = [{**row} for row in real_rows]
+        for i, enriched_row in enumerate(enriched_real[: len(merged)]):
+            for fn in field_names:
+                if merged[i].get(fn) is None or str(merged[i].get(fn, "")).strip().lower() in _EMPTY_VALUES:
+                    val = enriched_row.get(fn)
+                    if val is not None and str(val).strip().lower() not in _EMPTY_VALUES:
+                        merged[i][fn] = val
+
+    filled_after = sum(
+        1 for row in merged for fn in field_names
+        if row.get(fn) is not None and str(row.get(fn, "")).strip().lower() not in _EMPTY_VALUES
+    )
+    total_cells_after = len(merged) * max(1, len(field_names))
+    logger.info(
+        "SOV pass 2 for %s: rows %d→%d, fill_rate %.0f%%→%.0f%%",
+        doc.filename, len(real_rows), len(merged),
+        fill_rate * 100, filled_after / total_cells_after * 100,
+    )
+
+    return merged
+
+
 async def extract_sov_from_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
@@ -595,159 +684,103 @@ async def extract_sov_from_document(
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     filename_lower = doc.filename.lower()
-    skip_trimming = (
-        doc.page_count <= _SOV_LITEPARSE_THRESHOLD_PAGES
-        or filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
-    )
-    full_parser_text = "\n\n".join(
-        f"=== Page {page.page_num} ===\n{page.text}" for page in doc.pages
-    ) or doc.content_text
-    kept_pages = {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
-    selected_tables = doc.tables
-    selected_headers = ""
-    trimmed_text = full_parser_text
-    tables_markdown = ""
-    table_hint = ""
-    use_liteparse_raw_text = (
-        not doc.is_scanned
-        and doc.page_count > _SOV_LITEPARSE_THRESHOLD_PAGES
+    is_spreadsheet = filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
+
+    # Auto-enable Cerebras whenever keys are configured — fast first pass regardless of job flag
+    if not use_cerebras and _pick_cerebras_api_key():
+        use_cerebras = True
+        logger.debug("SOV pipeline: auto-enabling Cerebras for %s", doc.filename)
+
+    # ── Routing: OCR for scanned or large docs; LiteParse for small digital docs ──
+    use_ocr = (
+        not is_spreadsheet
+        and (doc.is_scanned or doc.page_count > _SOV_LITEPARSE_THRESHOLD_PAGES)
+        and bool(settings.mistral_api_key and doc.file_path)
     )
 
-    if doc.is_scanned and settings.mistral_api_key and doc.file_path:
+    kept_pages: set[int] = set()
+    selected_tables = doc.tables
+    trimmed_text = ""
+    selected_headers = ""
+
+    if use_ocr:
         try:
-            ocr_result = await run_mistral_ocr(doc.file_path, settings.mistral_api_key)
+            ocr_result = await run_mistral_ocr(
+                doc.file_path, settings.mistral_api_key, max_pages=_SOV_OCR_MAX_PAGES
+            )
             usage.add_ocr_cost(ocr_result.cost_usd)
             logger.info(
                 "Dedicated SOV OCR complete for %s: %d pages, %d chars, $%.4f",
-                doc.filename,
-                ocr_result.page_count,
-                len(ocr_result.text),
-                ocr_result.cost_usd,
+                doc.filename, ocr_result.page_count, len(ocr_result.text), ocr_result.cost_usd,
             )
         except Exception as exc:
-            msg = f"SOV OCR failed: {exc}"
             logger.error("Dedicated SOV OCR failed for %s: %s", doc.filename, exc)
-            return _error([doc.filename], field_names, msg)
+            return _error([doc.filename], field_names, f"SOV OCR failed: {exc}")
 
-        all_ocr_pages = ocr_result.pages
-        all_page_nums = (
-            {page.page_num for page in all_ocr_pages}
-            or kept_pages
-        )
-        if skip_trimming:
-            kept_pages = all_page_nums
-            selected_tables = doc.tables
+        sections = _build_sections_from_ocr_pages(ocr_result.pages)
+        selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
+        kept_pages = {section.page_num for section in selected_sections}
+
+        if not kept_pages:
+            # Selector returned nothing — keep all OCR pages
+            kept_pages = {page.page_num for page in ocr_result.pages}
+            selected_sections = sections
+
+        trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
+        if not trimmed_text:
             trimmed_text = ocr_result.text
-            selected_headers = (
-                "- full document kept\n"
-                f"- trimming skipped because page_count={doc.page_count}"
-                + (" or spreadsheet-like input was detected" if filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv")) else "")
-            )
-            logger.info("SOV trimming skipped for %s", doc.filename)
-        else:
-            sections = _build_sections_from_ocr_pages(all_ocr_pages)
-            selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
-            kept_pages = {section.page_num for section in selected_sections}
-            selected_tables = _selected_tables(doc, kept_pages)
-            trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
-            if not trimmed_text:
-                trimmed_text = ocr_result.text
-                kept_pages = all_page_nums
 
-            selected_headers = "\n".join(
-                f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
-                for section in selected_sections
-            ) or "- no OCR headers were returned; kept pages were selected by page preview only"
+        selected_headers = "\n".join(
+            f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
+            for section in selected_sections
+        ) or "- no OCR headers were returned; kept pages selected by preview"
+        selected_tables = _selected_tables(doc, kept_pages)
+
+        logger.info(
+            "SOV OCR routing for %s: scanned=%s pages=%d → kept %d/%d OCR pages",
+            doc.filename, doc.is_scanned, doc.page_count, len(kept_pages), len(sections),
+        )
     else:
+        # LiteParse: small non-scanned doc (≤15 pages) or spreadsheet
         if doc.is_scanned:
             logger.warning(
-                "SOV scanned fallback for %s: missing Mistral OCR configuration or file path",
+                "SOV scanned fallback for %s: Mistral OCR unavailable, using parser text",
                 doc.filename,
-            )
-            selected_headers = (
-                "- full document kept\n"
-                "- scanned file fell back to parser text because Mistral OCR was unavailable"
-            )
-        elif use_liteparse_raw_text:
-            logger.info(
-                "SOV using LiteParse-style raw text for %s: page_count=%d",
-                doc.filename,
-                doc.page_count,
-            )
-            selected_tables = []
-            selected_headers = (
-                "- full document kept\n"
-                f"- using LiteParse-style raw text because page_count>{_SOV_LITEPARSE_THRESHOLD_PAGES} and file is not scanned"
             )
         else:
             logger.info(
-                "SOV using parser text for %s: page_count=%d",
-                doc.filename,
-                doc.page_count,
+                "SOV LiteParse for %s: page_count=%d (≤%d, not scanned%s)",
+                doc.filename, doc.page_count, _SOV_LITEPARSE_THRESHOLD_PAGES,
+                ", spreadsheet" if is_spreadsheet else "",
             )
-            selected_headers = (
-                "- full document kept\n"
-                "- using parser text because file is not scanned"
-            )
+        kept_pages = {page.page_num for page in doc.pages} or set(range(1, doc.page_count + 1))
+        trimmed_text = (
+            "\n\n".join(f"=== Page {page.page_num} ===\n{page.text}" for page in doc.pages)
+            or doc.content_text
+            or ""
+        )
+        selected_headers = (
+            "- full document kept\n"
+            f"- LiteParse (page_count={doc.page_count}, scanned={doc.is_scanned})"
+        )
 
+    # ── Compress + build table context ─────────────────────────────────────────
     trimmed_text = await _maybe_compress_with_bear(
-        trimmed_text,
+        trimmed_text, doc.page_count, usage, f"{doc.filename} SOV trimmed text"
+    )
+    tables_markdown = await _maybe_compress_with_bear(
+        _selected_tables_markdown(doc, kept_pages),
         doc.page_count,
         usage,
-        f"{doc.filename} SOV trimmed text",
+        f"{doc.filename} SOV kept tables",
     )
-    if not use_liteparse_raw_text:
-        tables_markdown = await _maybe_compress_with_bear(
-            _selected_tables_markdown(doc, kept_pages),
-            doc.page_count,
-            usage,
-            f"{doc.filename} SOV kept tables",
-        )
-        table_hint = build_table_column_hint(selected_tables)
+    table_hint = build_table_column_hint(selected_tables)
     expected_rows = _estimate_expected_rows(doc, kept_pages)
 
-    rows = await _extract_rows(
-        doc,
-        fields,
-        trimmed_text,
-        selected_headers,
-        tables_markdown,
-        table_hint,
-        usage,
-        expected_rows,
-        instructions,
-        use_cerebras=use_cerebras,
+    rows = await _two_pass_extract(
+        doc, fields, trimmed_text, selected_headers,
+        tables_markdown, table_hint, usage, expected_rows,
+        instructions, use_cerebras,
     )
-
-    real_rows = [row for row in rows if not row.get("_error")]
-    total_cells = max(1, len(real_rows) * max(1, len(field_names)))
-    fill_rate = _filled_cell_count(real_rows, field_names) / total_cells
-    should_retry = bool(rows and any(row.get("_error") for row in rows))
-    if expected_rows and len(real_rows) < expected_rows:
-        should_retry = True
-    if real_rows and fill_rate < 0.65:
-        should_retry = True
-
-    if should_retry:
-        retry_note = (
-            f"The first pass likely missed content. Extracted {len(real_rows)} rows"
-            + (f" while the kept tables suggest about {expected_rows} rows." if expected_rows else ".")
-            + f" Current field fill rate is {fill_rate:.0%}. Re-read every kept OCR page and return the fullest complete records you can. This is the only retry."
-        )
-        retry_rows = await _extract_rows(
-            doc,
-            fields,
-            trimmed_text,
-            selected_headers,
-            tables_markdown,
-            table_hint,
-            usage,
-            expected_rows,
-            instructions,
-            retry_note=retry_note,
-            use_cerebras=use_cerebras,
-        )
-        if _row_score(retry_rows, field_names, expected_rows) < _row_score(rows, field_names, expected_rows):
-            rows = retry_rows
 
     return rows if rows else _empty([doc.filename], field_names)
