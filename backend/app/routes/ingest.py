@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -273,6 +273,65 @@ async def extract_from_inbox(
     }
 
 
+# ── Direct Upload to Inbox ────────────────────────────────────────────────
+
+@router.post("/inbox/upload")
+async def upload_to_inbox(
+    files: List[UploadFile] = File(...),
+    sender_email: str = Form(""),
+    sender_domain: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload files directly into the user's inbox, optionally into a specific group."""
+    from app.services.ingest.email_parser import extract_domain
+
+    target_sender = sender_email.strip() or "direct-upload"
+    target_domain = sender_domain.strip() or (extract_domain(target_sender) if "@" in target_sender else "upload")
+
+    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    uploaded = []
+
+    for file in files:
+        content = await file.read()
+        if not content:
+            continue
+        if len(content) > max_bytes:
+            continue
+
+        doc_id = str(uuid.uuid4())
+        filename = file.filename or f"upload-{doc_id}"
+        content_type = file.content_type or "application/octet-stream"
+
+        s3_key = await upload_to_s3(
+            user_id=user.id,
+            doc_id=doc_id,
+            filename=filename,
+            data=content,
+            content_type=content_type,
+        )
+
+        expires_at = datetime.utcnow() + timedelta(days=7)
+        doc = IngestDocument(
+            id=doc_id,
+            user_id=user.id,
+            sender_email=target_sender,
+            sender_domain=target_domain,
+            subject="Direct Upload",
+            message_id=f"upload-{doc_id}",
+            filename=filename,
+            s3_key=s3_key,
+            file_size=len(content),
+            content_type=content_type,
+            expires_at=expires_at,
+        )
+        db.add(doc)
+        uploaded.append({"id": doc_id, "filename": filename})
+
+    await db.commit()
+    return {"uploaded": uploaded, "count": len(uploaded)}
+
+
 # ── Delete ─────────────────────────────────────────────────────────────────────
 
 @router.delete("/inbox/{document_id}")
@@ -304,18 +363,26 @@ async def delete_ingest_document(
 
 # ── Mobile Upload Session ──────────────────────────────────────────────────────
 
+class MobileSessionRequest(BaseModel):
+    sender_email: str = ""
+    sender_domain: str = ""
+
+
 @router.post("/mobile-session")
 async def create_mobile_session(
+    body: MobileSessionRequest = MobileSessionRequest(),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a short-lived token for QR code mobile upload."""
+    """Create a short-lived token for QR code mobile upload, optionally scoped to a group."""
     token = secrets.token_urlsafe(16)
     expires_at = datetime.utcnow() + timedelta(hours=1)
 
     session = MobileUploadSession(
         user_id=user.id,
         token=token,
+        group_sender_email=body.sender_email or None,
+        group_sender_domain=body.sender_domain or None,
         expires_at=expires_at,
     )
     db.add(session)
@@ -403,8 +470,8 @@ async def mobile_upload(
     doc = IngestDocument(
         id=doc_id,
         user_id=session.user_id,
-        sender_email="mobile-upload",
-        sender_domain="mobile",
+        sender_email=session.group_sender_email or "mobile-upload",
+        sender_domain=session.group_sender_domain or "mobile",
         subject="Mobile Upload",
         message_id=msg_id,
         filename=filename,

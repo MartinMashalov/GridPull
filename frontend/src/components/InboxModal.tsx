@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Mail, Copy, Check, ChevronDown, ChevronRight, Trash2, X, QrCode, Loader2, Smartphone, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Mail, Copy, Check, ChevronDown, ChevronRight, Trash2, X, Loader2, RefreshCw, Upload, Plus, Smartphone } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onSelectDocuments: (docs: IngestDocument[]) => void
+  onUploadDirect: () => void
 }
 
 function formatBytes(bytes: number): string {
@@ -43,21 +44,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-export default function InboxModal({ open, onClose, onSelectDocuments }: Props) {
+export default function InboxModal({ open, onClose, onSelectDocuments, onUploadDirect }: Props) {
   const [ingestAddress, setIngestAddress] = useState<string | null>(null)
   const [addressLoading, setAddressLoading] = useState(false)
   const [inbox, setInbox] = useState<InboxData | null>(null)
@@ -66,7 +53,12 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [qrUrl, setQrUrl] = useState<string | null>(null)
-  const [qrLoading, setQrLoading] = useState(false)
+  const [qrGroupKey, setQrGroupKey] = useState<string | null>(null)
+  const [qrLoading, setQrLoading] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const groupFileInputRef = useRef<HTMLInputElement>(null)
+  const pendingGroupRef = useRef<InboxGroup | null>(null)
 
   const fetchAddress = useCallback(async () => {
     try {
@@ -95,6 +87,7 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
       fetchInbox()
       setSelected(new Set())
       setQrUrl(null)
+      setQrGroupKey(null)
     }
   }, [open, fetchAddress, fetchInbox])
 
@@ -121,16 +114,64 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
     }
   }
 
-  const generateQr = async () => {
-    setQrLoading(true)
+  const generateQrForGroup = async (group: InboxGroup) => {
+    setQrLoading(group.key)
     try {
-      const res = await api.post('/ingest/mobile-session')
+      const firstDoc = group.documents[0]
+      const res = await api.post('/ingest/mobile-session', {
+        sender_email: firstDoc?.sender_email || '',
+        sender_domain: firstDoc?.sender_email?.split('@')[1] || '',
+      })
       setQrUrl(res.data.url)
+      setQrGroupKey(group.key)
     } catch {
       toast.error('Failed to create mobile session')
     } finally {
-      setQrLoading(false)
+      setQrLoading(null)
     }
+  }
+
+  const handleFileUpload = async (fileList: FileList | null, group?: InboxGroup) => {
+    if (!fileList || fileList.length === 0) return
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      for (let i = 0; i < fileList.length; i++) {
+        fd.append('files', fileList[i])
+      }
+      if (group) {
+        const firstDoc = group.documents[0]
+        if (firstDoc) {
+          fd.append('sender_email', firstDoc.sender_email)
+          fd.append('sender_domain', firstDoc.sender_email.split('@')[1] || '')
+        }
+      }
+      const res = await api.post('/ingest/inbox/upload', fd)
+      const count = res.data.count ?? 0
+      if (count > 0) {
+        toast.success(`${count} file${count !== 1 ? 's' : ''} uploaded`)
+        await fetchInbox()
+      } else {
+        toast.error('No files were uploaded')
+      }
+    } catch {
+      toast.error('Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (groupFileInputRef.current) groupFileInputRef.current.value = ''
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    handleFileUpload(e.dataTransfer.files)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
   }
 
   const toggleGroup = (key: string) => {
@@ -171,6 +212,21 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
     }
   }
 
+  const deleteGroup = async (group: InboxGroup) => {
+    try {
+      await Promise.all(group.documents.map(d => api.delete(`/ingest/inbox/${d.id}`)))
+      setSelected(prev => {
+        const n = new Set(prev)
+        group.documents.forEach(d => n.delete(d.id))
+        return n
+      })
+      toast.success(`Deleted ${group.documents.length} file${group.documents.length !== 1 ? 's' : ''}`)
+      await fetchInbox()
+    } catch {
+      toast.error('Failed to delete group')
+    }
+  }
+
   const handleUseSelected = () => {
     if (!inbox) return
     const allDocs = inbox.groups.flatMap(g => g.documents)
@@ -192,12 +248,14 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col mx-4"
         onClick={e => e.stopPropagation()}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Mail size={18} className="text-primary" />
-            <h2 className="text-lg font-semibold">Email Inbox</h2>
+            <h2 className="text-lg font-semibold">Document Inbox</h2>
             {inbox && inbox.total_documents > 0 && (
               <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
                 {inbox.total_documents}
@@ -214,49 +272,52 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
           </div>
         </div>
 
-        {/* Ingest address + QR */}
-        <div className="px-6 py-3 border-b border-border bg-muted/30">
-          <div className="flex items-center gap-3 flex-wrap">
-            {ingestAddress ? (
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Forward emails to:</span>
-                <code className="text-xs font-mono bg-white border border-border rounded px-2 py-1 truncate">
-                  {ingestAddress}
-                </code>
-                <button onClick={copyAddress} className="p-1 rounded hover:bg-muted transition-colors flex-shrink-0">
-                  {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} className="text-muted-foreground" />}
-                </button>
-              </div>
-            ) : (
-              <Button size="sm" variant="outline" onClick={generateAddress} disabled={addressLoading} className="text-xs">
-                {addressLoading ? <Loader2 size={12} className="animate-spin" /> : <Mail size={12} />}
-                Generate Email Address
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={generateQr} disabled={qrLoading} className="text-xs flex-shrink-0">
-              {qrLoading ? <Loader2 size={12} className="animate-spin" /> : <Smartphone size={12} />}
-              Mobile Upload
-            </Button>
-          </div>
-
-          {/* QR code — full-width prominent panel */}
-          {qrUrl && (
-            <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col items-center gap-3 text-center">
-              <p className="text-sm font-semibold text-foreground">Scan with your phone camera</p>
-              <a href={qrUrl} target="_blank" rel="noopener noreferrer" className="bg-white p-3 rounded-xl border border-border shadow-sm inline-block cursor-pointer hover:shadow-md transition-shadow">
-                <QRCodeSVG value={qrUrl} size={140} level="M" />
-              </a>
-              <div>
-                <p className="text-xs text-muted-foreground">Opens a camera upload page — no login required.</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Link expires in 1 hour. <a href={qrUrl} target="_blank" rel="noopener noreferrer" className="text-primary underline">Open link</a></p>
-              </div>
-              <button
-                onClick={() => setQrUrl(null)}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
-              >
-                Dismiss
+        {/* Action bar */}
+        <div className="px-6 py-2.5 border-b border-border bg-muted/30 flex items-center gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.md,.html,.htm,.json,.xml,.eml,.msg,.zip"
+            className="hidden"
+            onChange={e => handleFileUpload(e.target.files)}
+          />
+          <input
+            ref={groupFileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.md,.html,.htm,.json,.xml,.eml,.msg,.zip"
+            className="hidden"
+            onChange={e => {
+              handleFileUpload(e.target.files, pendingGroupRef.current ?? undefined)
+              pendingGroupRef.current = null
+              if (groupFileInputRef.current) groupFileInputRef.current.value = ''
+            }}
+          />
+          <Button
+            size="sm"
+            onClick={() => { onClose(); onUploadDirect() }}
+            className="text-xs"
+          >
+            <Plus size={12} />
+            Upload Files
+          </Button>
+          <div className="flex-1" />
+          {ingestAddress ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Email to:</span>
+              <code className="text-[11px] font-mono bg-white border border-border rounded px-1.5 py-0.5 truncate max-w-[200px]">
+                {ingestAddress}
+              </code>
+              <button onClick={copyAddress} className="p-0.5 rounded hover:bg-muted transition-colors flex-shrink-0">
+                {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} className="text-muted-foreground" />}
               </button>
             </div>
+          ) : (
+            <button onClick={generateAddress} disabled={addressLoading} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              {addressLoading ? <Loader2 size={11} className="animate-spin" /> : <Mail size={11} />}
+              Email forwarding
+            </button>
           )}
         </div>
 
@@ -267,11 +328,14 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
               <Loader2 size={20} className="animate-spin text-muted-foreground" />
             </div>
           ) : !inbox || inbox.groups.length === 0 ? (
-            <div className="text-center py-12">
-              <Mail size={32} className="mx-auto text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">No documents in your inbox</p>
+            <div
+              className="text-center py-12 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/40 hover:bg-accent/30 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload size={32} className="mx-auto text-muted-foreground/40 mb-3" />
+              <p className="text-sm text-muted-foreground">No documents yet</p>
               <p className="text-xs text-muted-foreground/70 mt-1">
-                Forward emails to your ingest address or use mobile upload
+                Click to upload files, drag & drop, or forward emails
               </p>
             </div>
           ) : (
@@ -281,6 +345,7 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
                 const groupIds = group.documents.map(d => d.id)
                 const allGroupSelected = groupIds.every(id => selected.has(id))
                 const someGroupSelected = groupIds.some(id => selected.has(id))
+                const isQrOpen = qrGroupKey === group.key && !!qrUrl
 
                 return (
                   <div key={group.key} className="border border-border rounded-lg overflow-hidden">
@@ -297,11 +362,73 @@ export default function InboxModal({ open, onClose, onSelectDocuments }: Props) 
                       </div>
                       {isExpanded ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
                       <span className="text-sm font-medium flex-1 truncate">{group.sender_display}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {group.count} file{group.count !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{timeAgo(group.latest_at)}</span>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          pendingGroupRef.current = group
+                          groupFileInputRef.current?.click()
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                        title="Upload files to this group"
+                      >
+                        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (isQrOpen) {
+                            setQrUrl(null)
+                            setQrGroupKey(null)
+                          } else {
+                            generateQrForGroup(group)
+                          }
+                        }}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-colors flex-shrink-0",
+                          isQrOpen
+                            ? "bg-primary/10 text-primary"
+                            : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                        )}
+                        title="Mobile upload to this group"
+                      >
+                        {qrLoading === group.key
+                          ? <Loader2 size={14} className="animate-spin" />
+                          : <Smartphone size={14} />
+                        }
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          deleteGroup(group)
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors flex-shrink-0"
+                        title="Delete all files in this group"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
+
+                    {/* QR code for this group */}
+                    {isQrOpen && (
+                      <div className="px-4 py-4 bg-primary/5 border-b border-primary/10 flex flex-col items-center gap-3 text-center">
+                        <div className="bg-white p-3 rounded-xl border border-border shadow-sm inline-block">
+                          <QRCodeSVG value={qrUrl} size={120} level="M" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-foreground">Scan this QR code with your phone camera</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Take a photo or pick one from your gallery. The file will be added to this group automatically.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Link expires in 1 hour.</p>
+                        </div>
+                        <button
+                          onClick={() => { setQrUrl(null); setQrGroupKey(null) }}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
 
                     {/* Expanded documents */}
                     {isExpanded && (

@@ -103,31 +103,39 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
         logger.debug("Gmail poller: no attachments in email from %s, skipping", sender)
         return 0
 
-    # Route to user
-    address_key = _extract_address_key(msg)
+    # Route to user by sender email.
+    # Common providers (gmail, outlook, etc.) → exact email match only.
+    # Company domains → any user signed up with that domain.
+    _COMMON_DOMAINS = {
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
+        "live.com", "msn.com", "yahoo.com", "yahoo.co.uk", "ymail.com",
+        "aol.com", "icloud.com", "me.com", "mac.com", "protonmail.com",
+        "proton.me", "zoho.com", "mail.com", "gmx.com", "gmx.net",
+    }
+    sender_domain = sender.split("@")[1] if "@" in sender else ""
 
     async with AsyncSessionLocal() as db:
-        user = None
-        if address_key:
+        from sqlalchemy import func as sa_func
+
+        if sender_domain in _COMMON_DOMAINS:
+            # Exact email match
             result = await db.execute(
-                select(User).where(User.ingest_address_key == address_key)
+                select(User).where(sa_func.lower(User.email) == sender)
+            )
+            user = result.scalar_one_or_none()
+        else:
+            # Company domain — match any user whose signup email is @same-domain
+            result = await db.execute(
+                select(User).where(
+                    sa_func.lower(User.email).like(f"%@{sender_domain}")
+                ).order_by(User.created_at).limit(1)
             )
             user = result.scalar_one_or_none()
 
         if not user:
-            # Fallback: use first user with an ingest address (single-tenant)
-            result = await db.execute(
-                select(User)
-                .where(User.ingest_address_key.isnot(None))
-                .order_by(User.created_at)
-                .limit(1)
-            )
-            user = result.scalar_one_or_none()
-
-        if not user:
-            logger.warning(
-                "Gmail poller: no user found for email from %s (key=%s)",
-                sender, address_key,
+            logger.debug(
+                "Gmail poller: sender %s not matched to any user, skipping",
+                sender,
             )
             return 0
 

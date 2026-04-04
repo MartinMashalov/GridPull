@@ -56,6 +56,8 @@ class MobileUploadSession(Base):
     id = Column(String, primary_key=True, default=_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     token = Column(String, unique=True, nullable=False, index=True)
+    group_sender_email = Column(String, nullable=True)
+    group_sender_domain = Column(String, nullable=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
 

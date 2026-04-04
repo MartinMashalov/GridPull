@@ -24,25 +24,122 @@ const INVOICE_DEFAULTS: ExtractionField[] = [
   { name: 'Due Date', description: 'Payment due date, labeled Due Date, Pay By, or Payment Due. Return in MM/DD/YYYY format when possible.' },
 ]
 
-const SOV_DEFAULTS: ExtractionField[] = [
-  { name: 'Location Number', description: 'Extract the schedule location identifier exactly as shown in the SOV, including letters, dashes, and leading zeros. This is usually labeled as Location, Loc #, or Location Number and should uniquely identify one site. Example: if the table shows "Loc 0012", return "0012" when the prefix is clearly separate, otherwise return "Loc 0012". One-shot answer: if the row says "Location: 105A", return "105A".' },
-  { name: 'Address Line 1', description: 'Extract the primary street address for the insured location and keep suite, unit, or building numbers when present. Do not include city, state, or ZIP in this field unless the document combines everything on one line and cannot be separated. Example: "1450 W Commerce St, Suite 300" should return exactly "1450 W Commerce St, Suite 300". One-shot answer: if the row shows "901 Market Ave Bldg 2", return "901 Market Ave Bldg 2".' },
-  { name: 'City', description: 'Extract only the city name tied to the location address. Remove commas and avoid including state abbreviations or ZIP codes in this field. Example: from "Dallas, TX 75201", return "Dallas". One-shot answer: if the source line is "City: San Antonio", return "San Antonio".' },
-  { name: 'State', description: 'Extract the state or province code associated with the location, preferring the postal abbreviation when available. If the source uses full state names, keep the full name unless another column already contains the abbreviation. Example: from "CA 94105", return "CA", and from "California" return "California" when no abbreviation is shown. One-shot answer: if the row says "State: NY", return "NY".' },
-  { name: 'ZIP Code', description: 'Extract the postal code for the location exactly as displayed, including ZIP+4 formats when present. Do not include city or state text in this value. Example: "75201-4412" should remain "75201-4412" and not be shortened unless the source only shows five digits. One-shot answer: if the address line ends with "Chicago, IL 60611", return "60611".' },
-  { name: 'Construction Class', description: 'Extract the insurance construction classification used for underwriting, not a generic building description. Normalize obvious variants only when safe, such as mapping "Joist Masonry" to "Joisted Masonry". Example values include Frame, Joisted Masonry, Non-Combustible, Masonry Non-Combustible, and Fire Resistive. One-shot answer: if the schedule says "Constr: NC", return "Non-Combustible" only if the form legend defines NC that way, otherwise return "NC".' },
-  { name: 'Occupancy', description: 'Extract the primary occupancy or use type for the location in underwriting language. Keep concise labels like Office, Retail, Warehouse, Manufacturing, Habitational, or Mixed Use. Example: "Light Manufacturing - Plastics" should return "Light Manufacturing" unless the subtype is the only text provided. One-shot answer: if the row says "Occupancy: Retail Store", return "Retail Store".' },
-  { name: 'Year Built', description: 'Extract the original year of construction for the building and return only the year value. Do not convert to age or include renovation year unless the schedule explicitly labels it as Year Built. Example: from "Year Built: 1987", return "1987". One-shot answer: if you see "Built 2004 / Renovated 2019", return "2004".' },
-  { name: 'Number of Stories', description: 'Extract the count of above-grade stories for the building as shown in the SOV. Return a numeric value and keep half-story notation only when explicitly shown (for example 1.5). Example: "Stories: 3" should return "3". One-shot answer: if the source says "2 Story Masonry", return "2".' },
-  { name: 'Total Area (Sq Ft)', description: 'Extract total building area in square feet for the insured location. Remove commas only if needed by downstream numeric parsing, but do not change the magnitude. Example: "45,250 SF" should return "45250" or "45,250" consistently with your sheet style. One-shot answer: if the row says "Area: 12,800 sq ft", return "12800".' },
-  { name: 'Sprinklered', description: 'Extract fire sprinkler protection status for the site using clear categories. Preferred outputs are Yes, No, Partial, or Unknown unless the schedule provides a more specific phrase that matters for underwriting. Example: "100% Sprinklered" should map to "Yes", while "Partial Wet System" should map to "Partial". One-shot answer: if the source says "No sprinklers", return "No".' },
-  { name: 'Protection Class', description: 'Extract the fire protection class or district designation for the location. Accept any of these label formats: Protection Class, PC, PPC, ISO Class, ISO PPC, Fire District, Fire Protection Class, Prot Class, Prot. Class, Fire Class. The value is often a short number like "3", "5", "10", or a split like "5/9", "3/9X", or a district label like "District 6". It may appear as a standalone column with numeric values and no label on each row — if a column header matches any of these labels, extract the value from that column for each row. If the document states a single protection class or PPC that applies to all locations (e.g. "Protection Class: 5" in a header or notes section), use that value for every row. Leave blank only if genuinely absent from both the row data and the document-level notes. Example: column "PPC" with value "3" → "3"; header says "All locations: Protection Class 5/9" → "5/9".' },
-  { name: 'Building Value', description: 'Extract the insured building amount for the location, typically replacement cost, from the property values section. Return only the monetary figure without commentary and avoid mixing it with contents or business income amounts. Example: "$2,500,000 Building" should return "2500000" or "$2,500,000" based on your number format convention. One-shot answer: if the row shows "Building: 1,200,000", return "1200000".' },
-  { name: 'Contents / BPP Value', description: 'Extract the insured contents or business personal property amount for that location. Treat BPP, Contents, and Personal Property as the same bucket unless the schedule clearly separates them into different columns. Example: "Contents/BPP $475,000" should return "475000". One-shot answer: if the source says "BPP Limit: $90,000", return "90000".' },
-  { name: 'Business Income Value', description: 'Extract the business income or time-element insured amount for the location when provided. Do not infer this value from totals unless the schedule explicitly provides a formula and all components are present. Example: "Business Income: $300,000" should return "300000". One-shot answer: if the row says "Time Element 150,000", return "150000".' },
-  { name: 'Total Insured Value', description: 'Extract the total insured value for the location from the explicit total column when available. If a total is not explicitly listed, compute only when building, contents/BPP, and business income values are all clearly present and additive in the same row. Example: Building 2,000,000 plus BPP 500,000 plus BI 250,000 should return "2750000". One-shot answer: if the schedule shows "TIV: $3,400,000", return "3400000".' },
-  { name: 'Valuation Method', description: 'Extract the valuation basis for each location. First look for a per-row or per-location column with a label such as "Valuation", "Val", "Basis", "Val Method", "Val Basis", "RCV", "ACV", "RC", "Coinsurance", or similar and return that cell value. If no per-row value exists, scan the entire document — including headers, footers, methodology sections, schedule notes, and page 1 — for a document-wide valuation statement that applies to all locations; common phrases include "replacement cost", "replacement cost new", "RCN", "RCV", "actual cash value", "ACV", "agreed value". If found document-wide, use that value for every row. Normalize only obvious abbreviations: "replacement cost" or "replacement cost value" → "RCV"; "replacement cost new" or "RCN" → "RCN"; "actual cash value" → "ACV". Do NOT leave blank if a valuation basis is stated anywhere in the document. Example: per-row column "Valuation: RCV" → "RCV"; document header "All values expressed as Replacement Cost New (RCN)" → "RCN"; schedule note "Coinsurance: 100% RC" → "RCV".' },
+// ── Schedule subtypes ────────────────────────────────────────────────────────
+
+export type ScheduleSubtype = 'locations' | 'vehicles' | 'employees'
+
+const SCHEDULE_SUBTYPE_OPTIONS: { id: ScheduleSubtype; label: string }[] = [
+  { id: 'locations', label: 'Locations / SOV' },
+  { id: 'vehicles', label: 'Vehicles' },
+  { id: 'employees', label: 'Employees' },
 ]
+
+const SOV_LOCATIONS: ExtractionField[] = [
+  { name: 'Loc #', description: 'Extract the location identifier exactly as shown for each schedule row (for example: 1, 01, A1). Keep letters, symbols, and leading zeros exactly as printed.' },
+  { name: 'Bldg #', description: 'Extract the building number for the location exactly as shown in the schedule. Do not infer or renumber buildings; copy the literal value from the row.' },
+  { name: 'Location Name', description: 'Extract the site or building name used by underwriting (for example: MB1, North Warehouse). Keep abbreviations and naming conventions exactly as shown.' },
+  { name: 'Occupancy/Exposure', description: 'Extract the occupancy/exposure classification text exactly as presented (for example: 4 Unit Apartment, Retail Strip, Light Manufacturing). Do not summarize or rewrite.' },
+  { name: 'Street Address', description: 'Extract the street address line for the insured premises. Keep suite/unit/building details when present, but do not include city/state/zip in this field unless the source combines them into one cell.' },
+  { name: 'City', description: 'Extract the city for the insured location exactly as listed in the schedule row.' },
+  { name: 'State', description: 'Extract the state value exactly as shown (postal abbreviation preferred when the document uses it). Do not expand or normalize unless already shown that way.' },
+  { name: 'Zip', description: 'Extract the ZIP/postal code exactly as shown, including ZIP+4 when present.' },
+  { name: 'County', description: 'Extract the county value exactly as shown (for example: St Tam, Cook, Orange). Do not expand abbreviations unless the schedule already expands them.' },
+  { name: 'Construction Type', description: 'Extract the construction class/type used in underwriting (for example: Frame, Joisted Masonry, Non-Combustible). Keep the schedule wording as-is.' },
+  { name: 'ISO Construction Code', description: 'Extract the ISO construction code exactly as shown (for example: F, JM, NC, 1-6). Preserve code formatting and symbols.' },
+  { name: 'Building Values', description: 'Extract the building limit/value amount for the row. Keep the currency format shown in the source unless the source is plain numeric.' },
+  { name: 'Contents/BPP Values', description: 'Extract the contents/business personal property value for the row. Use the exact value shown for that coverage bucket.' },
+  { name: 'Business Income Values', description: 'Extract the business income/time element value exactly as shown for the location row.' },
+  { name: 'Machinery & Equipment Values', description: 'Extract the machinery and equipment value exactly as shown for the row. Do not merge this into contents unless the source itself combines them.' },
+  { name: 'Other Property Values', description: 'Extract the other property value exactly as presented for the row.' },
+  { name: 'Total Insurable Value (TIV)', description: 'Extract the explicit total insurable value shown for the row. Only calculate from component values if the total is truly absent and all needed components are clearly present in the same row.' },
+  { name: 'Square Ft.', description: 'Extract the insured area in square feet exactly as shown. Keep separators and decimals when present.' },
+  { name: 'Cost Per Square Ft.', description: 'Extract cost per square foot exactly as shown (for example: $89, 89.25). Keep currency symbol if present in the schedule.' },
+  { name: 'Year Built', description: 'Extract original year built for the building row. Return the year value shown in the schedule.' },
+  { name: 'Roof Update', description: 'Extract the roof update year or indicator exactly as shown for the location.' },
+  { name: 'Wiring Update', description: 'Extract the wiring update year or indicator exactly as shown for the location.' },
+  { name: 'HVAC Update', description: 'Extract the HVAC update year or indicator exactly as shown for the location.' },
+  { name: 'Plumbing Update', description: 'Extract the plumbing update year or indicator exactly as shown for the location.' },
+  { name: '% Occupied', description: 'Extract occupancy percentage exactly as shown (for example: 100%, 85%). Keep percent signs and formatting.' },
+  { name: 'Sprinklered', description: 'Extract sprinkler status exactly as shown (for example: Y/N, Yes/No, Partial). Do not reinterpret unless the value is obviously equivalent in the same row.' },
+  { name: '% Sprinklered', description: 'Extract sprinkler percentage exactly as shown (for example: 0%, 50%, 100%).' },
+  { name: 'ISO Protection Class', description: 'Extract ISO protection class exactly as shown in the row (for example: 2, 3/9X). Keep slashes, letters, and symbols.' },
+  { name: 'Fire Alarm', description: 'Extract fire alarm indicator exactly as shown (for example: Y/N, Central Station, Local).' },
+  { name: 'Burglar Alarm', description: 'Extract burglar alarm indicator exactly as shown (for example: Y/N, Central Station, Local).' },
+  { name: 'Smoke Detectors', description: 'Extract smoke detector indicator/status exactly as shown for the row.' },
+  { name: '# of Stories', description: 'Extract number of stories exactly as shown (for example: 1, 2, 1.5).' },
+  { name: '# of Units', description: 'Extract number of units exactly as shown in the row.' },
+  { name: 'Type of Wiring', description: 'Extract type of wiring code or text exactly as shown (for example: C, Copper, Aluminum).' },
+  { name: '% Subsidized', description: 'Extract subsidized occupancy percentage exactly as shown, including percent sign when present.' },
+  { name: '% Student Housing', description: 'Extract student housing percentage exactly as shown, including percent sign when present.' },
+  { name: '% Elderly Housing', description: 'Extract elderly housing percentage exactly as shown, including percent sign when present.' },
+  { name: 'Roof Type/Frame', description: 'Extract roof type/frame value exactly as shown (for example: Frame, Truss, Metal Deck).' },
+  { name: 'Roof Shape', description: 'Extract roof shape code/text exactly as shown (for example: H, Gable, Flat).' },
+  { name: 'Flood Zone', description: 'Extract FEMA flood zone exactly as shown (for example: X, AE, VE, A). Preserve code formatting.' },
+  { name: 'EQ Zone', description: 'Extract earthquake zone code/classification exactly as shown in the schedule row (for example: 0, 1, 2, A, B, C, X). Copy the literal code from the document and do not translate, interpret, or recode it.' },
+  { name: 'Distance to Salt Water/Coast', description: 'Extract the distance-to-coast value exactly as shown, including unit/format if present (for example: 60, 60 mi, 2.5 miles).' },
+  { name: 'Property Owned or Managed', description: 'Extract owned/managed indicator exactly as shown (for example: O, M, Owned, Managed).' },
+  { name: 'Bldg Maintenance', description: 'Extract building maintenance indicator/class exactly as shown (for example: G, Average, Good).' },
+  { name: 'Basement', description: 'Extract basement indicator exactly as shown (for example: Y/N, None, Partial, Full).' },
+  { name: 'Predominant Exterior Wall / Cladding', description: 'Extract predominant exterior wall/cladding material exactly as shown (for example: Wood Siding, Brick Veneer, EIFS).' },
+]
+
+const SOV_VEHICLES: ExtractionField[] = [
+  { name: 'Veh #', description: 'Extract the vehicle number or unit identifier exactly as shown in the schedule row (for example: 1, 01, V-3). Keep letters, symbols, and leading zeros exactly as printed.' },
+  { name: 'Year', description: 'Extract the model year of the vehicle exactly as shown (for example: 2022, 2019).' },
+  { name: 'Make', description: 'Extract the vehicle manufacturer exactly as shown (for example: Ford, Chevrolet, Freightliner, Peterbilt).' },
+  { name: 'Model', description: 'Extract the vehicle model name exactly as shown (for example: F-150, Cascadia, Ram 3500, Sprinter).' },
+  { name: 'VIN', description: 'Extract the Vehicle Identification Number exactly as shown. Preserve all 17 characters without modification.' },
+  { name: 'Body Type', description: 'Extract the body type classification exactly as shown (for example: Pickup, Van, Flatbed, Box Truck, Sedan, Tractor, Dump).' },
+  { name: 'GVW / GCW', description: 'Extract the Gross Vehicle Weight or Gross Combined Weight exactly as shown, including units when present (for example: 10,000 lbs, 26,001-33,000, Class 5).' },
+  { name: 'Radius of Operation', description: 'Extract the operating radius exactly as shown (for example: Local, 50 miles, 200 mi, Intermediate, Long Haul).' },
+  { name: 'Farthest Terminal', description: 'Extract the farthest terminal city/state exactly as shown in the schedule row.' },
+  { name: 'Cost New / Purchase Price', description: 'Extract the original cost new or purchase price exactly as shown. Keep currency format from the source.' },
+  { name: 'Stated Amount', description: 'Extract the stated amount or agreed value for the vehicle exactly as shown. Keep currency format from the source.' },
+  { name: 'Actual Cash Value', description: 'Extract the actual cash value (ACV) exactly as shown. Keep currency format from the source.' },
+  { name: 'Comp Deductible', description: 'Extract the comprehensive deductible amount exactly as shown (for example: $500, $1,000, Full Cover).' },
+  { name: 'Collision Deductible', description: 'Extract the collision deductible amount exactly as shown (for example: $500, $1,000, $2,500).' },
+  { name: 'Coverage Type', description: 'Extract the coverage type exactly as shown (for example: Liability Only, Full Coverage, Comp & Collision, Specified Perils).' },
+  { name: 'License Plate #', description: 'Extract the license plate number exactly as shown, preserving all characters and formatting.' },
+  { name: 'State Registered', description: 'Extract the state of registration exactly as shown (postal abbreviation preferred when the document uses it).' },
+  { name: 'Garaging Address', description: 'Extract the garaging street address for the vehicle exactly as listed in the schedule row.' },
+  { name: 'Garaging City', description: 'Extract the garaging city exactly as listed.' },
+  { name: 'Garaging State', description: 'Extract the garaging state exactly as shown.' },
+  { name: 'Garaging Zip', description: 'Extract the garaging ZIP/postal code exactly as shown.' },
+  { name: 'Primary Use', description: 'Extract the primary use or business use classification exactly as shown (for example: Service, Commercial, Pleasure, Farm, Retail).' },
+]
+
+const SOV_EMPLOYEES: ExtractionField[] = [
+  { name: 'Employee #', description: 'Extract the employee number or identifier exactly as shown in the schedule row (for example: 001, E-12, 4455). Keep leading zeros and formatting.' },
+  { name: 'Last Name', description: 'Extract the employee last name exactly as shown.' },
+  { name: 'First Name', description: 'Extract the employee first name exactly as shown.' },
+  { name: 'Middle Initial', description: 'Extract the middle initial exactly as shown.' },
+  { name: 'Job Title / Occupation', description: 'Extract the job title or occupation exactly as shown (for example: Driver, Electrician, Office Manager, Laborer, Carpenter).' },
+  { name: 'Department', description: 'Extract the department name exactly as shown (for example: Operations, Maintenance, Administration).' },
+  { name: 'Date of Birth', description: 'Extract the date of birth exactly as shown, preserving the date format from the source.' },
+  { name: 'Date of Hire', description: 'Extract the hire date exactly as shown, preserving the date format from the source.' },
+  { name: 'Employment Status', description: 'Extract the employment status exactly as shown (for example: Full-Time, Part-Time, Seasonal, Temporary, Active, Terminated).' },
+  { name: 'State of Employment', description: 'Extract the state where the employee works exactly as shown (postal abbreviation preferred when the document uses it).' },
+  { name: 'Work Location', description: 'Extract the work location or site name exactly as shown in the schedule.' },
+  { name: 'Workers Comp Class Code', description: 'Extract the NCCI or state workers compensation class code exactly as shown (for example: 5183, 8810, 7219, 5022).' },
+  { name: 'Class Code Description', description: 'Extract the workers comp class code description exactly as shown (for example: Plumbing, Clerical, Trucking, Carpentry).' },
+  { name: 'Annual Remuneration', description: 'Extract the annual salary, wages, or remuneration exactly as shown. Keep currency format from the source.' },
+  { name: 'Hourly Rate', description: 'Extract the hourly pay rate exactly as shown. Keep currency format from the source.' },
+  { name: 'Hours Per Week', description: 'Extract the scheduled hours per week exactly as shown.' },
+  { name: 'Officers / Partners', description: 'Extract whether this person is an officer, partner, or owner exactly as shown (for example: Y/N, Officer, Partner, Member).' },
+  { name: 'Ownership %', description: 'Extract the ownership percentage exactly as shown, including percent sign when present.' },
+  { name: 'Include / Exclude', description: 'Extract whether the officer/partner is included or excluded from coverage exactly as shown (for example: Include, Exclude, I, E).' },
+  { name: 'Experience Mod Rate', description: 'Extract the experience modification rate exactly as shown (for example: 1.00, 0.85, 1.15).' },
+  { name: 'CDL Class', description: 'Extract the Commercial Driver\'s License class exactly as shown (for example: A, B, C, None).' },
+  { name: 'Safety Training Completed', description: 'Extract the safety training completion indicator exactly as shown (for example: Y/N, OSHA 10, OSHA 30).' },
+]
+
+function getSOVFieldsForSubtype(subtype: ScheduleSubtype): ExtractionField[] {
+  switch (subtype) {
+    case 'vehicles': return SOV_VEHICLES.map(f => ({ ...f }))
+    case 'employees': return SOV_EMPLOYEES.map(f => ({ ...f }))
+    default: return SOV_LOCATIONS.map(f => ({ ...f }))
+  }
+}
 
 const CUSTOM_DEFAULTS: ExtractionField[] = [
   { name: 'Invoice Number', description: '' },
@@ -50,10 +147,10 @@ const CUSTOM_DEFAULTS: ExtractionField[] = [
   { name: 'Total Amount', description: '' },
 ]
 
-function getDefaultFields(dt: DocumentType): ExtractionField[] {
+function getDefaultFields(dt: DocumentType, scheduleSubtype?: ScheduleSubtype): ExtractionField[] {
   switch (dt) {
     case 'invoices': return INVOICE_DEFAULTS.map(f => ({ ...f }))
-    case 'sov': return SOV_DEFAULTS.map(f => ({ ...f }))
+    case 'sov': return getSOVFieldsForSubtype(scheduleSubtype || 'locations')
     default: return CUSTOM_DEFAULTS.map(f => ({ ...f }))
   }
 }
@@ -67,6 +164,7 @@ interface Props {
 }
 
 export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaultFormat, documentType }: Props) {
+  const [scheduleSubtype, setScheduleSubtype] = useState<ScheduleSubtype>('locations')
   const [fields, setFields] = useState<ExtractionField[]>(getDefaultFields(documentType))
   const [newFieldName, setNewFieldName] = useState('')
   const [instructions, setInstructions] = useState('')
@@ -75,8 +173,14 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setFields(getDefaultFields(documentType))
+    setFields(getDefaultFields(documentType, documentType === 'sov' ? scheduleSubtype : undefined))
   }, [documentType])
+
+  const handleSubtypeChange = (subtype: ScheduleSubtype) => {
+    setScheduleSubtype(subtype)
+    setFields(getSOVFieldsForSubtype(subtype))
+    setExpandedDesc(null)
+  }
 
   const scrollToBottom = () => {
     setTimeout(() => fieldsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30)
@@ -126,9 +230,6 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
     onConfirm(fields, defaultFormat, instructions.trim())
   }
 
-  // Enter outside the input → submit
-  // Delay adding the listener by 300ms so the keypress that OPENED the modal
-  // doesn't immediately submit it too.
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -163,6 +264,29 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
               Select the data points you want to pull from each document. Each field becomes a column in your spreadsheet, and each document becomes a row.
             </p>
 
+            {/* Schedule subtype selector — only for SOV */}
+            {documentType === 'sov' && (
+              <div className="mb-4">
+                <span className="text-[11px] text-muted-foreground block mb-1.5">Schedule type</span>
+                <div className="flex bg-secondary border border-border rounded-lg overflow-hidden">
+                  {SCHEDULE_SUBTYPE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleSubtypeChange(opt.id)}
+                      className={cn(
+                        'flex-1 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
+                        scheduleSubtype === opt.id
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mb-4 rounded-xl border border-border bg-secondary/35 px-3 py-3">
               <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                 Extraction Instructions
@@ -176,27 +300,29 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
               />
             </div>
 
-            {/* Quick Add presets */}
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {PRESET_FIELDS.map(name => {
-                const added = !!fields.find(f => f.name === name)
-                return (
-                  <button
-                    key={name}
-                    onClick={() => addPreset(name)}
-                    disabled={added}
-                    className={cn(
-                      'px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
-                      added
-                        ? 'bg-primary/10 text-primary border-primary/25 cursor-default'
-                        : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                    )}
-                  >
-                    {name}
-                  </button>
-                )
-              })}
-            </div>
+            {/* Quick Add presets — hide for SOV since we already have full presets */}
+            {documentType !== 'sov' && (
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {PRESET_FIELDS.map(name => {
+                  const added = !!fields.find(f => f.name === name)
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => addPreset(name)}
+                      disabled={added}
+                      className={cn(
+                        'px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                        added
+                          ? 'bg-primary/10 text-primary border-primary/25 cursor-default'
+                          : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                      )}
+                    >
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Selected fields */}
             {fields.length > 0 && (
@@ -233,7 +359,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
                           rows={2}
                           value={field.description}
                           onChange={e => updateDescription(i, e.target.value)}
-                          placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income ÷ Revenue × 100')…"
+                          placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income / Revenue x 100')..."
                           className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
                         />
                         <div className="flex items-center gap-2 pt-0.5">
@@ -263,7 +389,7 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
             <div className="flex items-stretch gap-2 mb-5">
               <Input
                 ref={inputRef}
-                placeholder="Add custom field…"
+                placeholder="Add custom field..."
                 value={newFieldName}
                 onChange={e => setNewFieldName(e.target.value)}
                 onKeyDown={e => {

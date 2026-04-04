@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { Camera, Upload, Check, AlertCircle, Loader2, FileSpreadsheet } from 'lucide-react'
+import { Camera, Image as ImageIcon, Check, AlertCircle, Loader2, FileSpreadsheet } from 'lucide-react'
 import api from '@/lib/api'
 
 type Status = 'validating' | 'ready' | 'uploading' | 'success' | 'expired' | 'error'
@@ -10,7 +10,8 @@ export default function MobileUploadPage() {
   const [status, setStatus] = useState<Status>('validating')
   const [uploadCount, setUploadCount] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!token) { setStatus('error'); setErrorMsg('No token provided'); return }
@@ -108,8 +109,9 @@ export default function MobileUploadPage() {
           </div>
         )}
 
+        {/* Camera input — opens camera on mobile */}
         <input
-          ref={fileRef}
+          ref={cameraRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -117,8 +119,9 @@ export default function MobileUploadPage() {
           className="hidden"
         />
 
+        {/* Gallery/file input — opens photo picker / file browser */}
         <input
-          id="gallery-input"
+          ref={galleryRef}
           type="file"
           accept="image/*,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.html,.json,.xml,.eml,.msg"
           onChange={handleChange}
@@ -127,7 +130,7 @@ export default function MobileUploadPage() {
 
         <div className="w-full max-w-xs space-y-3">
           <button
-            onClick={() => fileRef.current?.click()}
+            onClick={() => cameraRef.current?.click()}
             disabled={status === 'uploading'}
             className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-4 rounded-2xl shadow-lg shadow-blue-500/25 transition-all active:scale-[0.98]"
           >
@@ -136,12 +139,12 @@ export default function MobileUploadPage() {
           </button>
 
           <button
-            onClick={() => document.getElementById('gallery-input')?.click()}
+            onClick={() => galleryRef.current?.click()}
             disabled={status === 'uploading'}
             className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 disabled:opacity-50 text-gray-700 font-medium py-4 rounded-2xl border border-gray-200 shadow-sm transition-all active:scale-[0.98]"
           >
-            <Upload size={20} />
-            Choose File
+            <ImageIcon size={20} />
+            Choose from Gallery
           </button>
         </div>
 

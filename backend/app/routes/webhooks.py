@@ -48,24 +48,37 @@ class EmailIngestPayload(BaseModel):
 @router.post("/email-ingest")
 async def email_ingest(payload: EmailIngestPayload):
     """Receive an inbound email, extract attachments, store in S3."""
-    # Extract address_key from recipient (intake-{key}@domain)
-    local_part = payload.recipient.split("@")[0] if "@" in payload.recipient else payload.recipient
-    if not local_part.startswith("intake-"):
-        return {"status": "ignored", "reason": "unknown recipient format"}
-    address_key = local_part[len("intake-"):]
+    from sqlalchemy import func as sa_func
 
-    if not address_key:
-        return {"status": "ignored", "reason": "empty address key"}
+    sender_email = payload.sender.strip().lower()
+    sender_domain = sender_email.split("@")[1] if "@" in sender_email else ""
+
+    _COMMON_DOMAINS = {
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
+        "live.com", "msn.com", "yahoo.com", "yahoo.co.uk", "ymail.com",
+        "aol.com", "icloud.com", "me.com", "mac.com", "protonmail.com",
+        "proton.me", "zoho.com", "mail.com", "gmx.com", "gmx.net",
+    }
 
     async with AsyncSessionLocal() as db:
-        # Look up user by ingest_address_key
-        result = await db.execute(
-            select(User).where(User.ingest_address_key == address_key)
-        )
-        user = result.scalar_one_or_none()
+        if sender_domain in _COMMON_DOMAINS:
+            # Common provider — exact email match only
+            result = await db.execute(
+                select(User).where(sa_func.lower(User.email) == sender_email)
+            )
+            user = result.scalar_one_or_none()
+        else:
+            # Company domain — match any user signed up with that domain
+            result = await db.execute(
+                select(User).where(
+                    sa_func.lower(User.email).like(f"%@{sender_domain}")
+                ).order_by(User.created_at).limit(1)
+            )
+            user = result.scalar_one_or_none()
+
         if not user:
-            logger.info("Email ingest: no user for address_key=%s", address_key)
-            return {"status": "ignored", "reason": "unknown recipient"}
+            logger.info("Email ingest: sender %s not matched to any user", sender_email)
+            return {"status": "ignored", "reason": "unknown sender"}
 
         # Dedup by message_id
         msg_id = payload.message_id or str(uuid.uuid4())

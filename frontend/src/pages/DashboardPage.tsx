@@ -831,7 +831,7 @@ export default function DashboardPage() {
                 : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
-            {documentType !== 'sov' && <input {...getDocumentInputProps()} />}
+            <input {...getDocumentInputProps()} data-doc-input />
             <div className="flex flex-col items-center gap-3">
               <div className={cn(
                 'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
@@ -991,6 +991,13 @@ export default function DashboardPage() {
         open={showInbox}
         onClose={() => setShowInbox(false)}
         onSelectDocuments={handleInboxSelect}
+        onUploadDirect={() => {
+          // Trigger the document file picker after a short delay
+          setTimeout(() => {
+            const input = document.querySelector<HTMLInputElement>('input[data-doc-input]')
+            input?.click()
+          }, 100)
+        }}
       />
     </div>
   )
