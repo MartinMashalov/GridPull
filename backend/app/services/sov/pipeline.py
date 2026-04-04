@@ -240,16 +240,7 @@ async def _acompletion(
     messages: list[dict[str, str]],
     usage: LLMUsage,
     max_tokens: int,
-    use_cerebras: bool = False,
 ) -> dict[str, Any]:
-    if use_cerebras:
-        t0 = time.perf_counter()
-        result = await _cerebras_acompletion(messages, usage, max_tokens)
-        if result is not None:
-            return result
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        logger.info("Cerebras unavailable after %.0fms, falling back to OpenAI %s", elapsed_ms, model)
-
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -496,7 +487,6 @@ async def _extract_rows(
     expected_rows: int | None,
     instructions: str = "",
     retry_note: str = "",
-    use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     prompt_parts = [
@@ -550,7 +540,6 @@ async def _extract_rows(
             ],
             usage,
             _sov_extract_token_budget(len(field_names), expected_rows),
-            use_cerebras=use_cerebras,
         )
         rows = _normalise_rows(raw, field_names, doc.filename)
         return rows if rows else _empty([doc.filename], field_names)
@@ -569,7 +558,6 @@ async def _two_pass_extract(
     usage: LLMUsage,
     expected_rows: int | None,
     instructions: str,
-    use_cerebras: bool,
 ) -> List[Dict[str, Any]]:
     """
     Pass 1 — full extraction: get as many rows as possible.
@@ -582,7 +570,7 @@ async def _two_pass_extract(
     rows = await _extract_rows(
         doc, fields, trimmed_text, selected_headers,
         tables_markdown, table_hint, usage, expected_rows,
-        instructions, use_cerebras=use_cerebras,
+        instructions,
     )
 
     real_rows = [r for r in rows if not r.get("_error")]
@@ -622,7 +610,7 @@ async def _two_pass_extract(
     enriched = await _extract_rows(
         doc, fields, trimmed_text, selected_headers,
         tables_markdown, table_hint, usage, expected_rows,
-        instructions, retry_note=enrich_note, use_cerebras=use_cerebras,
+        instructions, retry_note=enrich_note,
     )
 
     enriched_real = [r for r in enriched if not r.get("_error")]
@@ -680,16 +668,10 @@ async def extract_sov_from_document(
     fields: List[Dict[str, str]],
     usage: LLMUsage,
     instructions: str = "",
-    use_cerebras: bool = False,
 ) -> List[Dict[str, Any]]:
     field_names = [field["name"] for field in fields]
     filename_lower = doc.filename.lower()
     is_spreadsheet = filename_lower.endswith((".xlsx", ".xls", ".xlsm", ".csv"))
-
-    # Auto-enable Cerebras whenever keys are configured — fast first pass regardless of job flag
-    if not use_cerebras and _pick_cerebras_api_key():
-        use_cerebras = True
-        logger.debug("SOV pipeline: auto-enabling Cerebras for %s", doc.filename)
 
     # ── Routing: OCR for scanned or large docs; LiteParse for small digital docs ──
     use_ocr = (
@@ -780,7 +762,7 @@ async def extract_sov_from_document(
     rows = await _two_pass_extract(
         doc, fields, trimmed_text, selected_headers,
         tables_markdown, table_hint, usage, expected_rows,
-        instructions, use_cerebras,
+        instructions,
     )
 
     return rows if rows else _empty([doc.filename], field_names)
