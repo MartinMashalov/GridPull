@@ -15,7 +15,6 @@ import toast from 'react-hot-toast'
 
 type Provider = 'google_drive' | 'sharepoint' | 'dropbox' | 'box' | 'outlook'
 type FolderProvider = 'google_drive' | 'sharepoint' | 'dropbox' | 'box'
-type Format = 'xlsx' | 'csv'
 
 interface DriveFolder {
   id: string
@@ -581,42 +580,22 @@ interface Step4Props {
   provider: Provider
   destFolder: DriveFolder | null
   onSelectDest: (f: DriveFolder) => void
-  format: Format
-  onFormatChange: (f: Format) => void
   name: string
   onNameChange: (n: string) => void
   sourceName: string
   fields: Field[]
 }
 
-function Step4({ provider, destFolder, onSelectDest, format, onFormatChange, name, onNameChange, sourceName, fields }: Step4Props) {
+function Step4({ provider, destFolder, onSelectDest, name, onNameChange, sourceName, fields }: Step4Props) {
   const folderProvider: FolderProvider = provider === 'outlook' ? 'sharepoint' : provider as FolderProvider
   return (
     <div className="space-y-4">
       <div>
         <p className="text-sm font-medium mb-1">Destination folder</p>
         <p className="text-xs text-muted-foreground mb-2">
-          Extracted data will be saved here as <strong>{name || 'Pipeline'}.{format}</strong> — new runs append to the same file.
+          Extracted data will be saved here as <strong>{name || 'Pipeline'}.xlsx</strong> — new runs append to the same file.
         </p>
         <FolderBrowser provider={folderProvider} onSelect={onSelectDest} selected={destFolder} />
-      </div>
-
-      <div>
-        <p className="text-sm font-medium mb-2">Output format</p>
-        <div className="flex rounded-lg border border-border overflow-hidden w-fit">
-          {(['xlsx', 'csv'] as Format[]).map(f => (
-            <button
-              key={f}
-              onClick={() => onFormatChange(f)}
-              className={cn(
-                'px-4 py-1.5 text-xs font-medium transition-colors',
-                format === f ? 'bg-primary text-white' : 'bg-background text-muted-foreground hover:bg-secondary'
-              )}
-            >
-              .{f.toUpperCase()}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div>
@@ -634,7 +613,7 @@ function Step4({ provider, destFolder, onSelectDest, format, onFormatChange, nam
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <FolderOpen size={11} />
             <span>Output → </span>
-            <span className="font-medium text-foreground">{destFolder.name}/{name || '…'}.{format}</span>
+            <span className="font-medium text-foreground">{destFolder.name}/{name || '…'}.xlsx</span>
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Check size={11} />
@@ -704,9 +683,9 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
       { name: 'Total Amount', description: '' },
     ]
   )
-  const [format, setFormat] = useState<Format>((pipeline?.dest_format as Format) ?? 'xlsx')
   const [pipelineName, setPipelineName] = useState(pipeline?.name ?? '')
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   // Load connections when opened
   useEffect(() => {
@@ -728,8 +707,8 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
         { name: 'Date', description: '' },
         { name: 'Total Amount', description: '' },
       ])
-      setFormat('xlsx')
       setPipelineName('')
+      setSubmitError(null)
     } else if (open && isEdit && pipeline) {
       setStep(1)
       setProvider(pipeline.source_type)
@@ -748,7 +727,6 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
       }
       setDestFolder({ id: pipeline.dest_folder_id, name: pipeline.dest_folder_name })
       setFields(pipeline.fields)
-      setFormat(pipeline.dest_format as Format)
       setPipelineName(pipeline.name)
     }
   }, [open])
@@ -788,6 +766,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
   const handleSubmit = async () => {
     if (!provider || !destFolder) return
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const src_folder_id = provider === 'outlook' ? outlookConfig.folder_id : sourceFolder?.id ?? ''
       const src_folder_name = provider === 'outlook' ? outlookConfig.folder_name : sourceFolder?.name ?? ''
@@ -799,7 +778,7 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
         source_folder_name: src_folder_name,
         dest_folder_id: destFolder.id,
         dest_folder_name: destFolder.name,
-        dest_format: format,
+        dest_format: 'xlsx',
         fields,
       }
 
@@ -819,7 +798,10 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
         onCreated(r.data)
       }
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to save pipeline')
+      const msg = typeof err?.response?.data?.detail === 'string'
+        ? err.response.data.detail
+        : 'Failed to save pipeline'
+      setSubmitError(msg)
     } finally {
       setSubmitting(false)
     }
@@ -912,8 +894,6 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
                 provider={provider}
                 destFolder={destFolder}
                 onSelectDest={setDestFolder}
-                format={format}
-                onFormatChange={setFormat}
                 name={pipelineName}
                 onNameChange={setPipelineName}
                 sourceName={sourceName}
@@ -921,6 +901,11 @@ export default function PipelineCreateWizard({ open, onClose, onCreated, pipelin
               />
             )}
           </div>
+
+          {/* Error */}
+          {submitError && (
+            <p className="text-xs text-red-500 px-4 sm:px-5 pb-1">{submitError}</p>
+          )}
 
           {/* Footer */}
           <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-t border-border bg-secondary/20">
