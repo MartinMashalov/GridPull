@@ -48,8 +48,10 @@ _MODEL_PRICING: Dict[str, tuple[float, float, float]] = {
 
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0) -> float:
     """Estimate cost from token counts and model name, accounting for cached input tokens."""
-    for key, (inp, cached_inp, out) in _MODEL_PRICING.items():
+    # Sort keys longest-first so "gpt-5.4-mini" matches before "gpt-5.4"
+    for key in sorted(_MODEL_PRICING, key=len, reverse=True):
         if key in model:
+            inp, cached_inp, out = _MODEL_PRICING[key]
             uncached = max(0, prompt_tokens - cached_tokens)
             return uncached * inp + cached_tokens * cached_inp + completion_tokens * out
     # Unknown model — use gpt-4.1-mini pricing as conservative default
