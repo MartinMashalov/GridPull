@@ -365,7 +365,7 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
             "Do NOT leave fields blank if there is ANY relevant information available."
         )
 
-    return f"""You are filling out a form. Extract values from the source data below and fill every field you can.
+    return f"""You are filling out a form. Your goal is to fill EVERY field possible — leave nothing blank if there is any way to determine or reasonably infer a value.
 
 RULES:
 1. Return a single flat JSON object with field names as keys and string values.
@@ -373,14 +373,16 @@ RULES:
    - If the label describes something that is clearly present, applicable, or confirmed in the source, return "Yes".
    - If the label describes something that is clearly absent, inapplicable, or contradicted by the source, return "No".
    - For ambiguous checkboxes with no relevant source data, return "No" as a conservative default.
-3. For dropdown fields: return exactly one of the listed options.
-4. For text fields: fill with the best matching value from the source. Use inference when an exact match isn't present:
-   - Derive related values where logical (e.g., end date from start date + duration, totals from line items).
-   - Leave "" ONLY if the information is genuinely absent and cannot be reasonably inferred.
-5. NEVER return null, None, or "N/A" — use "" for fields that truly cannot be determined.
-6. CRITICAL — always fill these if ANY matching data exists: names, addresses, phone numbers, emails, dates, monetary amounts, ID numbers, organization names.
-7. For open-ended text questions where no exact match exists, compose a concise answer from the most relevant context available in the source.
-8. For eligibility or history yes/no questions where the source has no relevant evidence, use "No" as the conservative default.
+3. For dropdown fields: return exactly one of the listed options (never "Please Select...").
+4. For text fields: fill aggressively using any available information:
+   - Use direct matches, close matches, or any value from the source that fits the field's intent.
+   - Infer derived values: end date = start date + duration; totals = sum of parts; rate × quantity = amount; etc.
+   - For numeric/financial fields with no exact match, use the closest available figure from the source.
+   - For descriptive/narrative fields about activities, operations, history, or background, compose a concise factual answer drawn from the source context.
+   - Leave "" ONLY if the information is genuinely absent AND cannot be inferred in any reasonable way.
+5. NEVER return null, None, or "N/A" — use "" only as a last resort when a field is truly unanswerable.
+6. CRITICAL — always fill these whenever ANY related data exists: names, addresses, phone numbers, emails, dates, monetary amounts, quantities, ID numbers, organization names, titles, locations.
+7. For yes/no questions about adverse events, prior incidents, losses, or conditions not mentioned in the source, default to "No".
 
 SOURCE DATA:
 {source_context}{prior_block}{focus_note}
