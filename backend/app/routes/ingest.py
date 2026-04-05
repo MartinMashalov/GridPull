@@ -52,6 +52,7 @@ class ExtractRequest(BaseModel):
     fields: List[dict]
     instructions: str = ""
     format: str = "xlsx"
+    pipeline: Optional[str] = None  # "sov", "general", or None (auto)
 
 
 # ── Address Management ─────────────────────────────────────────────────────────
@@ -114,14 +115,13 @@ async def list_inbox(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List non-expired, unassigned ingest documents grouped by sender."""
+    """List non-expired ingest documents grouped by sender."""
     now = datetime.utcnow()
     result = await db.execute(
         select(IngestDocument)
         .where(
             IngestDocument.user_id == user.id,
             IngestDocument.expires_at > now,
-            IngestDocument.job_id.is_(None),
         )
         .order_by(IngestDocument.created_at.desc())
     )
@@ -176,17 +176,16 @@ async def extract_from_inbox(
     if not body.fields:
         raise HTTPException(status_code=400, detail="No fields specified")
 
-    # Fetch the ingest documents
+    # Fetch the ingest documents (allow re-extraction of previously processed docs)
     result = await db.execute(
         select(IngestDocument).where(
             IngestDocument.id.in_(body.document_ids),
             IngestDocument.user_id == user.id,
-            IngestDocument.job_id.is_(None),
         )
     )
     ingest_docs = result.scalars().all()
     if not ingest_docs:
-        raise HTTPException(status_code=404, detail="No available documents found")
+        raise HTTPException(status_code=404, detail="No documents found")
 
     # Load real DB user (get_current_user may return a CachedUser)
     result_u = await db.execute(select(User).where(User.id == user.id))
@@ -218,6 +217,7 @@ async def extract_from_inbox(
     overage_count = max(0, (used + num_credits) - tier.credits_per_month)
 
     # Create extraction job
+    pipeline_val = body.pipeline if body.pipeline in ("sov", "general") else "auto"
     job = ExtractionJob(
         user_id=user.id,
         status="queued",
@@ -225,6 +225,7 @@ async def extract_from_inbox(
         instructions=body.instructions.strip() or None,
         format=body.format,
         file_count=len(ingest_docs),
+        pipeline=pipeline_val,
     )
     db.add(job)
     await db.commit()

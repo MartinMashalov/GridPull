@@ -417,15 +417,15 @@ export default function DashboardPage() {
   })
 
   const handleProcess = () => {
-    if (!files.length && !baselineSpreadsheet) { setValidationMsg('Upload at least one supported file.'); return }
+    if (!files.length && !baselineSpreadsheet && !inboxDocIds.length) { setValidationMsg('Upload at least one supported file.'); return }
     if (documentType === 'sov' && baselineHeaders && baselineHeaders.length > 0) {
-      if (!files.length) { setValidationMsg('Upload at least one source file to update the spreadsheet.'); return }
+      if (!files.length && !inboxDocIds.length) { setValidationMsg('Upload at least one source file to update the spreadsheet.'); return }
       setValidationMsg(null)
       const fields: ExtractionField[] = baselineHeaders.map(h => ({ name: h, description: '' }))
       handleExtract(fields, 'xlsx', '')
       return
     }
-    if (!files.length) { setValidationMsg('Upload at least one supported file.'); return }
+    if (!files.length && !inboxDocIds.length) { setValidationMsg('Upload at least one supported file.'); return }
     setValidationMsg(null)
     if (documentType === 'quickbooks') {
       handleExtract(
@@ -457,6 +457,7 @@ export default function DashboardPage() {
         fields: fields.map(f => ({ name: f.name, description: f.description })),
         instructions: instructions.trim(),
         format: 'xlsx',
+        pipeline: documentType === 'sov' ? 'sov' : 'auto',
       })
 
       const jobId = res.data.job_id
