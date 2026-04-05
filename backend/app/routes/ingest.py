@@ -188,6 +188,12 @@ async def extract_from_inbox(
     if not ingest_docs:
         raise HTTPException(status_code=404, detail="No available documents found")
 
+    # Load real DB user (get_current_user may return a CachedUser)
+    result_u = await db.execute(select(User).where(User.id == user.id))
+    user = result_u.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Credit check
     _maybe_reset_usage(user)
     await db.commit()
