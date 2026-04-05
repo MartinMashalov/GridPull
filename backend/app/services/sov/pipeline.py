@@ -36,6 +36,9 @@ _SOV_EXTRACT_MAX_TOKENS = 12_000
 _SOV_LITEPARSE_THRESHOLD_PAGES = 0   # always OCR — LiteParse silently drops table rows
 _SOV_OCR_MAX_PAGES = 80          # truncate large docs before OCR
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
+# Max rows to attempt in a single LLM pass (output token budget constraint)
+# 32K output tokens / ~650 tokens per row (46 fields) ≈ 50 rows safe limit
+_MAX_ROWS_PER_PASS = 50
 
 
 @dataclass
@@ -309,7 +312,7 @@ async def _select_sections(
         f"Requested fields:\n{_fields_block(fields)}\n\n"
         + (f"User instructions:\n{instructions.strip()}\n\n" if instructions.strip() else "")
         + f"Candidate OCR pages:\n{json.dumps(section_payload, ensure_ascii=True)}\n\n"
-        'Return exactly: {"keep_indices": [<page index>, ...]}'
+        'Return a JSON object with exactly this structure: {"keep_indices": [<page index>, ...]}'
     )
 
     keep_indices: set[int] = set()
@@ -663,6 +666,74 @@ async def _two_pass_extract(
     return merged
 
 
+async def _batched_extract(
+    doc: ParsedDocument,
+    fields: List[Dict[str, str]],
+    sections: list[SOVSection],
+    pages_text_by_num: dict[int, str],
+    table_hint: str,
+    usage: LLMUsage,
+    total_expected_rows: int,
+    instructions: str,
+) -> List[Dict[str, Any]]:
+    """
+    For large documents (>_MAX_ROWS_PER_PASS expected rows), split sections into
+    page batches and extract each batch independently, then concatenate.
+    """
+    field_names = [f["name"] for f in fields]
+    # Estimate rows per section (page) and group into batches of ~_MAX_ROWS_PER_PASS rows
+    rows_per_section = max(1, total_expected_rows // max(1, len(sections)))
+    sections_per_batch = max(1, _MAX_ROWS_PER_PASS // max(1, rows_per_section))
+
+    # Build page batches
+    batches: list[list[SOVSection]] = []
+    for i in range(0, len(sections), sections_per_batch):
+        batches.append(sections[i : i + sections_per_batch])
+
+    logger.info(
+        "SOV batched extraction for %s: %d sections → %d batches × ~%d rows/batch",
+        doc.filename, len(sections), len(batches), rows_per_section * sections_per_batch,
+    )
+
+    all_rows: list[dict] = []
+    for batch_idx, batch_sections in enumerate(batches):
+        batch_text = "\n\n".join(s.content for s in batch_sections).strip()
+        batch_pages = {s.page_num for s in batch_sections}
+        batch_tables = [t for t in doc.tables if t.page_num in batch_pages]
+        batch_tables_md = "\n\n".join(
+            f"[Table - page {t.page_num}, {t.row_count}x{t.col_count}]\n{t.markdown}"
+            for t in batch_tables
+        )
+        batch_headers = "\n".join(
+            f"- page {s.page_num}: header={json.dumps(s.header or '', ensure_ascii=True)} — {s.preview}"
+            for s in batch_sections
+        )
+        batch_expected = rows_per_section * len(batch_sections)
+
+        logger.info(
+            "SOV batch %d/%d for %s: pages=%s, expected_rows≈%d",
+            batch_idx + 1, len(batches), doc.filename,
+            sorted(batch_pages), batch_expected,
+        )
+        batch_rows = await _two_pass_extract(
+            doc, fields, batch_text, batch_headers,
+            batch_tables_md, table_hint, usage, batch_expected,
+            instructions,
+        )
+        real_batch = [r for r in batch_rows if not r.get("_error")]
+        all_rows.extend(real_batch)
+        logger.info(
+            "SOV batch %d/%d done: %d rows (running total: %d)",
+            batch_idx + 1, len(batches), len(real_batch), len(all_rows),
+        )
+
+    logger.info(
+        "SOV batched extraction complete for %s: %d total rows from %d batches",
+        doc.filename, len(all_rows), len(batches),
+    )
+    return all_rows if all_rows else _empty([doc.filename], field_names)
+
+
 async def extract_sov_from_document(
     doc: ParsedDocument,
     fields: List[Dict[str, str]],
@@ -688,7 +759,9 @@ async def extract_sov_from_document(
     selected_tables = doc.tables
     trimmed_text = ""
     selected_headers = ""
+    page_sections: list[SOVSection] = []  # per-page sections for batching
 
+    ocr_succeeded = False
     if use_ocr:
         try:
             ocr_result = await run_mistral_ocr(
@@ -699,10 +772,14 @@ async def extract_sov_from_document(
                 "Dedicated SOV OCR complete for %s: %d pages, %d chars, $%.4f",
                 doc.filename, ocr_result.page_count, len(ocr_result.text), ocr_result.cost_usd,
             )
+            ocr_succeeded = True
         except Exception as exc:
-            logger.error("Dedicated SOV OCR failed for %s: %s", doc.filename, exc)
-            return _error([doc.filename], field_names, f"SOV OCR failed: {exc}")
+            logger.warning(
+                "Dedicated SOV OCR failed for %s: %s — falling back to LiteParse",
+                doc.filename, exc,
+            )
 
+    if use_ocr and ocr_succeeded:
         sections = _build_sections_from_ocr_pages(ocr_result.pages)
         selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
         kept_pages = {section.page_num for section in selected_sections}
@@ -712,6 +789,7 @@ async def extract_sov_from_document(
             kept_pages = {page.page_num for page in ocr_result.pages}
             selected_sections = sections
 
+        page_sections = selected_sections
         trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
         if not trimmed_text:
             trimmed_text = ocr_result.text
@@ -749,8 +827,36 @@ async def extract_sov_from_document(
             "- full document kept\n"
             f"- LiteParse (page_count={doc.page_count}, scanned={doc.is_scanned})"
         )
+        # Build pseudo-sections from parsed pages for batching support
+        page_sections = [
+            SOVSection(
+                index=i + 1,
+                page_num=page.page_num,
+                header="",
+                preview=page.text[:100] if page.text else "",
+                content=f"=== Page {page.page_num} ===\n{page.text}",
+            )
+            for i, page in enumerate(doc.pages)
+        ]
 
     # ── Compress + build table context ─────────────────────────────────────────
+    table_hint = build_table_column_hint(selected_tables)
+    expected_rows = _estimate_expected_rows(doc, kept_pages)
+
+    # ── Route: batched extraction for large documents ──────────────────────────
+    if expected_rows is not None and expected_rows > _MAX_ROWS_PER_PASS and page_sections:
+        # Use page-batched extraction — avoids output token cap truncating large schedules
+        logger.info(
+            "SOV switching to batched extraction for %s: expected_rows=%d > %d",
+            doc.filename, expected_rows, _MAX_ROWS_PER_PASS,
+        )
+        rows = await _batched_extract(
+            doc, fields, page_sections, {},
+            table_hint, usage, expected_rows, instructions,
+        )
+        return rows if rows else _empty([doc.filename], field_names)
+
+    # ── Standard single-pass for normal-sized documents ────────────────────────
     trimmed_text = await _maybe_compress_with_bear(
         trimmed_text, doc.page_count, usage, f"{doc.filename} SOV trimmed text"
     )
@@ -760,8 +866,6 @@ async def extract_sov_from_document(
         usage,
         f"{doc.filename} SOV kept tables",
     )
-    table_hint = build_table_column_hint(selected_tables)
-    expected_rows = _estimate_expected_rows(doc, kept_pages)
 
     rows = await _two_pass_extract(
         doc, fields, trimmed_text, selected_headers,
