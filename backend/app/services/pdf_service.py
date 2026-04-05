@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
@@ -182,6 +183,60 @@ _EMAIL_EXTENSIONS = {".eml", ".emlx"}
 _OUTLOOK_EXTENSIONS = {".msg"}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff", ".bmp", ".webp"}
 
+_DOCUMENT_ATTACHMENT_EXTS = {".pdf", ".txt", ".csv", ".md", ".xlsx", ".xls", ".xlsm"}
+
+
+def _parse_attachment(att_name: str, att_data: bytes) -> "ParsedDocument | None":
+    """Write attachment bytes to a temp file and parse through the full parse_pdf pipeline."""
+    ext = os.path.splitext(att_name.lower())[1]
+    if ext not in _DOCUMENT_ATTACHMENT_EXTS:
+        return None
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=ext)
+        with os.fdopen(fd, "wb") as f:
+            f.write(att_data)
+        return parse_pdf(tmp_path, att_name)
+    except Exception as e:
+        logger.warning("Failed to parse email attachment %s: %s", att_name, e)
+        return None
+
+
+def _merge_attachment_into(base_text_parts: list, attachment_docs: list) -> "tuple[bool, str | None]":
+    """
+    Return (any_scanned, merged_pdf_path_or_None).
+    Appends attachment content_text into base_text_parts in place.
+    If any attachment is scanned, merges all scanned PDFs into one temp file for OCR.
+    """
+    any_scanned = False
+    scanned_paths: list[str] = []
+
+    for att_doc in attachment_docs:
+        if att_doc.content_text:
+            base_text_parts.append(att_doc.content_text)
+        if att_doc.is_scanned and att_doc.file_path:
+            any_scanned = True
+            scanned_paths.append(att_doc.file_path)
+
+    if not any_scanned:
+        return False, None
+
+    # Merge all scanned attachment PDFs into one file so the SOV OCR path can process them
+    try:
+        merged = fitz.open()
+        for path in scanned_paths:
+            src = fitz.open(path)
+            merged.insert_pdf(src)
+            src.close()
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            merged.save(tmp.name)
+            merged_path = tmp.name
+        merged.close()
+        return True, merged_path
+    except Exception as e:
+        logger.warning("Failed to merge scanned attachment PDFs: %s", e)
+        return True, scanned_paths[0] if scanned_paths else None
+
 
 def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     """
@@ -246,20 +301,27 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
                     if body_text:
                         text_parts.append(body_text)
 
-                    attachment_names = []
+                    attachment_docs: list = []
                     for attachment in message.attachments:
-                        attachment_name = (
+                        att_name = str(
                             getattr(attachment, "longFilename", None)
                             or getattr(attachment, "shortFilename", None)
                             or getattr(attachment, "displayName", None)
                             or getattr(attachment, "name", None)
+                            or ""
                         )
-                        if attachment_name:
-                            attachment_names.append(str(attachment_name))
-                    if attachment_names:
-                        text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+                        att_data = getattr(attachment, "data", None)
+                        if att_name and att_data:
+                            att_doc = _parse_attachment(att_name, att_data)
+                            if att_doc:
+                                attachment_docs.append(att_doc)
+                    any_scanned, merged_path = _merge_attachment_into(text_parts, attachment_docs)
                     if text_parts:
                         text = "\n\n".join(text_parts).strip()
+                    if any_scanned and merged_path:
+                        # Return early with the scanned merged PDF so the SOV pipeline can OCR it
+                        message.close()
+                        return parse_pdf(merged_path, filename)
                 finally:
                     message.close()
             except Exception:
@@ -289,14 +351,17 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
 
                 plain_parts: list[str] = []
                 html_parts: list[str] = []
-                attachment_names: list[str] = []
+                attachment_docs: list = []
                 for part in (message.walk() if message.is_multipart() else [message]):
                     disposition = part.get_content_disposition()
                     content_type = part.get_content_type()
                     if disposition == "attachment":
-                        attachment_name = part.get_filename()
-                        if attachment_name:
-                            attachment_names.append(attachment_name)
+                        att_name = part.get_filename() or ""
+                        att_data = part.get_payload(decode=True)
+                        if att_name and att_data:
+                            att_doc = _parse_attachment(att_name, att_data)
+                            if att_doc:
+                                attachment_docs.append(att_doc)
                         continue
                     if not content_type.startswith("text/"):
                         continue
@@ -325,8 +390,10 @@ def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
 
                 if body_text:
                     text_parts.append(body_text)
-                if attachment_names:
-                    text_parts.append("Attachments:\n" + "\n".join(f"- {name}" for name in attachment_names))
+
+                any_scanned, merged_path = _merge_attachment_into(text_parts, attachment_docs)
+                if any_scanned and merged_path:
+                    return parse_pdf(merged_path, filename)
                 if text_parts:
                     text = "\n\n".join(text_parts).strip()
             except Exception:
