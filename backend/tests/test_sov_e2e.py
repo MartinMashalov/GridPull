@@ -9,7 +9,7 @@ Also tests diverse field-name variations to ensure robustness.
 
 Usage:
     cd backend
-    python tests/test_sov_e2e.py [--files 01 02 03 04 05] [--skip-extraction] [--cerebras]
+    python tests/test_sov_e2e.py [--files 01 02 03 04 05] [--skip-extraction]
 """
 from __future__ import annotations
 
@@ -68,18 +68,54 @@ TEST_FILES = {
 # ──────────────────────────────────────────────────────────────────────────────
 
 FIELD_SETS = {
+    # Matches the exact SOV_LOCATIONS preset in frontend/src/components/ExtractionFieldsModal.tsx
     "frontend_defaults": [
-        {"name": "Location Number", "description": "Extract the schedule location identifier exactly as shown."},
-        {"name": "Address Line 1", "description": "Extract the primary street address for the insured location."},
-        {"name": "City", "description": "Extract only the city name tied to the location address."},
-        {"name": "State", "description": "Extract the state or province code, preferring postal abbreviation."},
-        {"name": "ZIP Code", "description": "Extract the postal code for the location exactly as displayed."},
-        {"name": "Construction Class", "description": "Extract the insurance construction classification."},
-        {"name": "Year Built", "description": "Extract the original year of construction for the building."},
-        {"name": "Building Value", "description": "Extract the insured building amount for the location."},
-        {"name": "Contents / BPP Value", "description": "Extract the insured contents or business personal property amount."},
-        {"name": "Business Income Value", "description": "Extract the business income or time-element insured amount."},
-        {"name": "Total Insured Value", "description": "Extract the total insured value for the location."},
+        {"name": "Loc #", "description": "Extract the location identifier exactly as shown for each schedule row (for example: 1, 01, A1). Keep letters, symbols, and leading zeros exactly as printed."},
+        {"name": "Bldg #", "description": "Extract the building number for the location exactly as shown in the schedule. Do not infer or renumber buildings; copy the literal value from the row."},
+        {"name": "Location Name", "description": "Extract the site or building name used by underwriting (for example: MB1, North Warehouse). If no distinct name is present, derive from the location identifier (for example: 'Location 1' if Loc# is 1)."},
+        {"name": "Occupancy/Exposure", "description": "Extract the occupancy/exposure classification text exactly as presented (for example: 4 Unit Apartment, Retail Strip, Light Manufacturing). Do not summarize or rewrite."},
+        {"name": "Street Address", "description": "Extract the street address line for the insured premises. Keep suite/unit/building details when present, but do not include city/state/zip in this field unless the source combines them into one cell."},
+        {"name": "City", "description": "Extract the city for the insured location exactly as listed in the schedule row."},
+        {"name": "State", "description": "Extract the state value exactly as shown (postal abbreviation preferred when the document uses it). Do not expand or normalize unless already shown that way."},
+        {"name": "Zip", "description": "Extract the ZIP/postal code exactly as shown, including ZIP+4 when present."},
+        {"name": "County", "description": "Extract the county value exactly as shown (for example: St Tam, Cook, Orange). Do not expand abbreviations unless the schedule already expands them."},
+        {"name": "Construction Type", "description": "Extract the construction class/type used in underwriting (for example: Frame, Joisted Masonry, Non-Combustible). Keep the schedule wording as-is."},
+        {"name": "ISO Construction Code", "description": "Extract the ISO construction code exactly as shown (for example: F, JM, NC, 1-6). Preserve code formatting and symbols."},
+        {"name": "Building Values", "description": "Extract the building limit/value amount for the row. Keep the currency format shown in the source unless the source is plain numeric."},
+        {"name": "Contents/BPP Values", "description": "Extract the contents/business personal property value for the row. Use the exact value shown for that coverage bucket."},
+        {"name": "Business Income Values", "description": "Extract the business income/time element value exactly as shown for the location row."},
+        {"name": "Machinery & Equipment Values", "description": "Extract the machinery and equipment value exactly as shown for the row. Do not merge this into contents unless the source itself combines them."},
+        {"name": "Other Property Values", "description": "Extract the other property value exactly as presented for the row."},
+        {"name": "Total Insurable Value (TIV)", "description": "Extract the total insurable value for this row. In property schedules this column is typically labeled 'TIV' — map that column directly to this field. Use the exact requested field name as the JSON key, not the document abbreviation. Only calculate from components (Building + BPP + BI/EE) if no explicit TIV total is shown."},
+        {"name": "Square Ft.", "description": "Extract the insured area in square feet exactly as shown. Keep separators and decimals when present."},
+        {"name": "Cost Per Square Ft.", "description": "Extract cost per square foot exactly as shown (for example: $89, 89.25). Keep currency symbol if present in the schedule."},
+        {"name": "Year Built", "description": "Extract original year built for the building row. Return the year value shown in the schedule."},
+        {"name": "Roof Update", "description": "Extract the roof update year or indicator exactly as shown for the location."},
+        {"name": "Wiring Update", "description": "Extract the wiring update year or indicator exactly as shown for the location."},
+        {"name": "HVAC Update", "description": "Extract the HVAC update year or indicator exactly as shown for the location."},
+        {"name": "Plumbing Update", "description": "Extract the plumbing update year or indicator exactly as shown for the location."},
+        {"name": "% Occupied", "description": "Extract occupancy percentage exactly as shown (for example: 100%, 85%). Keep percent signs and formatting."},
+        {"name": "Sprinklered", "description": "Extract sprinkler status exactly as shown (for example: Y/N, Yes/No, Partial). Do not reinterpret unless the value is obviously equivalent in the same row."},
+        {"name": "% Sprinklered", "description": "Extract sprinkler percentage exactly as shown (for example: 0%, 50%, 100%)."},
+        {"name": "ISO Protection Class", "description": "Extract ISO protection class exactly as shown in the row (for example: 2, 3/9X). Keep slashes, letters, and symbols."},
+        {"name": "Fire Alarm", "description": "Extract fire alarm indicator exactly as shown (for example: Y/N, Central Station, Local)."},
+        {"name": "Burglar Alarm", "description": "Extract burglar alarm indicator exactly as shown (for example: Y/N, Central Station, Local)."},
+        {"name": "Smoke Detectors", "description": "Extract smoke detector indicator/status exactly as shown for the row."},
+        {"name": "# of Stories", "description": "Extract number of stories exactly as shown (for example: 1, 2, 1.5)."},
+        {"name": "# of Units", "description": "Extract number of units exactly as shown in the row."},
+        {"name": "Type of Wiring", "description": "Extract type of wiring code or text exactly as shown (for example: C, Copper, Aluminum)."},
+        {"name": "% Subsidized", "description": "Extract subsidized occupancy percentage exactly as shown, including percent sign when present."},
+        {"name": "% Student Housing", "description": "Extract student housing percentage exactly as shown, including percent sign when present."},
+        {"name": "% Elderly Housing", "description": "Extract elderly housing percentage exactly as shown, including percent sign when present."},
+        {"name": "Roof Type/Frame", "description": "Extract roof type/frame value exactly as shown (for example: Frame, Truss, Metal Deck)."},
+        {"name": "Roof Shape", "description": "Extract roof shape code/text exactly as shown (for example: H, Gable, Flat)."},
+        {"name": "Flood Zone", "description": "Extract FEMA flood zone exactly as shown (for example: X, AE, VE, A). Preserve code formatting."},
+        {"name": "EQ Zone", "description": "Extract earthquake zone code/classification exactly as shown in the schedule row (for example: 0, 1, 2, A, B, C, X). Copy the literal code from the document and do not translate, interpret, or recode it."},
+        {"name": "Distance to Salt Water/Coast", "description": "Extract the distance-to-coast value exactly as shown, including unit/format if present (for example: 60, 60 mi, 2.5 miles)."},
+        {"name": "Property Owned or Managed", "description": "Extract owned/managed indicator exactly as shown (for example: O, M, Owned, Managed)."},
+        {"name": "Bldg Maintenance", "description": "Extract building maintenance indicator/class exactly as shown (for example: G, Average, Good)."},
+        {"name": "Basement", "description": "Extract basement indicator exactly as shown (for example: Y/N, None, Partial, Full)."},
+        {"name": "Predominant Exterior Wall / Cladding", "description": "Extract predominant exterior wall/cladding material exactly as shown (for example: Wood Siding, Brick Veneer, EIFS)."},
     ],
     "abbreviated": [
         {"name": "Loc #", "description": "Location or property number/ID"},
@@ -246,7 +282,6 @@ def print_extraction_report(
 async def test_create_from_scratch(
     file_key: str,
     field_set_name: str,
-    use_cerebras: bool = False,
 ) -> dict | None:
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -259,8 +294,7 @@ async def test_create_from_scratch(
     print(f"\n{BOLD}{'═' * 72}{RESET}")
     print(f"{BOLD}  SCENARIO 1: Create from Scratch{RESET}")
     print(f"  File: {path.name}")
-    mode_label = f" {CYAN}[CEREBRAS]{RESET}" if use_cerebras else ""
-    print(f"  Field set: {field_set_name} ({len(fields)} fields){mode_label}")
+    print(f"  Field set: {field_set_name} ({len(fields)} fields)")
     print(f"{BOLD}{'═' * 72}{RESET}")
 
     parsed = parse_pdf(str(path), path.name)
@@ -268,12 +302,11 @@ async def test_create_from_scratch(
 
     usage = LLMUsage()
     t0 = time.perf_counter()
-    rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
+    rows = await extract_from_document(parsed, fields, usage)
     elapsed = time.perf_counter() - t0
 
     report = print_extraction_report(rows, field_names, expected, "Extraction", elapsed, usage.cost_usd)
     report["elapsed_s"] = elapsed
-    report["mode"] = "cerebras" if use_cerebras else "openai"
 
     real_rows = [r for r in rows if not r.get("_error")]
     if not real_rows:
@@ -317,11 +350,88 @@ async def test_create_from_scratch(
     return report
 
 
+async def test_with_fixture_baseline(
+    file_key: str,
+    baseline_path: Path,
+    field_set_name: str,
+) -> dict | None:
+    """Extract from PDF and update the pre-built fixture baseline spreadsheet."""
+    path, expected = TEST_FILES[file_key]
+    if not path.exists():
+        print(f"{RED}  File not found: {path}{RESET}")
+        return None
+    if not baseline_path.exists():
+        print(f"{RED}  Baseline not found: {baseline_path}{RESET}")
+        return None
+
+    fields = FIELD_SETS[field_set_name]
+    field_names = [f["name"] for f in fields]
+
+    print(f"\n{BOLD}{'═' * 72}{RESET}")
+    print(f"{BOLD}  SCENARIO 3: Update Fixture Baseline Spreadsheet{RESET}")
+    print(f"  PDF:      {path.name}")
+    print(f"  Baseline: {baseline_path.name}  ({len(field_names)} fields)")
+    print(f"{BOLD}{'═' * 72}{RESET}")
+
+    parsed = parse_pdf(str(path), path.name)
+    usage = LLMUsage()
+    t0 = time.perf_counter()
+    rows = await extract_from_document(parsed, fields, usage)
+    elapsed = time.perf_counter() - t0
+
+    real_rows = [r for r in rows if not r.get("_error")]
+    report = print_extraction_report(rows, field_names, expected, "Extraction", elapsed, usage.cost_usd)
+    report["elapsed_s"] = elapsed
+
+    if not real_rows:
+        print(f"  {RED}No rows extracted — skipping baseline update{RESET}")
+        return report
+
+    baseline_bytes = baseline_path.read_bytes()
+    updated = update_excel_baseline_bytes(baseline_bytes, real_rows, field_names, allow_edit_past_values=True)
+
+    wb = openpyxl.load_workbook(io.BytesIO(updated))
+    ws = wb.active
+    data_rows = ws.max_row - 1
+    status_col = next(
+        (c for c in range(1, ws.max_column + 1) if ws.cell(row=1, column=c).value == "GridPull Status"),
+        None,
+    )
+    statuses: dict[str, int] = {}
+    if status_col:
+        for r in range(2, ws.max_row + 1):
+            val = ws.cell(row=r, column=status_col).value or ""
+            statuses[val] = statuses.get(val, 0) + 1
+
+    print(f"\n  {CYAN}Updated baseline:{RESET}")
+    print(f"    Data rows: {data_rows}")
+    print(f"    Status distribution: {statuses}")
+
+    # Key fields spot-check
+    tiv_col = next((c for c in range(1, ws.max_column + 1) if ws.cell(row=1, column=c).value == "Total Insurable Value (TIV)"), None)
+    loc_name_col = next((c for c in range(1, ws.max_column + 1) if ws.cell(row=1, column=c).value == "Location Name"), None)
+
+    tiv_filled = sum(1 for r in range(2, ws.max_row + 1) if tiv_col and ws.cell(row=r, column=tiv_col).value) if tiv_col else 0
+    loc_filled = sum(1 for r in range(2, ws.max_row + 1) if loc_name_col and ws.cell(row=r, column=loc_name_col).value) if loc_name_col else 0
+
+    print(f"    TIV filled: {tiv_filled}/{data_rows}  {'✓' if tiv_filled > 0 else '✗ STILL NULL'}")
+    print(f"    Location Name filled: {loc_filled}/{data_rows}  {'✓' if loc_filled > 0 else '✗ STILL NULL'}")
+
+    # Save updated file next to the original for manual inspection
+    out_path = baseline_path.parent / baseline_path.name.replace(".xlsx", "_updated.xlsx")
+    out_path.write_bytes(updated)
+    print(f"    Saved updated baseline → {out_path.name}")
+
+    report["tiv_filled"] = tiv_filled
+    report["loc_name_filled"] = loc_filled
+    report["baseline_rows"] = data_rows
+    return report
+
+
 async def test_baseline_update(
     file_key: str,
     field_set_name: str,
     extracted_rows: List[Dict[str, Any]] | None = None,
-    use_cerebras: bool = False,
 ) -> dict | None:
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -341,7 +451,7 @@ async def test_baseline_update(
         parsed = parse_pdf(str(path), path.name)
         usage = LLMUsage()
         t0 = time.perf_counter()
-        rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
+        rows = await extract_from_document(parsed, fields, usage)
         elapsed = time.perf_counter() - t0
         extracted_rows = [r for r in rows if not r.get("_error")]
         print(f"  Extracted {len(extracted_rows)} rows in {elapsed:.1f}s (${usage.cost_usd:.6f})")
@@ -496,7 +606,7 @@ async def test_baseline_update(
     }
 
 
-async def test_multi_field_set_extraction(file_key: str, use_cerebras: bool = False) -> list:
+async def test_multi_field_set_extraction(file_key: str) -> list:
     """Run extraction against the same file with all applicable field sets."""
     path, expected = TEST_FILES[file_key]
     if not path.exists():
@@ -520,7 +630,7 @@ async def test_multi_field_set_extraction(file_key: str, use_cerebras: bool = Fa
         field_names = [f["name"] for f in fields]
         usage = LLMUsage()
         t0 = time.perf_counter()
-        rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
+        rows = await extract_from_document(parsed, fields, usage)
         elapsed = time.perf_counter() - t0
         report = print_extraction_report(rows, field_names, expected, f"Fields: {fs_name}", elapsed, usage.cost_usd)
         report["field_set"] = fs_name
@@ -535,48 +645,50 @@ async def main() -> None:
     parser.add_argument("--files", nargs="*", default=None, help="File keys to test (01-05). Default: all available")
     parser.add_argument("--skip-extraction", action="store_true", help="Skip full extraction, only test spreadsheet logic")
     parser.add_argument("--robustness", action="store_true", help="Run multi-field-set robustness tests")
-    parser.add_argument("--cerebras", action="store_true", help="Use Cerebras oss-120b with fallback to OpenAI")
     args = parser.parse_args()
 
-    use_cerebras = args.cerebras
     file_keys = args.files or [k for k in TEST_FILES if TEST_FILES[k][0].exists()]
     if not file_keys:
         print(f"{RED}No test files available{RESET}")
         return
 
-    mode_str = f" {CYAN}[CEREBRAS MODE]{RESET}" if use_cerebras else ""
     print(f"\n{BOLD}{'█' * 72}{RESET}")
-    print(f"{BOLD}  SOV End-to-End Test Suite{mode_str}{RESET}")
+    print(f"{BOLD}  SOV End-to-End Test Suite{RESET}")
     print(f"  Files: {file_keys}")
     print(f"  Skip extraction: {args.skip_extraction}")
-    if use_cerebras:
-        from app.config import settings as _cfg
-        keys_available = sum(1 for k in (_cfg.cerebras_api_key, _cfg.cerebras_api_key2, _cfg.cerebras_api_key3) if k)
-        print(f"  Cerebras model: {_cfg.cerebras_model}  API keys: {keys_available}")
     print(f"{BOLD}{'█' * 72}{RESET}")
 
     all_results: Dict[str, Any] = {}
 
+    # Fixture baselines: pre-built spreadsheets for specific test files
+    FIXTURE_BASELINES = {
+        "01": _BACKEND / "test_files" / "01_baseline_25_buildings.xlsx",
+    }
+
     if not args.skip_extraction:
         for key in file_keys:
             fs_name = RECOMMENDED_FIELD_SET_PER_FILE.get(key, "frontend_defaults")
-            report1 = await test_create_from_scratch(key, fs_name, use_cerebras=use_cerebras)
+            report1 = await test_create_from_scratch(key, fs_name)
             all_results[f"create_{key}_{fs_name}"] = report1
 
-            if report1 and report1.get("rows", 0) > 2:
+            # Scenario 3: update the fixture baseline if one exists for this file
+            if key in FIXTURE_BASELINES:
+                report3 = await test_with_fixture_baseline(key, FIXTURE_BASELINES[key], fs_name)
+                all_results[f"fixture_{key}"] = report3
+            elif report1 and report1.get("rows", 0) > 2:
                 path, expected = TEST_FILES[key]
                 fields = FIELD_SETS[fs_name]
                 field_names = [f["name"] for f in fields]
                 parsed = parse_pdf(str(path), path.name)
                 usage = LLMUsage()
-                rows = await extract_from_document(parsed, fields, usage, use_cerebras=use_cerebras)
+                rows = await extract_from_document(parsed, fields, usage)
                 real_rows = [r for r in rows if not r.get("_error")]
-                report2 = await test_baseline_update(key, fs_name, real_rows, use_cerebras=use_cerebras)
+                report2 = await test_baseline_update(key, fs_name, real_rows)
                 all_results[f"update_{key}_{fs_name}"] = report2
 
         if args.robustness:
             for key in file_keys:
-                robustness = await test_multi_field_set_extraction(key, use_cerebras=use_cerebras)
+                robustness = await test_multi_field_set_extraction(key)
                 all_results[f"robustness_{key}"] = robustness
     else:
         print(f"\n{YELLOW}  Skipping extraction, testing spreadsheet logic only{RESET}")
