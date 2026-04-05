@@ -387,10 +387,12 @@ export default function LandingPage() {
     } catch (err: any) {
       console.error('Microsoft login error:', err)
       if (err.errorCode === 'interaction_in_progress') {
-        setLoginError('A sign-in is already in progress. Please wait or refresh the page.')
-      } else {
-        setLoginError('Microsoft login failed. Please try again.')
+        // Clear stale MSAL state and retry
+        sessionStorage.clear()
+        window.location.reload()
+        return
       }
+      setLoginError('Microsoft login failed. Please try again.')
       trackEvent('login_error', { method: 'microsoft', error: err.errorCode || 'unknown' })
     }
   }, [])

@@ -114,7 +114,8 @@ export default function OtherUseCasesPage() {
       await msalReady
       await msalInstance.loginRedirect({ scopes: ['User.Read', 'openid', 'profile', 'email'] })
     } catch (err: any) {
-      setLoginError(err.errorCode === 'interaction_in_progress' ? 'A sign-in is already in progress.' : 'Microsoft login failed.')
+      if (err.errorCode === 'interaction_in_progress') { sessionStorage.clear(); window.location.reload(); return }
+      setLoginError('Microsoft login failed.')
     }
   }, [])
 
