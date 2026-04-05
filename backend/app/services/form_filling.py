@@ -320,8 +320,16 @@ def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
         if t == "text":
             lines.append(f'  "{name}": text')
         elif t == "checkbox":
-            # Surface the readable label for XFA-style full-path field names
-            short = name.split('.')[-1].replace('[0]', '').strip()
+            # Surface the readable label for XFA-style full-path field names.
+            # Strip trailing numeric array indices (e.g. [0], [1]) from the last segment.
+            short = name.split('.')[-1]
+            while short.endswith(']') and '[' in short:
+                bracket = short.rfind('[')
+                if short[bracket + 1:-1].isdigit():
+                    short = short[:bracket]
+                else:
+                    break
+            short = short.strip()
             label_hint = f' [label: "{short}"]' if short and short != name else ''
             lines.append(f'  "{name}": checkbox{label_hint} — respond with "Yes" or "No"')
         elif t == "dropdown":
@@ -362,8 +370,8 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
 RULES:
 1. Return a single flat JSON object with field names as keys and string values.
 2. For checkbox fields: return "Yes" or "No" only. Use the [label] hint to understand what the checkbox represents.
-   - If the label describes something clearly present/applicable in the source (e.g. label "Sealed" when source mentions "Sealed Bid"), return "Yes".
-   - If the label describes something clearly absent or inapplicable, return "No".
+   - If the label describes something that is clearly present, applicable, or confirmed in the source, return "Yes".
+   - If the label describes something that is clearly absent, inapplicable, or contradicted by the source, return "No".
    - For ambiguous checkboxes with no relevant source data, return "No" as a conservative default.
 3. For dropdown fields: return exactly one of the listed options.
 4. For text fields: fill with the best matching value from the source. Use inference when an exact match isn't present:
