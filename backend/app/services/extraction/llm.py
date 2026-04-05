@@ -384,6 +384,18 @@ def finalize_property_schedule_rows(
             "Schedule deduplication: %d rows -> %d",
             len(rows), len(out),
         )
+
+    # Post-process: derive Location Name from Loc # when absent
+    if "Location Name" in field_names and "Loc #" in field_names:
+        for row in out:
+            if row.get("_error"):
+                continue
+            loc_name = row.get("Location Name")
+            if loc_name is None or str(loc_name).strip().lower() in ("", "null", "none", "n/a", "na", "-"):
+                loc_num = row.get("Loc #")
+                if loc_num is not None and str(loc_num).strip().lower() not in ("", "null", "none", "n/a", "na", "-"):
+                    row["Location Name"] = f"Location {str(loc_num).strip()}"
+
     return out
 
 

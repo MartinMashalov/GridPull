@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import random
 import re
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
-
-from openai import AsyncOpenAI
 
 from app.config import settings
 from app.services.llm_router import routed_acompletion
@@ -174,108 +169,51 @@ def _parse_json_content(content: Any) -> dict[str, Any]:
     raise last_exc or json.JSONDecodeError("No JSON object found", cleaned, 0)
 
 
-def _pick_cerebras_api_key() -> str:
-    keys = [k for k in (settings.cerebras_api_key, settings.cerebras_api_key2, settings.cerebras_api_key3) if k]
-    return random.choice(keys) if keys else ""
-
-
-async def _cerebras_acompletion(
-    messages: list[dict[str, str]],
-    usage: LLMUsage,
-    max_tokens: int,
-) -> dict[str, Any] | None:
-    api_key = _pick_cerebras_api_key()
-    if not api_key:
-        return None
-
-    model = settings.cerebras_model
-    max_retries = 4
-
-    # Cerebras exposes an OpenAI-compatible API
-    cerebras_model = model.removeprefix("cerebras/")
-
-    for attempt in range(max_retries):
-        try:
-            t0 = time.perf_counter()
-            client = AsyncOpenAI(
-                base_url="https://api.cerebras.ai/v1",
-                api_key=api_key,
-            )
-            resp = await client.chat.completions.create(
-                model=cerebras_model,
-                messages=messages,
-                temperature=0,
-                max_tokens=max_tokens,
-            )
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-            if resp.usage:
-                usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-            record_llm_usage_cost(usage, resp)
-            parsed = _parse_json_content(resp.choices[0].message.content)
-            logger.info(
-                "Cerebras %s succeeded in %.0fms (attempt %d/%d, in=%d out=%d)",
-                model, elapsed_ms, attempt + 1, max_retries,
-                resp.usage.prompt_tokens if resp.usage else 0,
-                resp.usage.completion_tokens if resp.usage else 0,
-            )
-            return parsed
-        except json.JSONDecodeError as exc:
-            logger.warning("Cerebras %s returned malformed JSON (attempt %d/%d): %s", model, attempt + 1, max_retries, exc)
-            api_key = _pick_cerebras_api_key()
-            continue
-        except Exception as exc:
-            err_str = str(exc).lower()
-            is_capacity = any(kw in err_str for kw in ("capacity", "rate", "limit", "overloaded", "503", "529", "too many", "quota"))
-            if is_capacity and attempt < max_retries - 1:
-                wait = 2 ** attempt + random.random()
-                logger.warning("Cerebras %s capacity issue (attempt %d/%d), retrying in %.1fs: %s", model, attempt + 1, max_retries, wait, exc)
-                api_key = _pick_cerebras_api_key()
-                await asyncio.sleep(wait)
-                continue
-            logger.warning("Cerebras %s failed (attempt %d/%d): %s", model, attempt + 1, max_retries, exc)
-            return None
-
-    return None
-
-
 async def _acompletion(
     model: str,
     messages: list[dict[str, str]],
     usage: LLMUsage,
     max_tokens: int,
 ) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0,
-        "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
-    }
+    backup = settings.sov_backup_model
+    models_to_try = [model]
+    if backup and backup != model:
+        models_to_try.append(backup)
 
     last_exc: Exception | None = None
-    for with_response_format in (True, False):
-        for attempt in range(2):
-            try:
-                call_kwargs = dict(kwargs)
-                if not with_response_format:
-                    call_kwargs.pop("response_format", None)
-                resp = await routed_acompletion(route_profile="extraction", **call_kwargs)
-                if resp.usage:
-                    usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
-                record_llm_usage_cost(usage, resp)
-                return _parse_json_content(resp.choices[0].message.content)
-            except json.JSONDecodeError as exc:
-                last_exc = exc
-                if attempt == 0:
-                    logger.warning(
-                        "SOV model %s returned malformed JSON; retrying once (%s response_format)",
-                        model,
-                        "with" if with_response_format else "without",
-                    )
-                    continue
-            except Exception as exc:
-                last_exc = exc
-                break
+    for try_model in models_to_try:
+        kwargs: dict[str, Any] = {
+            "model": try_model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        for with_response_format in (True, False):
+            for attempt in range(2):
+                try:
+                    call_kwargs = dict(kwargs)
+                    if not with_response_format:
+                        call_kwargs.pop("response_format", None)
+                    resp = await routed_acompletion(route_profile="extraction", **call_kwargs)
+                    if resp.usage:
+                        usage.add(resp.usage.prompt_tokens, resp.usage.completion_tokens)
+                    record_llm_usage_cost(usage, resp)
+                    return _parse_json_content(resp.choices[0].message.content)
+                except json.JSONDecodeError as exc:
+                    last_exc = exc
+                    if attempt == 0:
+                        logger.warning(
+                            "SOV model %s returned malformed JSON; retrying once (%s response_format)",
+                            try_model,
+                            "with" if with_response_format else "without",
+                        )
+                        continue
+                except Exception as exc:
+                    last_exc = exc
+                    if try_model != models_to_try[-1]:
+                        logger.warning("SOV model %s failed, trying backup %s: %s", try_model, models_to_try[-1], exc)
+                    break
 
     raise last_exc or RuntimeError("LLM call failed")
 
@@ -523,6 +461,9 @@ async def _extract_rows(
         "Never emit headers, subtotals, totals, or blank rows.\n"
         "Use null when a field is genuinely absent.\n"
         "Return spreadsheet-ready scalar values only.\n"
+        "CRITICAL — JSON KEYS: Each JSON key MUST be the exact requested field name from the Fields to Extract list above. "
+        "Never use the document's column header abbreviation as the key. "
+        "Example: if the document column is 'TIV' and the requested field is 'Total Insurable Value (TIV)', the key must be 'Total Insurable Value (TIV)'.\n"
         'Return exactly: {"records": [{"Field": "value"}, ...]}'
     )
 

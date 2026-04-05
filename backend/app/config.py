@@ -93,9 +93,10 @@ class Settings(BaseSettings):
     extraction_wide_grid_min_rows: int = 5
     extraction_wide_grid_min_cols: int = 4
 
-    # Dedicated SOV pipeline models. Keep these aligned with the main extraction model.
+    # Dedicated SOV pipeline models.
     sov_section_selector_model: str = "gpt-4.1-mini"
     sov_extraction_model: str = "gpt-4.1-mini"
+    sov_backup_model: str = "gpt-5.4-mini"   # fallback when primary fails
 
     # Stripe
     stripe_secret_key: str = ""

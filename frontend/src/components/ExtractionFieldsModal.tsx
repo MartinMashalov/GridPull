@@ -38,7 +38,7 @@ const SCHEDULE_SUBTYPE_OPTIONS: { id: ScheduleSubtype; label: string }[] = [
 const SOV_LOCATIONS: ExtractionField[] = [
   { name: 'Loc #', description: 'Extract the location identifier exactly as shown for each schedule row (for example: 1, 01, A1). Keep letters, symbols, and leading zeros exactly as printed.' },
   { name: 'Bldg #', description: 'Extract the building number for the location exactly as shown in the schedule. Do not infer or renumber buildings; copy the literal value from the row.' },
-  { name: 'Location Name', description: 'Extract the site or building name used by underwriting (for example: MB1, North Warehouse). Keep abbreviations and naming conventions exactly as shown.' },
+  { name: 'Location Name', description: 'Extract the site or building name used by underwriting (for example: MB1, North Warehouse). If no distinct name is present and the location is identified by number only, derive the name from the location heading or number (for example: "Location 1" if Loc# is 1).' },
   { name: 'Occupancy/Exposure', description: 'Extract the occupancy/exposure classification text exactly as presented (for example: 4 Unit Apartment, Retail Strip, Light Manufacturing). Do not summarize or rewrite.' },
   { name: 'Street Address', description: 'Extract the street address line for the insured premises. Keep suite/unit/building details when present, but do not include city/state/zip in this field unless the source combines them into one cell.' },
   { name: 'City', description: 'Extract the city for the insured location exactly as listed in the schedule row.' },
@@ -52,7 +52,7 @@ const SOV_LOCATIONS: ExtractionField[] = [
   { name: 'Business Income Values', description: 'Extract the business income/time element value exactly as shown for the location row.' },
   { name: 'Machinery & Equipment Values', description: 'Extract the machinery and equipment value exactly as shown for the row. Do not merge this into contents unless the source itself combines them.' },
   { name: 'Other Property Values', description: 'Extract the other property value exactly as presented for the row.' },
-  { name: 'Total Insurable Value (TIV)', description: 'Extract the explicit total insurable value shown for the row. Only calculate from component values if the total is truly absent and all needed components are clearly present in the same row.' },
+  { name: 'Total Insurable Value (TIV)', description: 'Extract the total insurable value for this row. In property schedules this column is typically labeled "TIV" — map that column directly to this field. Use the exact requested field name as the JSON key, not the document abbreviation. Only calculate from components (Building + BPP + BI/EE) if no explicit TIV total is shown.' },
   { name: 'Square Ft.', description: 'Extract the insured area in square feet exactly as shown. Keep separators and decimals when present.' },
   { name: 'Cost Per Square Ft.', description: 'Extract cost per square foot exactly as shown (for example: $89, 89.25). Keep currency symbol if present in the schedule.' },
   { name: 'Year Built', description: 'Extract original year built for the building row. Return the year value shown in the schedule.' },
