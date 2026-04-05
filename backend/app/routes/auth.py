@@ -99,6 +99,7 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
 
     logger.info("Login successful — user_id=%s email=%s balance=$%.6f ip=%s", user.id, user.email, user.balance, client_ip)
 
+    period_end = user.current_period_end.isoformat() if user.current_period_end else None
     return {
         "access_token": token,
         "user": {
@@ -108,6 +109,10 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
             "picture": user.picture,
             "balance": user.balance,
             "has_card": bool(user.stripe_payment_method_id),
+            "subscription_tier": user.subscription_tier or "free",
+            "subscription_status": user.subscription_status or "active",
+            "credits_used_this_period": user.credits_used_this_period or 0,
+            "current_period_end": period_end,
         },
     }
 
@@ -138,6 +143,7 @@ async def microsoft_auth(request: Request, body: MicrosoftAuthRequest, db: Async
 
     logger.info("Login successful — user_id=%s email=%s balance=$%.6f ip=%s", user.id, user.email, user.balance, client_ip)
 
+    period_end = user.current_period_end.isoformat() if user.current_period_end else None
     return {
         "access_token": token,
         "user": {
@@ -147,5 +153,9 @@ async def microsoft_auth(request: Request, body: MicrosoftAuthRequest, db: Async
             "picture": user.picture,
             "balance": user.balance,
             "has_card": bool(user.stripe_payment_method_id),
+            "subscription_tier": user.subscription_tier or "free",
+            "subscription_status": user.subscription_status or "active",
+            "credits_used_this_period": user.credits_used_this_period or 0,
+            "current_period_end": period_end,
         },
     }
