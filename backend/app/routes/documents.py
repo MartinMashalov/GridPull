@@ -173,6 +173,7 @@ async def _enqueue_extraction_job(
 
         if ext in _SPREADSHEET_EXTS:
             page_count = 1
+            uploads_to_save.append((fname, content))
         elif ext in _ALLOWED_EXT:
             if ext == ".pdf":
                 try:

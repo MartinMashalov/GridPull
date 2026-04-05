@@ -9,7 +9,9 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+import secrets as _secrets
+
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,8 +48,16 @@ class EmailIngestPayload(BaseModel):
 
 
 @router.post("/email-ingest")
-async def email_ingest(payload: EmailIngestPayload):
+async def email_ingest(
+    payload: EmailIngestPayload,
+    x_webhook_secret: str = Header(default="", alias="X-Webhook-Secret"),
+):
     """Receive an inbound email, extract attachments, store in S3."""
+    expected_secret = (settings.webhook_ingest_secret or "").strip()
+    if expected_secret:
+        if not x_webhook_secret or not _secrets.compare_digest(x_webhook_secret, expected_secret):
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
     from sqlalchemy import func as sa_func
 
     sender_email = payload.sender.strip().lower()

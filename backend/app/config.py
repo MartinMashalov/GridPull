@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     # Email ingest
     ingest_email_domain: str = "ingest.gridpull.com"
     ingest_universal_email: str = "documents@gridpull.com"
+    webhook_ingest_secret: str = Field(
+        default="",
+        description="Shared secret for POST /webhooks/email-ingest. Set in .env. Leave empty to disable auth check (not recommended in prod).",
+    )
 
     # Gmail IMAP polling (inbound email collection)
     gmail_imap_email: str = ""

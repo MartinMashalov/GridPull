@@ -13,11 +13,16 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 
+_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
 def create_access_token(user_id: str) -> str:
-    """Create JWT token with NO expiration."""
+    """Create JWT token with 30-day expiration."""
+    now = int(time.time())
     payload = {
         "sub": user_id,
-        "iat": int(time.time()),
+        "iat": now,
+        "exp": now + _TOKEN_TTL_SECONDS,
     }
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     logger.debug("JWT created for user_id=%s", user_id)
@@ -25,7 +30,7 @@ def create_access_token(user_id: str) -> str:
 
 
 def verify_token(token: str) -> Optional[str]:
-    """Verify JWT and return user_id. No expiration check."""
+    """Verify JWT and return user_id. Tokens without exp are accepted during migration."""
     try:
         payload = jwt.decode(
             token,
@@ -33,6 +38,11 @@ def verify_token(token: str) -> Optional[str]:
             algorithms=[settings.jwt_algorithm],
             options={"verify_exp": False},
         )
+        # Enforce expiry if the token actually carries an exp claim
+        exp = payload.get("exp")
+        if exp is not None and int(time.time()) > exp:
+            logger.info("Expired JWT rejected for user_id=%s", payload.get("sub"))
+            return None
         user_id = payload.get("sub")
         logger.debug("JWT verified — user_id=%s", user_id)
         return user_id

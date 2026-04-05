@@ -113,6 +113,12 @@ async def fill_form(
         logger.error("Form filling failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Form filling failed — please try again")
 
+    # Re-fetch user to get the latest balance (populate_async can take many seconds)
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Deduct actual cost from user balance
     balance_before = user.balance or 0.0
     user.balance = max(0.0, balance_before - cost)
