@@ -48,7 +48,7 @@ const DOC_TYPE_OPTIONS: { id: DocumentType; label: string }[] = [
 const QUICKBOOKS_FIELDS: ExtractionField[] = [
   { name: 'Date', description: 'Transaction date' },
   { name: 'Description', description: 'Payee or transaction description' },
-  { name: 'Amount', description: 'Positive for deposits/credits, negative for withdrawals/debits' },
+  { name: 'Amount', description: 'Amount as it appears on the document (positive number)' },
 ]
 
 export interface JobState {
@@ -431,7 +431,7 @@ export default function DashboardPage() {
       handleExtract(
         QUICKBOOKS_FIELDS,
         'xlsx',
-        'Extract accounting-ready transaction fields from each document. Return Date, Description, and Amount. For invoices, use invoice date, vendor or purpose as Description, and total due as a negative Amount. For statements, use transaction date, payee, and amount with positive values for credits and negative values for debits. If a field is not present in the source, leave it blank.',
+        'Extract accounting-ready transaction fields from each document. Return Date, Description, and Amount. Use the invoice or transaction date as Date, the vendor name or payee as Description, and the total amount due or transaction amount as a positive number in Amount. If a field is not present in the source, leave it blank.',
       )
     } else {
       setShowModal(true)
