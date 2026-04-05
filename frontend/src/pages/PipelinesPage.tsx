@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
@@ -203,13 +202,10 @@ function PipelineCard({ pipeline, onEdit, onToggle, onRunNow, onDelete }: Pipeli
 
       {/* Recent runs */}
       {pipeline.recent_runs.length > 0 && (
-        <>
-          <Separator />
-          <div>
+        <div className="pt-1">
             <p className="text-xs font-medium text-muted-foreground mb-1">Recent:</p>
             {pipeline.recent_runs.map(run => <RunRow key={run.id} run={run} />)}
           </div>
-        </>
       )}
 
       {/* Actions */}
@@ -363,21 +359,30 @@ export default function PipelinesPage() {
   }
 
   return (
-    <div className="min-h-full flex flex-col bg-background">
-      {/* Page header — always visible */}
-      <div className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 border-b border-border">
-        <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Automate extraction from your cloud folders</p>
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
+
+      {/* Header */}
+      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Automate extraction from your cloud folders</p>
+        </div>
+        {pipelines.length > 0 && (
+          <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
+            <Plus size={15} /> New Pipeline
+          </Button>
+        )}
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto flex flex-col">
+      <div>
         {loading ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center justify-center py-20">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6">
+          <div className="flex flex-col items-center justify-center py-10">
             <div className="max-w-md w-full">
             <div className="flex flex-col items-center text-center mb-5">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
@@ -427,13 +432,8 @@ export default function PipelinesPage() {
           </div>
           </div>
         ) : (
-          <div className="p-4 sm:p-6 max-w-5xl mx-auto w-full">
-            <div className="flex justify-end mb-4">
-              <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
-                <Plus size={15} /> New Pipeline
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pipelines.map(p => (
                 <PipelineCard
                   key={p.id}
