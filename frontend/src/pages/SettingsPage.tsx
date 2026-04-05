@@ -108,6 +108,7 @@ export default function SettingsPage() {
   const [loadingSub, setLoadingSub] = useState(true)
   const [subscribing, setSubscribing] = useState<string | null>(null)
   const [, setCanceling] = useState(false)
+  const [confirmTier, setConfirmTier] = useState<TierInfo | null>(null)
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
   const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
@@ -179,8 +180,9 @@ export default function SettingsPage() {
     }
   }, [])
 
-  const handleSubscribe = async (tierName: string) => {
+  const confirmAndSubscribe = async (tierName: string) => {
     setSubscribing(tierName)
+    setConfirmTier(null)
     try {
       if (sub?.tier.name && sub.tier.name !== 'free' && tierName !== 'free') {
         const r = await api.post('/payments/change-subscription', { tier: tierName })
@@ -188,7 +190,7 @@ export default function SettingsPage() {
           window.location.href = r.data.checkout_url
           return
         }
-        toast.success(`Switched to ${tierName}!`)
+        toast.success(`Plan changed to ${TIERS_DISPLAY[tierName] || tierName}!`)
         fetchSubscription()
       } else {
         const r = await api.post('/payments/create-subscription', { tier: tierName })
@@ -201,6 +203,8 @@ export default function SettingsPage() {
       setSubscribing(null)
     }
   }
+
+  const TIERS_DISPLAY: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', business: 'Business' }
 
   const handleCancel = async () => {
     setCanceling(true)
@@ -403,15 +407,20 @@ export default function SettingsPage() {
                   {currentTier === 'free' ? 'Choose a plan' : 'Change plan'}
                 </p>
                 <div className="grid gap-3">
-                  {sub.all_tiers.filter(t => t.name !== currentTier).map(tier => {
-                    const isUpgrade = tierOrder.indexOf(tier.name) > tierOrder.indexOf(currentTier)
+                  {sub.all_tiers.map(tier => {
+                    const isCurrent = tier.name === currentTier
+                    const isUp = tierOrder.indexOf(tier.name) > tierOrder.indexOf(currentTier)
+
 
                     return (
                       <div
                         key={tier.name}
                         className={cn(
-                          'rounded-xl border p-4 flex items-center justify-between transition-all hover:shadow-sm',
-                          tier.name === 'pro' ? 'border-amber-500/30 bg-amber-500/[0.03]' : 'border-border',
+                          'rounded-xl border p-4 flex items-center justify-between transition-all',
+                          isCurrent
+                            ? cn(TIER_BORDER[tier.name], TIER_BG[tier.name], 'ring-2 ring-primary/20')
+                            : 'border-border hover:shadow-sm hover:border-border/80',
+                          tier.name === 'pro' && !isCurrent && 'border-amber-500/30 bg-amber-500/[0.03]',
                         )}
                       >
                         <div className="flex items-center gap-3 min-w-0">
@@ -421,7 +430,10 @@ export default function SettingsPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-semibold">{tier.display_name}</p>
-                              {tier.name === 'pro' && (
+                              {isCurrent && (
+                                <Badge className="text-[10px] bg-primary/15 text-primary border-primary/30">Current</Badge>
+                              )}
+                              {tier.name === 'pro' && !isCurrent && (
                                 <Badge className="text-[10px] bg-amber-500/20 text-amber-600 border-amber-500/30">Popular</Badge>
                               )}
                             </div>
@@ -443,32 +455,130 @@ export default function SettingsPage() {
                               <p className="text-sm font-bold">Free</p>
                             )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant={isUpgrade ? 'default' : 'outline'}
-                            disabled={subscribing === tier.name}
-                            onClick={() => tier.name === 'free'
-                              ? handleCancel()
-                              : handleSubscribe(tier.name)
-                            }
-                            className="min-w-[90px]"
-                          >
-                            {subscribing === tier.name ? (
-                              <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                            ) : tier.name === 'free' ? (
-                              'Downgrade'
-                            ) : isUpgrade ? (
-                              <>Upgrade <ChevronRight size={12} /></>
-                            ) : (
-                              'Switch'
-                            )}
-                          </Button>
+                          {isCurrent ? (
+                            <div className="min-w-[90px] flex justify-center">
+                              <Check size={16} className="text-primary" />
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant={isUp ? 'default' : 'outline'}
+                              disabled={!!subscribing}
+                              onClick={() => {
+                                if (tier.name === 'free') {
+                                  setConfirmTier(tier)
+                                } else if (currentTier === 'free') {
+                                  // Going from free to paid — Stripe Checkout handles card
+                                  confirmAndSubscribe(tier.name)
+                                } else {
+                                  // Switching between paid plans — show confirmation
+                                  setConfirmTier(tier)
+                                }
+                              }}
+                              className="min-w-[90px]"
+                            >
+                              {subscribing === tier.name ? (
+                                <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                              ) : tier.name === 'free' ? (
+                                'Downgrade'
+                              ) : isUp ? (
+                                <>Upgrade <ChevronRight size={12} /></>
+                              ) : (
+                                'Downgrade'
+                              )}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     )
                   })}
                 </div>
               </div>
+
+              {/* ── Plan change confirmation modal ── */}
+              {confirmTier && (() => {
+                const target = confirmTier
+                const isUp = tierOrder.indexOf(target.name) > tierOrder.indexOf(currentTier)
+                const priceDiff = target.price_monthly - (sub.tier.price_monthly || 0)
+
+                return (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setConfirmTier(null)}>
+                    <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
+                      <div className="text-center mb-5">
+                        <div className={cn('inline-flex p-3 rounded-xl mb-3', TIER_BG[target.name], TIER_COLORS[target.name])}>
+                          {TIER_ICONS[target.name]}
+                        </div>
+                        <h3 className="text-base font-semibold">
+                          {target.name === 'free' ? 'Downgrade to Free?' : isUp ? `Upgrade to ${target.display_name}?` : `Downgrade to ${target.display_name}?`}
+                        </h3>
+                      </div>
+
+                      <div className="space-y-2.5 mb-5">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Current plan</span>
+                          <span className="font-medium">{sub.tier.display_name} — {sub.tier.price_monthly > 0 ? `$${(sub.tier.price_monthly / 100).toFixed(0)}/mo` : 'Free'}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">New plan</span>
+                          <span className="font-medium">{target.display_name} — {target.price_monthly > 0 ? `$${(target.price_monthly / 100).toFixed(0)}/mo` : 'Free'}</span>
+                        </div>
+                        <div className="border-t border-border pt-2.5 flex justify-between text-sm">
+                          <span className="text-muted-foreground">{priceDiff > 0 ? 'Price increase' : priceDiff < 0 ? 'Savings' : 'Difference'}</span>
+                          <span className={cn('font-semibold', priceDiff > 0 ? 'text-foreground' : priceDiff < 0 ? 'text-emerald-500' : '')}>
+                            {priceDiff > 0 ? `+$${(priceDiff / 100).toFixed(0)}/mo` : priceDiff < 0 ? `-$${(Math.abs(priceDiff) / 100).toFixed(0)}/mo` : '$0'}
+                          </span>
+                        </div>
+                        {target.name !== 'free' && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Credits</span>
+                            <span className="font-medium">{target.credits_per_month.toLocaleString()}/mo</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {isUp && (
+                        <p className="text-xs text-muted-foreground text-center mb-4">
+                          You'll be charged a prorated amount for the rest of this billing period.
+                        </p>
+                      )}
+                      {target.name === 'free' && (
+                        <p className="text-xs text-muted-foreground text-center mb-4">
+                          Your current plan stays active until the end of the billing period.
+                        </p>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button variant="outline" className="flex-1" onClick={() => setConfirmTier(null)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          variant={target.name === 'free' ? 'outline' : 'default'}
+                          disabled={!!subscribing}
+                          onClick={() => {
+                            if (target.name === 'free') {
+                              handleCancel()
+                              setConfirmTier(null)
+                            } else {
+                              confirmAndSubscribe(target.name)
+                            }
+                          }}
+                        >
+                          {subscribing === target.name ? (
+                            <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                          ) : target.name === 'free' ? (
+                            'Confirm Downgrade'
+                          ) : isUp ? (
+                            'Confirm Upgrade'
+                          ) : (
+                            'Confirm Downgrade'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
             </>
           ) : null}
