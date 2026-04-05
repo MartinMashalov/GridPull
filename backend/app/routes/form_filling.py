@@ -113,7 +113,15 @@ async def fill_form(
         logger.error("Form filling failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Form filling failed — please try again")
 
-    logger.info("Form fill complete — user_id=%s cost=$%.6f size=%d bytes", current_user.id, cost, len(filled_pdf))
+    # Deduct actual cost from user balance
+    balance_before = user.balance or 0.0
+    user.balance = max(0.0, balance_before - cost)
+    await db.commit()
+
+    logger.info(
+        "Form fill complete — user_id=%s cost=$%.6f balance=%.6f→%.6f size=%d bytes",
+        current_user.id, cost, balance_before, user.balance, len(filled_pdf),
+    )
 
     output_name = f"filled_{target_form.filename or 'form.pdf'}"
     return Response(

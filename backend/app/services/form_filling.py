@@ -355,8 +355,12 @@ async def _call_llm(prompt: str) -> tuple[dict, float, str]:
     used_model = getattr(response, "model", None) or _FORM_FILL_MODEL
     cost = 0.0
     if response.usage:
-        # gpt-4.1-mini: $0.40/1M input, $1.60/1M output
-        cost = (response.usage.prompt_tokens or 0) * 0.40e-6 + (response.usage.completion_tokens or 0) * 1.60e-6
+        from app.services.extraction.core import _estimate_cost, _MARKUP
+        prompt_tokens = response.usage.prompt_tokens or 0
+        completion_tokens = response.usage.completion_tokens or 0
+        details = getattr(response.usage, "prompt_tokens_details", None)
+        cached_tokens = getattr(details, "cached_tokens", 0) if details else 0
+        cost = _estimate_cost(used_model, prompt_tokens, completion_tokens, cached_tokens) * _MARKUP
 
     raw = response.choices[0].message.content or "{}"
     # Strip markdown fences if present
