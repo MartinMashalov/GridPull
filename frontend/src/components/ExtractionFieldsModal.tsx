@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
+import api from '@/lib/api'
 
 const PRESET_FIELDS = [
   'Date', 'Total Amount', 'Company Name', 'Invoice Number',
@@ -173,9 +174,17 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   const fieldsEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [userDefaultsLoaded, setUserDefaultsLoaded] = useState(false)
 
   useEffect(() => {
-    setFields(getDefaultFields(documentType, documentType === 'sov' ? scheduleSubtype : undefined))
+    if (documentType === 'custom' && !userDefaultsLoaded) {
+      api.get('/users/default-fields').then(r => {
+        if (r.data.fields?.length) setFields(r.data.fields)
+        setUserDefaultsLoaded(true)
+      }).catch(() => setUserDefaultsLoaded(true))
+    } else {
+      setFields(getDefaultFields(documentType, documentType === 'sov' ? scheduleSubtype : undefined))
+    }
   }, [documentType])
 
   const handleSubtypeChange = (subtype: ScheduleSubtype) => {

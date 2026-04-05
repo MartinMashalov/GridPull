@@ -1,6 +1,10 @@
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database import get_db
 from app.models.user import User
 from app.middleware.auth_middleware import get_current_user
@@ -28,6 +32,43 @@ class AutoRenewalRequest(BaseModel):
     enabled: bool
     threshold: float
     refill_amount: float
+
+
+class DefaultFieldItem(BaseModel):
+    name: str
+    description: str = ""
+
+
+class DefaultFieldsRequest(BaseModel):
+    fields: List[DefaultFieldItem]
+
+
+@router.get("/default-fields")
+async def get_default_fields(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the user's saved default extraction fields."""
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    return {"fields": user.default_fields or [] if user else []}
+
+
+@router.post("/default-fields")
+async def save_default_fields(
+    body: DefaultFieldsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the user's default extraction fields."""
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="User not found")
+    user.default_fields = [f.model_dump() for f in body.fields]
+    await db.commit()
+    return {"ok": True, "fields": user.default_fields}
 
 
 @router.post("/auto-renewal")

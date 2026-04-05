@@ -125,6 +125,8 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS usage_reset_at TIMESTAMP",
             # Email ingest
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS ingest_address_key VARCHAR",
+            # User default extraction fields
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_fields JSON",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
             

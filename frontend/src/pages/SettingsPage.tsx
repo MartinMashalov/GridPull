@@ -115,6 +115,8 @@ export default function SettingsPage() {
     { name: 'Date', description: '' },
     { name: 'Total Amount', description: '' },
   ])
+  const [defaultsLoaded, setDefaultsLoaded] = useState(false)
+  const [savingDefaults, setSavingDefaults] = useState(false)
   const [customField, setCustomField] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   const [history, setHistory] = useState<JobHistoryData | null>(null)
@@ -149,6 +151,10 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchSubscription()
     api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
+    api.get('/users/default-fields').then(r => {
+      if (r.data.fields?.length) setDefaultFields(r.data.fields)
+      setDefaultsLoaded(true)
+    }).catch(() => setDefaultsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -269,6 +275,18 @@ export default function SettingsPage() {
   const removeDefaultField = (index: number) => {
     setDefaultFields(prev => prev.filter((_, i) => i !== index))
     if (expandedDesc === index) setExpandedDesc(null)
+  }
+
+  const saveDefaultFields = async () => {
+    setSavingDefaults(true)
+    try {
+      await api.post('/users/default-fields', { fields: defaultFields })
+      toast.success('Default fields saved')
+    } catch {
+      toast.error('Failed to save defaults')
+    } finally {
+      setSavingDefaults(false)
+    }
   }
 
   const currentTier = sub?.tier.name || user?.subscription_tier || 'free'
@@ -799,7 +817,9 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <Button size="sm">Save Defaults</Button>
+          <Button size="sm" onClick={saveDefaultFields} disabled={savingDefaults}>
+            {savingDefaults ? <><Loader2 size={14} className="animate-spin mr-1" />Saving…</> : 'Save Defaults'}
+          </Button>
         </TabsContent>
 
         {/* ── Profile ──────────────────────────────────────────────── */}

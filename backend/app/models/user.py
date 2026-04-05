@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -35,6 +35,9 @@ class User(Base):
 
     # Email ingest
     ingest_address_key = Column(String, unique=True, nullable=True, index=True)
+
+    # User default extraction fields (JSON list of {name, description})
+    default_fields = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
