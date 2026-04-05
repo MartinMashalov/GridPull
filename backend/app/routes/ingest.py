@@ -66,31 +66,26 @@ async def create_or_get_address(
         select(IngestAddress).where(IngestAddress.user_id == user.id)
     )
     existing = result.scalar_one_or_none()
-    if existing:
-        return {
-            "address": f"intake-{existing.address_key}@{settings.ingest_email_domain}",
-            "address_key": existing.address_key,
-        }
+    if not existing:
+        # Generate unique key (kept for backward compat / future per-user routing)
+        for _ in range(20):
+            key = secrets.token_urlsafe(4)[:6].lower()
+            dup = await db.execute(
+                select(IngestAddress.id).where(IngestAddress.address_key == key)
+            )
+            if not dup.scalar_one_or_none():
+                break
+        else:
+            raise HTTPException(status_code=500, detail="Could not generate unique address")
 
-    # Generate unique key
-    for _ in range(20):
-        key = secrets.token_urlsafe(4)[:6].lower()
-        dup = await db.execute(
-            select(IngestAddress.id).where(IngestAddress.address_key == key)
-        )
-        if not dup.scalar_one_or_none():
-            break
-    else:
-        raise HTTPException(status_code=500, detail="Could not generate unique address")
-
-    addr = IngestAddress(user_id=user.id, address_key=key)
-    db.add(addr)
-    user.ingest_address_key = key
-    await db.commit()
+        existing = IngestAddress(user_id=user.id, address_key=key)
+        db.add(existing)
+        user.ingest_address_key = key
+        await db.commit()
 
     return {
-        "address": f"intake-{key}@{settings.ingest_email_domain}",
-        "address_key": key,
+        "address": settings.ingest_universal_email,
+        "address_key": existing.address_key,
     }
 
 
@@ -107,7 +102,7 @@ async def get_address(
     if not existing:
         raise HTTPException(status_code=404, detail="No ingest address configured")
     return {
-        "address": f"intake-{existing.address_key}@{settings.ingest_email_domain}",
+        "address": settings.ingest_universal_email,
         "address_key": existing.address_key,
     }
 

@@ -130,6 +130,7 @@ class Settings(BaseSettings):
 
     # Email ingest
     ingest_email_domain: str = "ingest.gridpull.com"
+    ingest_universal_email: str = "inbox@gridpull.com"
 
     # Gmail IMAP polling (inbound email collection)
     gmail_imap_email: str = ""

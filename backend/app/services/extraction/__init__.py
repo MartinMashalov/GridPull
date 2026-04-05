@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from typing import Any, Dict, List
 
 from openai import AsyncOpenAI
@@ -260,6 +261,36 @@ async def extract_from_document(
     run_schedule_cleanup = property_schedule_row_cleanup_matches_schema(field_names)
     if rows and run_schedule_cleanup:
         rows = finalize_property_schedule_rows(rows, field_names)
+
+    # ── Propagate constant document-level values across rows ────────────
+    #   If a field has the same non-empty value in most rows but is null in
+    #   some, fill those gaps (e.g. Vendor Name appears in header, LLM puts
+    #   it in some rows but not others).  Pure heuristic — no LLM cost.
+    if len(rows) >= 2:
+        for fn in field_names:
+            filled_vals = [
+                str(r[fn]).strip()
+                for r in rows
+                if not r.get("_error") and _is_filled_value(r.get(fn))
+            ]
+            if not filled_vals:
+                continue
+            # Find the dominant value
+            counts = Counter(filled_vals)
+            dominant_val, dominant_count = counts.most_common(1)[0]
+            # Propagate only if: one value dominates AND there are gaps to fill
+            missing_count = sum(
+                1 for r in rows
+                if not r.get("_error") and not _is_filled_value(r.get(fn))
+            )
+            if missing_count > 0 and dominant_count >= max(2, len(filled_vals) * 0.5):
+                for r in rows:
+                    if not r.get("_error") and not _is_filled_value(r.get(fn)):
+                        r[fn] = dominant_val
+                logger.info(
+                    "Propagated '%s' = '%s' to %d rows (was in %d/%d)",
+                    fn, dominant_val[:40], missing_count, dominant_count, len(rows),
+                )
 
     # ── Backfill missing fields (no threshold — always try) ───────────────
     if rows and len(rows) >= 1:

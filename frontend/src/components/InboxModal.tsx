@@ -305,8 +305,8 @@ export default function InboxModal({ open, onClose, onSelectDocuments, onUploadD
           <div className="flex-1" />
           {ingestAddress ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Email to:</span>
-              <code className="text-[11px] font-mono bg-white border border-border rounded px-1.5 py-0.5 truncate max-w-[200px]">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Forward to:</span>
+              <code className="text-[11px] font-mono bg-white border border-border rounded px-1.5 py-0.5 truncate max-w-[220px] select-all">
                 {ingestAddress}
               </code>
               <button onClick={copyAddress} className="p-0.5 rounded hover:bg-muted transition-colors flex-shrink-0">
@@ -316,7 +316,7 @@ export default function InboxModal({ open, onClose, onSelectDocuments, onUploadD
           ) : (
             <button onClick={generateAddress} disabled={addressLoading} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
               {addressLoading ? <Loader2 size={11} className="animate-spin" /> : <Mail size={11} />}
-              Email forwarding
+              Get forwarding email
             </button>
           )}
         </div>
