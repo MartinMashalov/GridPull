@@ -252,17 +252,55 @@ def _extract_target_schema(reader: PdfReader) -> dict:
 
 
 def _get_checked_state(fd) -> dict:
+    """Determine the checked/unchecked appearance state values for a checkbox field.
+
+    PDF checkboxes use an arbitrary name for the checked state (often '/Yes', '/On',
+    or '/1') that varies per form. pypdf stores the available states in a special
+    '/_States_' key on the field dict. We read that first; if absent, we fall back
+    to scanning /Kids widgets, then the field's own /AP/N stream.
+    """
+    try:
+        # pypdf exposes all appearance state names via /_States_
+        states = fd.get('/_States_')
+        if states:
+            state_list = list(states)
+            checked = [s for s in state_list if s != '/Off']
+            if checked:
+                return {'checked': checked[0], 'unchecked': '/Off'}
+    except Exception:
+        pass
+
+    def _from_ap(ap_dict) -> dict | None:
+        try:
+            if hasattr(ap_dict, 'get_object'):
+                ap_dict = ap_dict.get_object()
+            n = ap_dict.get('/N')
+            if n is None:
+                return None
+            if hasattr(n, 'get_object'):
+                n = n.get_object()
+            if hasattr(n, 'keys'):
+                states = list(n.keys())
+                checked = [s for s in states if s != '/Off']
+                return {'checked': checked[0] if checked else '/Yes', 'unchecked': '/Off'}
+        except Exception:
+            pass
+        return None
+
     try:
         kids = fd.get('/Kids', [])
         if kids:
             widget = kids[0].get_object()
             ap = widget.get('/AP', {})
-            if ap and '/N' in ap:
-                normal = ap['/N']
-                if hasattr(normal, 'keys'):
-                    states = list(normal.keys())
-                    checked = [s for s in states if s != '/Off']
-                    return {'checked': checked[0] if checked else '/Yes', 'unchecked': '/Off'}
+            if ap:
+                result = _from_ap(ap)
+                if result:
+                    return result
+        ap = fd.get('/AP', {})
+        if ap:
+            result = _from_ap(ap)
+            if result:
+                return result
     except Exception:
         pass
     return {'checked': '/Yes', 'unchecked': '/Off'}
@@ -282,7 +320,10 @@ def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
         if t == "text":
             lines.append(f'  "{name}": text')
         elif t == "checkbox":
-            lines.append(f'  "{name}": checkbox — respond with "Yes" or "No"')
+            # Surface the readable label for XFA-style full-path field names
+            short = name.split('.')[-1].replace('[0]', '').strip()
+            label_hint = f' [label: "{short}"]' if short and short != name else ''
+            lines.append(f'  "{name}": checkbox{label_hint} — respond with "Yes" or "No"')
         elif t == "dropdown":
             opts = meta.get("options", [])
             opts_str = " | ".join(opts) if opts else "any value"
@@ -320,7 +361,10 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
 
 RULES:
 1. Return a single flat JSON object with field names as keys and string values.
-2. For checkbox fields: return "Yes" or "No" only.
+2. For checkbox fields: return "Yes" or "No" only. Use the [label] hint to understand what the checkbox represents.
+   - If the label describes something clearly present/applicable in the source (e.g. label "Sealed" when source mentions "Sealed Bid"), return "Yes".
+   - If the label describes something clearly absent or inapplicable, return "No".
+   - For ambiguous checkboxes with no relevant source data, return "No" as a conservative default.
 3. For dropdown fields: return exactly one of the listed options.
 4. For text fields: fill with the best matching value from the source. Use inference when an exact match isn't present:
    - Derive related values where logical (e.g., end date from start date + duration, totals from line items).
@@ -328,7 +372,7 @@ RULES:
 5. NEVER return null, None, or "N/A" — use "" for fields that truly cannot be determined.
 6. CRITICAL — always fill these if ANY matching data exists: names, addresses, phone numbers, emails, dates, monetary amounts, ID numbers, organization names.
 7. For open-ended text questions where no exact match exists, compose a concise answer from the most relevant context available in the source.
-8. For yes/no eligibility or history questions where the source contains no contrary evidence, use "No" as the conservative default.
+8. For eligibility or history yes/no questions where the source has no relevant evidence, use "No" as the conservative default.
 
 SOURCE DATA:
 {source_context}{prior_block}{focus_note}
