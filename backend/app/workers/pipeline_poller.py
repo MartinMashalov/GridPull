@@ -488,7 +488,7 @@ async def _process_file(pipeline_id: str, file_info: dict) -> None:
 
         # ── Mark email as read (Outlook only) ─────────────────────────────
         if source_type == "outlook" and source_config.get("mark_as_read", True):
-            msg_id = file_info.get("message_id") or file_info["id"].split(":")[0]
+            msg_id = file_info.get("message_id") or file_info["id"].rsplit(":", 1)[0]
             try:
                 from app.services.outlook_service import mark_as_read
                 await mark_as_read(access_token, msg_id)

@@ -145,10 +145,11 @@ async def mark_as_read(access_token: str, message_id: str) -> None:
     """Mark an email as read (requires Mail.ReadWrite scope)."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.patch(
+            resp = await client.patch(
                 f"{_GRAPH_API}/me/messages/{message_id}",
                 headers={"Authorization": f"Bearer {access_token}"},
                 json={"isRead": True},
             )
+            resp.raise_for_status()
     except Exception as exc:
         logger.warning("Could not mark message %s as read: %s", message_id, exc)
