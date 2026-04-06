@@ -286,9 +286,9 @@ async def process_job(
             # intake form + appraisal), merge rows that share the same Loc # into
             # one complete row instead of emitting a separate row per document.
             if force_sov and total_docs > 1:
-                from app.services.extraction.llm import finalize_property_schedule_rows
+                from app.services.extraction.llm import merge_sov_rows_across_documents
                 pre_merge_count = len(all_extracted)
-                all_extracted = finalize_property_schedule_rows(all_extracted, field_names)
+                all_extracted = merge_sov_rows_across_documents(all_extracted, field_names)
                 if len(all_extracted) != pre_merge_count:
                     logger.info(
                         "Job %s — SOV cross-doc merge: %d rows -> %d rows",

@@ -301,6 +301,86 @@ def _merge_rows_by_identifier(
     return merged
 
 
+def merge_sov_rows_across_documents(
+    rows: List[Dict[str, Any]],
+    field_names: List[str],
+) -> List[Dict[str, Any]]:
+    """Merge SOV rows from different source documents that refer to the same location.
+
+    Unlike _merge_rows_by_identifier (which requires Loc# + Address to match),
+    this matches on Loc # alone — because supplemental docs (appraisals, intake
+    forms, email threads) often have Loc # but no street address.
+
+    Merge strategy: row with the most filled fields is base; other rows for the
+    same Loc # fill in any gaps. Later documents do NOT overwrite existing values
+    (first non-null wins), preserving the primary SOV as authoritative.
+    """
+    if len(rows) <= 1:
+        return rows
+
+    # Detect the Loc # field name
+    id_candidates = ["Loc #", "loc #", "Location #", "Loc#", "location number", "loc number"]
+    id_field = next((f for f in field_names if f in id_candidates), None)
+    if not id_field:
+        # Try a loose match on any field name containing "loc"
+        id_field = next((f for f in field_names if "loc" in f.lower() and "#" in f), None)
+    if not id_field:
+        return rows
+
+    def _norm_loc(v: Any) -> str:
+        """Normalise loc # to a comparable string: strip, lower, strip leading zeros."""
+        s = str(v or "").strip().lower()
+        # Remove leading zeros so "01" == "1"
+        import re as _re
+        m = _re.match(r"^0*(\d+.*)$", s)
+        return m.group(1) if m else s
+
+    groups: dict[str, list] = {}
+    order: list[str] = []
+    no_key: list = []
+
+    for row in rows:
+        raw = row.get(id_field)
+        if not _is_filled_value(raw):
+            no_key.append(row)
+            continue
+        key = _norm_loc(raw)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    if all(len(g) == 1 for g in groups.values()):
+        return rows  # nothing to merge
+
+    merged: list = []
+    total_before = len(rows)
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+        # Sort: most filled fields first
+        group_sorted = sorted(
+            group,
+            key=lambda r: sum(1 for fn in field_names if _is_filled_value(r.get(fn))),
+            reverse=True,
+        )
+        base = dict(group_sorted[0])
+        for other in group_sorted[1:]:
+            for fn in field_names:
+                if not _is_filled_value(base.get(fn)) and _is_filled_value(other.get(fn)):
+                    base[fn] = other[fn]
+        merged.append(base)
+
+    merged.extend(no_key)
+    logger.info(
+        "SOV cross-doc merge: %d rows -> %d rows (key_field=%s)",
+        total_before, len(merged), id_field,
+    )
+    return merged
+
+
 def finalize_property_schedule_rows(
     rows: List[Dict[str, Any]],
     field_names: List[str],
