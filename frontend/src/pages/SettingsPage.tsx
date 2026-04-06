@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -116,17 +115,11 @@ export default function SettingsPage() {
   const [confirmTier, setConfirmTier] = useState<TierInfo | null>(null)
   const [savedCard, setSavedCard] = useState<{ brand: string; last4: string } | null | undefined>(undefined)
   const [loadingCard, setLoadingCard] = useState(false)
-  const [defaultFields, setDefaultFields] = useState<DefaultField[]>([
-    { name: 'Invoice Number', description: '' },
-    { name: 'Date', description: '' },
-    { name: 'Total Amount', description: '' },
-  ])
-  const [savingDefaults, setSavingDefaults] = useState(false)
   const [customField, setCustomField] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
   // Presets
   const [presets, setPresets] = useState<FieldPreset[]>([])
-  const [presetsLoaded, setPresetsLoaded] = useState(false)
+  const [, setPresetsLoaded] = useState(false)
   const [activePresetIdx, setActivePresetIdx] = useState<number | null>(null)
   const [savingPresets, setSavingPresets] = useState(false)
   const [editingPresetName, setEditingPresetName] = useState<number | null>(null)
@@ -266,43 +259,6 @@ export default function SettingsPage() {
     }
   }
 
-  const toggleDefault = (name: string) => {
-    const exists = defaultFields.find(f => f.name === name)
-    if (exists) {
-      setDefaultFields(prev => prev.filter(f => f.name !== name))
-    } else {
-      setDefaultFields(prev => [...prev, { name, description: '' }])
-    }
-  }
-
-  const addCustomDefault = () => {
-    const trimmed = customField.trim()
-    if (trimmed && !defaultFields.find(f => f.name === trimmed)) {
-      setDefaultFields(prev => [...prev, { name: trimmed, description: '' }])
-      setCustomField('')
-    }
-  }
-
-  const updateDescription = (index: number, desc: string) => {
-    setDefaultFields(prev => prev.map((f, i) => i === index ? { ...f, description: desc } : f))
-  }
-
-  const removeDefaultField = (index: number) => {
-    setDefaultFields(prev => prev.filter((_, i) => i !== index))
-    if (expandedDesc === index) setExpandedDesc(null)
-  }
-
-  const saveDefaultFields = async () => {
-    setSavingDefaults(true)
-    try {
-      await api.post('/users/default-fields', { fields: defaultFields })
-      toast.success('Default fields saved')
-    } catch {
-      toast.error('Failed to save defaults')
-    } finally {
-      setSavingDefaults(false)
-    }
-  }
 
   const currentTier = sub?.tier.name || user?.subscription_tier || 'free'
   const tierOrder = ['free', 'starter', 'pro', 'business']
@@ -320,7 +276,7 @@ export default function SettingsPage() {
           <TabsTrigger value="subscription"><Crown size={13} />Subscription</TabsTrigger>
           <TabsTrigger value="usage" onClick={() => { if (!historyLoaded) fetchHistory() }}><BarChart3 size={13} />Usage</TabsTrigger>
           <TabsTrigger value="payment"><CreditCard size={13} />Payment</TabsTrigger>
-          <TabsTrigger value="defaults"><Zap size={13} />Default Fields</TabsTrigger>
+          <TabsTrigger value="defaults"><Zap size={13} />Presets</TabsTrigger>
           <TabsTrigger value="profile"><User size={13} />Profile</TabsTrigger>
         </TabsList>
 
@@ -854,93 +810,261 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Default Fields ───────────────────────────────────────── */}
+        {/* ── Extraction Presets ─────────────────────────────────── */}
         <TabsContent value="defaults" className="space-y-4 mt-0">
-          <p className="text-sm text-muted-foreground">Pre-selected fields when you open the extraction modal.</p>
+          <p className="text-sm text-muted-foreground">
+            Save named field presets to quickly load them in the extraction modal.
+          </p>
 
-          <div className="flex flex-wrap gap-2">
-            {DEFAULT_FIELDS.map(field => {
-              const selected = !!defaultFields.find(f => f.name === field)
+          {/* Preset list */}
+          <div className="space-y-2">
+            {presets.map((preset, pi) => {
+              const isActive = activePresetIdx === pi
               return (
-                <button
-                  key={field}
-                  onClick={() => toggleDefault(field)}
+                <div
+                  key={pi}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                    selected
-                      ? 'bg-primary/15 text-primary border-primary/30'
-                      : 'bg-secondary text-muted-foreground border-border hover:border-primary/30 hover:text-foreground'
+                    'rounded-xl border transition-all',
+                    isActive ? 'border-primary/40 bg-primary/[0.03]' : 'border-border bg-card hover:border-border/80',
                   )}
                 >
-                  {selected && <Check size={11} />}
-                  {field}
-                </button>
+                  {/* Preset header */}
+                  <div
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer"
+                    onClick={() => {
+                      setActivePresetIdx(isActive ? null : pi)
+                      setExpandedDesc(null)
+                      setCustomField('')
+                    }}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Zap size={14} className={isActive ? 'text-primary' : 'text-muted-foreground'} />
+                      {editingPresetName === pi ? (
+                        <Input
+                          autoFocus
+                          value={presetNameDraft}
+                          onChange={e => setPresetNameDraft(e.target.value)}
+                          onBlur={() => {
+                            if (presetNameDraft.trim()) {
+                              setPresets(prev => prev.map((p, i) => i === pi ? { ...p, name: presetNameDraft.trim() } : p))
+                            }
+                            setEditingPresetName(null)
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                            e.stopPropagation()
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="h-7 text-sm font-semibold w-48"
+                        />
+                      ) : (
+                        <span className="text-sm font-semibold truncate">{preset.name}</span>
+                      )}
+                      <span className="text-[11px] text-muted-foreground shrink-0">
+                        {preset.fields.length} field{preset.fields.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2 shrink-0">
+                      <button
+                        onClick={e => { e.stopPropagation(); setPresetNameDraft(preset.name); setEditingPresetName(pi) }}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                        title="Rename"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          setPresets(prev => [...prev, { name: `${preset.name} (copy)`, fields: preset.fields.map(f => ({ ...f })) }])
+                        }}
+                        className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                        title="Duplicate"
+                      >
+                        <Copy size={12} />
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          setPresets(prev => prev.filter((_, i) => i !== pi))
+                          if (activePresetIdx === pi) setActivePresetIdx(null)
+                          else if (activePresetIdx !== null && activePresetIdx > pi) setActivePresetIdx(activePresetIdx - 1)
+                        }}
+                        className="p-1 rounded text-muted-foreground hover:text-red-500 transition-colors"
+                        title="Delete preset"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                      <ChevronRight size={14} className={cn('text-muted-foreground transition-transform', isActive && 'rotate-90')} />
+                    </div>
+                  </div>
+
+                  {/* Expanded preset editor */}
+                  {isActive && (
+                    <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
+                      {/* Quick add presets */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {DEFAULT_FIELDS.map(field => {
+                          const added = !!preset.fields.find(f => f.name === field)
+                          return (
+                            <button
+                              key={field}
+                              onClick={() => {
+                                if (!added) {
+                                  setPresets(prev => prev.map((p, i) => i === pi
+                                    ? { ...p, fields: [...p.fields, { name: field, description: '' }] }
+                                    : p
+                                  ))
+                                }
+                              }}
+                              disabled={added}
+                              className={cn(
+                                'px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors',
+                                added
+                                  ? 'bg-primary/10 text-primary border-primary/25 cursor-default'
+                                  : 'bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
+                              )}
+                            >
+                              {field}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* Fields list */}
+                      {preset.fields.length > 0 && (
+                        <div className="space-y-1 max-h-52 overflow-y-auto scrollbar-thin pr-0.5">
+                          {preset.fields.map((field, fi) => (
+                            <div key={fi} className="rounded-lg border border-border overflow-hidden">
+                              <div className="flex items-center justify-between px-3 py-2 bg-secondary/50">
+                                <span className="text-xs text-foreground flex-1 min-w-0 truncate">{field.name}</span>
+                                <div className="flex items-center gap-1 ml-2 shrink-0">
+                                  <button
+                                    onClick={() => setExpandedDesc(prev => prev === fi ? null : fi)}
+                                    className={cn(
+                                      'p-1 rounded transition-colors',
+                                      expandedDesc === fi
+                                        ? 'text-primary bg-primary/10'
+                                        : field.description
+                                          ? 'text-primary/60 hover:text-primary'
+                                          : 'text-muted-foreground hover:text-primary'
+                                    )}
+                                  >
+                                    <StickyNote size={11} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setPresets(prev => prev.map((p, i) => i === pi
+                                        ? { ...p, fields: p.fields.filter((_, j) => j !== fi) }
+                                        : p
+                                      ))
+                                      if (expandedDesc === fi) setExpandedDesc(null)
+                                    }}
+                                    className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors"
+                                  >
+                                    <Trash2 size={11} />
+                                  </button>
+                                </div>
+                              </div>
+                              {expandedDesc === fi && (
+                                <div className="px-3 py-2 bg-primary/5 border-t border-border">
+                                  <textarea
+                                    autoFocus
+                                    rows={2}
+                                    value={field.description}
+                                    onChange={e => {
+                                      const desc = e.target.value
+                                      setPresets(prev => prev.map((p, i) => i === pi
+                                        ? { ...p, fields: p.fields.map((f, j) => j === fi ? { ...f, description: desc } : f) }
+                                        : p
+                                      ))
+                                    }}
+                                    placeholder="Describe what to look for..."
+                                    className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add custom field to this preset */}
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Add custom field..."
+                          value={customField}
+                          onChange={e => setCustomField(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && customField.trim()) {
+                              setPresets(prev => prev.map((p, i) => i === pi
+                                ? { ...p, fields: [...p.fields, { name: customField.trim(), description: '' }] }
+                                : p
+                              ))
+                              setCustomField('')
+                            }
+                          }}
+                          className="text-xs h-8"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-3"
+                          disabled={!customField.trim()}
+                          onClick={() => {
+                            if (customField.trim()) {
+                              setPresets(prev => prev.map((p, i) => i === pi
+                                ? { ...p, fields: [...p.fields, { name: customField.trim(), description: '' }] }
+                                : p
+                              ))
+                              setCustomField('')
+                            }
+                          }}
+                        >
+                          <Plus size={12} />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
 
-          <Card>
-            <CardContent className="pt-4">
-              <Label className="text-xs mb-2 block">Add Custom Field</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="e.g. Contract Number"
-                  value={customField}
-                  onChange={e => setCustomField(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addCustomDefault()}
-                />
-                <Button onClick={addCustomDefault} disabled={!customField.trim()} size="sm">Add</Button>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Add new preset */}
+          <button
+            onClick={() => {
+              const newPreset: FieldPreset = { name: `Preset ${presets.length + 1}`, fields: [] }
+              setPresets(prev => [...prev, newPreset])
+              setActivePresetIdx(presets.length)
+              setExpandedDesc(null)
+              setCustomField('')
+            }}
+            className="w-full rounded-xl border border-dashed border-border py-3 flex items-center justify-center gap-2 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+          >
+            <Plus size={14} />
+            New Preset
+          </button>
 
-          {defaultFields.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Selected ({defaultFields.length})</p>
-              {defaultFields.map((field, i) => (
-                <div key={i} className="rounded-lg border border-border overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-2.5 bg-card">
-                    <span className="text-sm flex-1 min-w-0 truncate">{field.name}</span>
-                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                      <button
-                        onClick={() => setExpandedDesc(prev => prev === i ? null : i)}
-                        title="Add description to improve accuracy"
-                        className={cn(
-                          'p-1 rounded transition-colors',
-                          expandedDesc === i
-                            ? 'text-primary bg-primary/10'
-                            : field.description
-                              ? 'text-primary/60 hover:text-primary'
-                              : 'text-muted-foreground hover:text-primary'
-                        )}
-                      >
-                        <StickyNote size={13} />
-                      </button>
-                      <button onClick={() => removeDefaultField(i)} className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </div>
-                  {expandedDesc === i && (
-                    <div className="px-3 py-2 bg-primary/5 border-t border-border">
-                      <textarea
-                        autoFocus
-                        rows={2}
-                        value={field.description}
-                        onChange={e => updateDescription(i, e.target.value)}
-                        placeholder="Describe what to look for, or how to calculate (e.g. 'Net Income ÷ Revenue × 100')…"
-                        className="w-full text-xs bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/60 leading-relaxed"
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+          {/* Save all */}
+          {presets.length > 0 && (
+            <Button
+              size="sm"
+              disabled={savingPresets}
+              onClick={async () => {
+                setSavingPresets(true)
+                try {
+                  await api.post('/users/field-presets', { presets })
+                  toast.success('Presets saved')
+                } catch {
+                  toast.error('Failed to save presets')
+                } finally {
+                  setSavingPresets(false)
+                }
+              }}
+            >
+              {savingPresets ? <><Loader2 size={14} className="animate-spin mr-1" />Saving...</> : 'Save Presets'}
+            </Button>
           )}
-
-          <Button size="sm" onClick={saveDefaultFields} disabled={savingDefaults}>
-            {savingDefaults ? <><Loader2 size={14} className="animate-spin mr-1" />Saving…</> : 'Save Defaults'}
-          </Button>
         </TabsContent>
 
         {/* ── Profile ──────────────────────────────────────────────── */}

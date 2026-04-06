@@ -1,13 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X, Plus, Trash2, Pencil } from 'lucide-react'
+import { X, Plus, Trash2, Pencil, ChevronDown, Zap } from 'lucide-react'
 import { ExtractionField, ExportFormat, DocumentType } from '@/pages/DashboardPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import api from '@/lib/api'
+
+interface FieldPreset {
+  name: string
+  fields: { name: string; description: string }[]
+}
 
 const PRESET_FIELDS = [
   'Date', 'Total Amount', 'Company Name', 'Invoice Number',
@@ -175,13 +180,38 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
   const fieldsEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [userDefaultsLoaded, setUserDefaultsLoaded] = useState(false)
+  const [userPresets, setUserPresets] = useState<FieldPreset[]>([])
+  const [presetsLoaded, setPresetsLoaded] = useState(false)
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false)
+
+  // Load user presets once
+  useEffect(() => {
+    if (!presetsLoaded) {
+      api.get('/users/field-presets').then(r => {
+        if (r.data.presets?.length) setUserPresets(r.data.presets)
+        setPresetsLoaded(true)
+      }).catch(() => setPresetsLoaded(true))
+    }
+  }, [])
 
   useEffect(() => {
     if (documentType === 'custom' && !userDefaultsLoaded) {
-      api.get('/users/default-fields').then(r => {
-        if (r.data.fields?.length) setFields(r.data.fields)
+      api.get('/users/field-presets').then(r => {
+        // Auto-load first preset if available, otherwise fall back to old defaults
+        if (r.data.presets?.length && r.data.presets[0].fields?.length) {
+          setFields(r.data.presets[0].fields)
+        } else {
+          api.get('/users/default-fields').then(r2 => {
+            if (r2.data.fields?.length) setFields(r2.data.fields)
+          }).catch(() => {})
+        }
         setUserDefaultsLoaded(true)
-      }).catch(() => setUserDefaultsLoaded(true))
+      }).catch(() => {
+        api.get('/users/default-fields').then(r => {
+          if (r.data.fields?.length) setFields(r.data.fields)
+          setUserDefaultsLoaded(true)
+        }).catch(() => setUserDefaultsLoaded(true))
+      })
     } else {
       setFields(getDefaultFields(documentType, documentType === 'sov' ? scheduleSubtype : undefined))
     }
@@ -274,6 +304,44 @@ export default function ExtractionFieldsModal({ open, onClose, onConfirm, defaul
             <p className="text-xs text-muted-foreground mb-3">
               Select the data points you want to pull from each document. Each field becomes a column in your spreadsheet, and each document becomes a row.
             </p>
+
+            {/* Saved presets dropdown */}
+            {userPresets.length > 0 && (
+              <div className="relative mb-3">
+                <button
+                  onClick={() => setPresetMenuOpen(!presetMenuOpen)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-border bg-secondary/50 text-xs font-medium text-foreground hover:bg-secondary transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap size={13} className="text-primary" />
+                    Load saved preset
+                  </div>
+                  <ChevronDown size={13} className={cn('text-muted-foreground transition-transform', presetMenuOpen && 'rotate-180')} />
+                </button>
+                {presetMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setPresetMenuOpen(false)} />
+                    <div className="absolute top-full left-0 right-0 mt-1 z-20 rounded-lg border border-border bg-card shadow-lg overflow-hidden">
+                      {userPresets.map((preset, i) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            setFields(preset.fields.map(f => ({ ...f })))
+                            setPresetMenuOpen(false)
+                            setExpandedDesc(null)
+                            trackEvent('preset_loaded', { preset: preset.name })
+                          }}
+                          className="w-full flex items-center justify-between px-3 py-2.5 text-xs hover:bg-secondary/80 transition-colors border-b border-border last:border-0"
+                        >
+                          <span className="font-medium">{preset.name}</span>
+                          <span className="text-muted-foreground">{preset.fields.length} fields</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Schedule subtype selector — only for SOV */}
             {documentType === 'sov' && (

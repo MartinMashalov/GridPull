@@ -39,6 +39,9 @@ class User(Base):
     # User default extraction fields (JSON list of {name, description})
     default_fields = Column(JSON, nullable=True)
 
+    # Named extraction presets: [{name: str, fields: [{name, description}]}]
+    field_presets = Column(JSON, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

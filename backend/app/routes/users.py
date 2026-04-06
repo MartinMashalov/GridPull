@@ -71,6 +71,47 @@ async def save_default_fields(
     return {"ok": True, "fields": user.default_fields}
 
 
+class FieldPresetItem(BaseModel):
+    name: str
+    fields: List[DefaultFieldItem]
+
+
+class FieldPresetsRequest(BaseModel):
+    presets: List[FieldPresetItem]
+
+
+@router.get("/field-presets")
+async def get_field_presets(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the user's saved extraction field presets."""
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    presets = user.field_presets or [] if user else []
+    # Migrate old default_fields to presets if no presets exist yet
+    if not presets and user and user.default_fields:
+        presets = [{"name": "My Defaults", "fields": user.default_fields}]
+    return {"presets": presets}
+
+
+@router.post("/field-presets")
+async def save_field_presets(
+    body: FieldPresetsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the user's extraction field presets."""
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="User not found")
+    user.field_presets = [p.model_dump() for p in body.presets]
+    await db.commit()
+    return {"ok": True, "presets": user.field_presets}
+
+
 @router.post("/auto-renewal")
 async def set_auto_renewal(
     body: AutoRenewalRequest,

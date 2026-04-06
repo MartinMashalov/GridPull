@@ -127,6 +127,8 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS ingest_address_key VARCHAR",
             # User default extraction fields
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_fields JSON",
+            # Named extraction field presets
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS field_presets JSON",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
             
