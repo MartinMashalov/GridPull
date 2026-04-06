@@ -255,15 +255,27 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
     # tables) naturally sort after the primary schedule.
     docs = sorted(docs, key=lambda d: max((t.row_count for t in d.tables), default=0), reverse=True)
 
+    # Compute the expected row count from the primary doc's largest table
+    primary_doc = docs[0]
+    primary_max_table_rows = max((t.row_count for t in primary_doc.tables), default=0)
+    primary_data_rows = max(0, primary_max_table_rows - 1)  # subtract header row
+    row_count_hint = (
+        f" The PRIMARY SCHEDULE document ({primary_doc.filename}) contains "
+        f"a table with {primary_max_table_rows} rows (1 header + {primary_data_rows} data rows). "
+        f"You MUST produce exactly {primary_data_rows} output rows — one per location."
+    ) if primary_data_rows > 0 else ""
+
     preamble = (
         "MULTI-DOCUMENT SOV EXTRACTION:\n"
         f"The {len(docs)} documents below all describe the same set of insured properties. "
         "Extract EXACTLY ONE ROW PER UNIQUE LOCATION combining data from all documents. "
-        "The first document below has the most complete location list — use it as the "
-        "authoritative list of how many rows to produce. "
-        "Later documents provide supplemental or corrected field values for those same locations. "
-        "Do NOT reduce the row count due to named vs numbered location references — "
-        "'Location 3' and 'Desert Warehouse Complex' are the same location if they share Loc #."
+        "The first document below (labeled [PRIMARY SCHEDULE]) is the ONLY authoritative source "
+        "for how many rows to produce — do NOT use the row count from any [SUPPLEMENTAL] document."
+        f"{row_count_hint} "
+        "SUPPLEMENTAL documents provide additional or corrected field values for locations already "
+        "listed in the PRIMARY SCHEDULE — they never add or remove locations. "
+        "Named-location references and numbered references are the same location when context matches: "
+        "'Location 3', 'Loc 3', and 'Desert Warehouse Complex' are the same row if Loc #, address, or city align."
     )
 
     content_parts: List[str] = [preamble]
@@ -272,8 +284,9 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
     all_pages: List[ParsedPage] = []
     page_offset = 0
 
-    for doc in docs:
-        sep = f"=== DOCUMENT: {doc.filename} ==="
+    for i, doc in enumerate(docs):
+        role = "[PRIMARY SCHEDULE]" if i == 0 else f"[SUPPLEMENTAL {i}]"
+        sep = f"=== DOCUMENT {i + 1}/{len(docs)} {role}: {doc.filename} ==="
 
         if doc.content_text:
             content_parts.append(f"{sep}\n{doc.content_text}")
