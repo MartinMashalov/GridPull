@@ -34,43 +34,43 @@ const USE_CASES = [
     icon: Briefcase,
     title: 'Commercial Submissions',
     color: 'bg-blue-500/10 text-blue-600',
-    desc: 'Intake and process commercial insurance submissions at scale. Extract insured names, business descriptions, coverage requests, policy limits, deductibles, and loss history from ACORD forms, broker submissions, and supplemental applications — regardless of format or carrier.',
+    desc: 'You get submissions in every format — emailed PDFs, scanned ACORD apps, broker cover letters, and attachments you have to open one by one. Upload the whole stack and pull out insured names, coverage requests, limits, deductibles, loss history, and effective dates into one spreadsheet. No more flipping between documents and your management system.',
     fields: ['Insured Name', 'Business Description', 'Coverage Type', 'Requested Limits', 'Deductible', 'Loss History', 'Effective Date', 'Premium Indication'],
   },
   {
     icon: Layers,
-    title: 'Schedules for Independent Agencies',
+    title: 'Statements of Values (SOVs)',
     color: 'bg-violet-500/10 text-violet-600',
-    desc: 'Independent agencies handle dozens of carrier schedules with different formats. Upload property schedules, equipment lists, vehicle schedules, and location lists from any carrier and extract structured data into a single unified spreadsheet — eliminating manual re-keying between systems.',
-    fields: ['Location Address', 'Building Value', 'Contents Value', 'Construction Type', 'Year Built', 'Square Footage', 'Occupancy', 'Protection Class'],
+    desc: 'Property schedules with 50, 100, or 200+ locations shouldn\'t take hours to re-key. Upload the SOV and GridPull pulls every location into a clean spreadsheet — address, construction, occupancy, year built, square footage, sprinkler status, protection class, building value, contents, business income, and TIV. It comes with 15 pre-built fields designed specifically for property schedules.',
+    fields: ['Location Number', 'Address', 'City', 'State', 'ZIP', 'Construction Class', 'Occupancy', 'Year Built', 'Sq Ft', 'Sprinklered', 'Protection Class', 'Building Value', 'Contents/BPP', 'Business Income', 'Total Insured Value'],
   },
   {
     icon: Users,
-    title: 'Retail Insurance Brokers',
+    title: 'Policy Comparisons for Clients',
     color: 'bg-emerald-500/10 text-emerald-600',
-    desc: 'Retail brokers juggle client applications, quotes, and policy documents from multiple carriers. Extract key policy details, premium comparisons, coverage terms, and endorsement data to build side-by-side comparison spreadsheets for clients — in minutes instead of hours.',
-    fields: ['Carrier Name', 'Policy Number', 'Coverage Limits', 'Annual Premium', 'Endorsements', 'Exclusions', 'Renewal Date', 'Commission Rate'],
+    desc: 'When you\'re quoting a risk across multiple carriers, you end up with a stack of quote letters and proposals in different formats. Upload them all and extract carrier name, premium, limits, deductibles, endorsements, and exclusions into one side-by-side comparison spreadsheet you can send straight to your client.',
+    fields: ['Carrier Name', 'Policy Number', 'Coverage Limits', 'Annual Premium', 'Deductible', 'Key Endorsements', 'Exclusions', 'Renewal Date'],
   },
   {
     icon: Building2,
-    title: 'Commercial Insurance Brokerages',
+    title: 'Loss Runs & Claims History',
     color: 'bg-orange-500/10 text-orange-600',
-    desc: 'Large commercial brokerages process hundreds of submissions, quotes, and binders weekly. Automate the extraction of submission data, loss runs, financial statements, and SOVs (Statements of Values) into structured spreadsheets that feed directly into your management system.',
-    fields: ['Named Insured', 'TIV (Total Insured Value)', 'Revenue', 'Employee Count', 'Claims History', 'SIC/NAICS Code', 'Broker of Record', 'Binding Authority'],
+    desc: 'Every carrier sends loss runs in a different format. Upload loss runs from multiple carriers and pull out claim dates, descriptions, paid amounts, reserved amounts, and status into one consistent spreadsheet — so you can review a client\'s full claims picture without manually combining reports.',
+    fields: ['Carrier', 'Policy Period', 'Claim Number', 'Date of Loss', 'Description', 'Paid Amount', 'Reserved Amount', 'Status', 'Claimant'],
   },
   {
     icon: FormInput,
-    title: 'Supplemental Applications',
+    title: 'Auto-Fill ACORD Forms & Supplements',
     color: 'bg-pink-500/10 text-pink-600',
-    desc: 'GridPull has a dedicated function for supplemental applications in the commercial insurance process. Extract data from supplemental apps — including habitational, contractors, professional liability, and cyber supplements — and map responses directly to your intake spreadsheet.',
-    fields: ['Applicant Name', 'Line of Business', 'Supplement Type', 'Risk Details', 'Prior Coverage', 'Claims History', 'Underwriting Questions', 'Requested Effective Date'],
+    desc: 'Stop re-typing the same insured information into every supplemental application. Upload the blank ACORD form or carrier supplement, attach the client\'s submission paperwork, and GridPull fills in every field — text boxes, checkboxes, and dropdowns — and gives you back a completed PDF. Works with ACORD 125, 126, 130, 140, and any other fillable PDF.',
+    fields: ['Fills text fields from source documents', 'Checks the right boxes automatically', 'Selects dropdown values', 'Combines info from multiple source files', 'Works with any fillable PDF', 'Download the completed form instantly'],
   },
   {
     icon: FileCheck,
-    title: 'Carrier Intake Forms',
+    title: 'Carrier Intake & Appetite Matching',
     color: 'bg-teal-500/10 text-teal-600',
-    desc: 'Every carrier has different intake forms and appetites. GridPull extracts data from carrier-specific intake forms, appetite guides, and submission checklists — so you can quickly map your client data to the right carrier format without manual data entry.',
-    fields: ['Carrier Name', 'Form Type', 'Required Fields', 'Appetite Criteria', 'Minimum Premium', 'Target Classes', 'Submission Requirements', 'Turnaround SLA'],
+    desc: 'Each carrier wants their own intake form filled out before they\'ll quote. Upload the carrier\'s blank intake form and your client\'s existing paperwork — GridPull reads the source docs and fills in the carrier form for you. No more copying data from one PDF into another by hand across five different carrier portals.',
+    fields: ['Auto-fills carrier-specific intake forms', 'Reads from submissions, apps & loss runs', 'Handles scanned and photographed documents', 'Combines data from multiple source files', 'Returns completed PDF ready to submit', 'Works with any carrier\'s fillable PDF'],
   },
 ]
 
@@ -275,32 +275,103 @@ export default function InsurancePage() {
         </div>
       </section>
 
-      {/* How it works for insurance */}
+      {/* What you can do */}
       <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+            What you can do
+          </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            How it works for insurance teams
+            Two ways to stop re-keying data
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            No templates to build. No rules to configure. Just upload and extract.
+            Pull data out of documents into spreadsheets, or fill out forms automatically from your existing paperwork.
           </p>
 
-          <div className="grid sm:grid-cols-3 gap-6">
-            {[
-              { step: '1', title: 'Upload insurance documents', desc: 'Drag and drop ACORD forms, submissions, loss runs, schedules, or any insurance PDF. Handles scanned documents too.' },
-              { step: '2', title: 'Pick your fields', desc: 'Select from insurance-specific presets like Insured Name, Policy Limits, Deductible — or type any custom field.' },
-              { step: '3', title: 'Download your spreadsheet', desc: 'Get a clean Excel file with one row per document, one column per field. Ready for your management system.' },
-            ].map((s) => (
-              <div key={s.step} className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 hover:shadow-sm transition-all">
-                <span className="text-xs font-bold text-primary/60 uppercase tracking-wider">Step {s.step}</span>
-                <h3 className="font-semibold text-sm mt-3 mb-2">{s.title}</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed">{s.desc}</p>
+          <div className="grid sm:grid-cols-2 gap-6">
+            {/* Extract to Spreadsheet */}
+            <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <FileSpreadsheet size={20} className="text-primary" />
               </div>
-            ))}
+              <h3 className="font-semibold text-base mb-2">Pull data into spreadsheets</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-5">
+                Upload submissions, SOVs, loss runs, quotes, or any insurance document. Tell GridPull what fields you need — or use the built-in property schedule template with 15 pre-configured fields — and download a clean Excel file with one row per location or document.
+              </p>
+              <div className="space-y-3">
+                {[
+                  { title: 'Upload your documents', desc: 'Drag and drop PDFs — even scanned or photographed documents work.' },
+                  { title: 'Pick your fields', desc: 'Use the SOV preset for property schedules, or type in whatever fields you need.' },
+                  { title: 'Download your spreadsheet', desc: 'One row per location or document, one column per field. Ready for your management system.' },
+                ].map((s, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="w-5 h-5 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-[9px] font-bold text-primary">{i + 1}</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold">{s.title}</p>
+                      <p className="text-muted-foreground text-[11px] leading-relaxed">{s.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Fill PDF Forms */}
+            <div className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 hover:shadow-sm transition-all">
+              <div className="w-10 h-10 bg-pink-500/10 rounded-lg flex items-center justify-center mb-4">
+                <FormInput size={20} className="text-pink-600" />
+              </div>
+              <h3 className="font-semibold text-base mb-2">Auto-fill PDF forms</h3>
+              <p className="text-muted-foreground text-xs leading-relaxed mb-5">
+                Upload a blank ACORD form, carrier supplement, or any fillable PDF as the target. Then attach the client's existing paperwork — submissions, applications, loss runs, even photos of documents. GridPull reads everything and fills in the form for you. Text fields, checkboxes, dropdowns — all done.
+              </p>
+              <div className="space-y-3">
+                {[
+                  { title: 'Upload the blank form', desc: 'Drop in the ACORD app, carrier intake form, or any fillable PDF.' },
+                  { title: 'Attach the client\'s documents', desc: 'Add their submission, application, loss runs — anything with the data you need.' },
+                  { title: 'Download the filled form', desc: 'Every field filled in, ready to submit to the carrier.' },
+                ].map((s, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="w-5 h-5 bg-pink-500/10 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-[9px] font-bold text-pink-600">{i + 1}</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold">{s.title}</p>
+                      <p className="text-muted-foreground text-[11px] leading-relaxed">{s.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="text-center mt-10">
-            <SignInButton size="xl" label="Try it free with your insurance documents" className="min-w-0 sm:min-w-[340px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Try it free with your documents" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
+          </div>
+        </div>
+      </section>
+
+      {/* Set it up once */}
+      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+            Automation
+          </p>
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
+            Set it up once — new documents get processed automatically
+          </h2>
+          <p className="text-muted-foreground text-sm mb-8 max-w-2xl mx-auto leading-relaxed">
+            Connect a folder in Google Drive, SharePoint, or Outlook where your submissions or documents land.
+            Tell GridPull what fields to extract. From then on, every new document that hits that folder
+            gets processed automatically and the results are delivered as a spreadsheet to your output folder — no manual uploads needed.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl mx-auto">
+            {['Google Drive', 'SharePoint', 'Outlook', 'Dropbox'].map((source) => (
+              <div key={source} className="bg-card border border-border rounded-lg px-3 py-2.5 text-xs font-medium text-muted-foreground">
+                {source}
+              </div>
+            ))}
           </div>
         </div>
       </section>
