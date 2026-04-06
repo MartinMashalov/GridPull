@@ -4,7 +4,7 @@ import {
   CreditCard, User, Zap, Check, StickyNote, Trash2, X,
   Crown, Rocket, Building2, FileText, AlertTriangle,
   ChevronRight, BarChart3, Clock,
-  CheckCircle2, AlertCircle, Loader2,
+  CheckCircle2, AlertCircle, Loader2, Plus, Pencil, Copy,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials } from '@/lib/utils'
@@ -23,6 +23,11 @@ import { cn } from '@/lib/utils'
 interface DefaultField {
   name: string
   description: string
+}
+
+interface FieldPreset {
+  name: string
+  fields: DefaultField[]
 }
 
 interface TierInfo {
@@ -116,10 +121,16 @@ export default function SettingsPage() {
     { name: 'Date', description: '' },
     { name: 'Total Amount', description: '' },
   ])
-  const [defaultsLoaded, setDefaultsLoaded] = useState(false)
   const [savingDefaults, setSavingDefaults] = useState(false)
   const [customField, setCustomField] = useState('')
   const [expandedDesc, setExpandedDesc] = useState<number | null>(null)
+  // Presets
+  const [presets, setPresets] = useState<FieldPreset[]>([])
+  const [presetsLoaded, setPresetsLoaded] = useState(false)
+  const [activePresetIdx, setActivePresetIdx] = useState<number | null>(null)
+  const [savingPresets, setSavingPresets] = useState(false)
+  const [editingPresetName, setEditingPresetName] = useState<number | null>(null)
+  const [presetNameDraft, setPresetNameDraft] = useState('')
   const [history, setHistory] = useState<JobHistoryData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -152,10 +163,10 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchSubscription()
     api.get('/payments/saved-card').then(r => setSavedCard(r.data.card)).catch(() => setSavedCard(null))
-    api.get('/users/default-fields').then(r => {
-      if (r.data.fields?.length) setDefaultFields(r.data.fields)
-      setDefaultsLoaded(true)
-    }).catch(() => setDefaultsLoaded(true))
+    api.get('/users/field-presets').then(r => {
+      if (r.data.presets?.length) setPresets(r.data.presets)
+      setPresetsLoaded(true)
+    }).catch(() => setPresetsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -418,7 +429,7 @@ export default function SettingsPage() {
                         className={cn(
                           'rounded-xl border p-4 flex items-center justify-between transition-all',
                           isCurrent
-                            ? cn(TIER_BORDER[tier.name], TIER_BG[tier.name], 'ring-2 ring-primary/20')
+                            ? cn(TIER_BORDER[tier.name], TIER_BG[tier.name])
                             : 'border-border hover:shadow-sm hover:border-border/80',
                           tier.name === 'pro' && !isCurrent && 'border-amber-500/30 bg-amber-500/[0.03]',
                         )}
