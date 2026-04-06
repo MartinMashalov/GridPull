@@ -249,7 +249,22 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
     if len(docs) == 1:
         return docs[0]
 
-    content_parts: List[str] = []
+    # Sort docs richest-tables-first so the primary schedule is always presented
+    # first and the LLM uses it as the authoritative location list.
+    docs = sorted(docs, key=lambda d: sum(t.row_count for t in d.tables), reverse=True)
+
+    preamble = (
+        "MULTI-DOCUMENT SOV EXTRACTION:\n"
+        f"The {len(docs)} documents below all describe the same set of insured properties. "
+        "Extract EXACTLY ONE ROW PER UNIQUE LOCATION combining data from all documents. "
+        "The first document below has the most complete location list — use it as the "
+        "authoritative list of how many rows to produce. "
+        "Later documents provide supplemental or corrected field values for those same locations. "
+        "Do NOT reduce the row count due to named vs numbered location references — "
+        "'Location 3' and 'Desert Warehouse Complex' are the same location if they share Loc #."
+    )
+
+    content_parts: List[str] = [preamble]
     tables_md_parts: List[str] = []
     all_tables: List[ParsedTable] = []
     all_pages: List[ParsedPage] = []
