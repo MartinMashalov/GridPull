@@ -281,6 +281,20 @@ async def process_job(
             for slot in results_ordered:
                 all_extracted.extend(slot)
 
+            # ── SOV cross-document merge ───────────────────────────────
+            # When multiple docs describe the same locations (e.g. primary SOV +
+            # intake form + appraisal), merge rows that share the same Loc # into
+            # one complete row instead of emitting a separate row per document.
+            if force_sov and total_docs > 1:
+                from app.services.extraction.llm import finalize_property_schedule_rows
+                pre_merge_count = len(all_extracted)
+                all_extracted = finalize_property_schedule_rows(all_extracted, field_names)
+                if len(all_extracted) != pre_merge_count:
+                    logger.info(
+                        "Job %s — SOV cross-doc merge: %d rows -> %d rows",
+                        job_id, pre_merge_count, len(all_extracted),
+                    )
+
             # ── Phase 2: generate spreadsheet ─────────────────────────
             job.status = "generating"
             job.progress = 75
