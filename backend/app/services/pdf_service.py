@@ -291,15 +291,18 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
     combined_name = f"Combined ({len(docs)} docs)"
     return ParsedDocument(
         filename=combined_name,
-        file_path=docs[0].file_path,
+        # Empty file_path disables OCR (no single file to OCR); pages=[] forces the
+        # extraction pipeline to use the pre-built content_text rather than re-assembling
+        # per-page text, ensuring content from all source docs is seen by the LLM.
+        file_path="",
         page_count=sum(d.page_count for d in docs),
-        pages=all_pages,
+        pages=[],
         tables=all_tables,
         content_text="\n\n".join(content_parts),
         tables_markdown="\n\n".join(tables_md_parts),
         doc_type_hint=best_hint,
         has_tables=any(d.has_tables for d in docs),
-        is_scanned=any(d.is_scanned for d in docs),
+        is_scanned=False,  # never OCR a combined doc
     )
 
 
