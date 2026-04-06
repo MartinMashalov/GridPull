@@ -249,9 +249,11 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
     if len(docs) == 1:
         return docs[0]
 
-    # Sort docs richest-tables-first so the primary schedule is always presented
-    # first and the LLM uses it as the authoritative location list.
-    docs = sorted(docs, key=lambda d: sum(t.row_count for t in d.tables), reverse=True)
+    # Sort docs by largest single table descending so the primary schedule
+    # (one big N-location table) is presented first and the LLM uses it as the
+    # authoritative location list.  Supplemental docs (many small questionnaire
+    # tables) naturally sort after the primary schedule.
+    docs = sorted(docs, key=lambda d: max((t.row_count for t in d.tables), default=0), reverse=True)
 
     preamble = (
         "MULTI-DOCUMENT SOV EXTRACTION:\n"
