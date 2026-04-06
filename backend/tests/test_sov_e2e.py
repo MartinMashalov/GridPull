@@ -61,6 +61,10 @@ TEST_FILES = {
     "03": (_BACKEND / "test_files" / "03_package_policy_dec_pages_15_locations.pdf", 15),
     "04": (_BACKEND / "test_files" / "04_vehicle_schedule_35_vehicles.pdf", 35),
     "05": (_BACKEND / "test_files" / "05_prior_year_sov_30_locations.pdf", 30),
+    "06": (_BACKEND / "test_files" / "06_full_sov_20_locations.pdf", 20),
+    "07": (_BACKEND / "test_files" / "07_customer_intake_form.pdf", 8),
+    "08": (_BACKEND / "test_files" / "08_appraisal_supplement.pdf", 8),
+    "09": (_BACKEND / "test_files" / "09_email_thread_updates.pdf", 8),
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
