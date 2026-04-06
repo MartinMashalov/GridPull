@@ -125,175 +125,207 @@ async def process_job(
 
             all_extracted: List[Dict[str, Any]] = []
             total_pages = 0
-            job_usage = LLMUsage()  # Accumulates token cost across all docs (safe: asyncio is single-threaded)
+            job_usage = LLMUsage()
             completed_count = 0
-            results_ordered: List[List[Dict[str, Any]]] = [[] for _ in range(total_docs)]
-            sem = asyncio.Semaphore(6)  # Up to 6 docs extracted concurrently
 
-            async def _process_doc(idx: int, doc_id: str, filename: str, file_path: str) -> None:
-                nonlocal total_pages, completed_count
-                async with sem:
-                    doc_start = time.monotonic()
-                    logger.info(
-                        "Job %s — processing doc %d/%d: %s",
-                        job_id, idx + 1, total_docs, filename,
-                    )
-                    pct_start = 5 + int((idx / total_docs) * 65)
-                    async with _WorkerSession() as doc_db:
-                        doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
-                        doc_obj = doc_res.scalar_one()
-                        try:
-                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
-                            job_rec = job_res2.scalar_one_or_none()
-                            if job_rec:
-                                job_rec.status = "extracting"
-                                job_rec.progress = pct_start
-                                job_rec.completed_docs = completed_count
-                                await doc_db.commit()
-                            await emit(
-                                "extracting", pct_start,
-                                f"Processing {idx + 1}/{total_docs}: {filename}",
-                                completed_count, total_docs,
-                            )
-
-                            parsed_doc = await asyncio.to_thread(parse_pdf, file_path, filename)
-                            doc_obj.page_count = parsed_doc.page_count
-                            total_pages += parsed_doc.page_count
-                            doc_obj.status = "processing"
-                            await doc_db.commit()
-
-                            logger.info(
-                                "Job %s — parsed %s: %d pages, type=%s",
-                                job_id, filename, parsed_doc.page_count,
-                                getattr(parsed_doc, "doc_type_hint", "unknown"),
-                            )
-
-                            doc_usage = LLMUsage()
-                            rows = await asyncio.wait_for(
-                                extract_from_document(
-                                    parsed_doc,
-                                    fields,
-                                    doc_usage,
-                                    instructions,
-                                    batch_document_count=total_docs,
-                                    use_cerebras=use_cerebras,
-                                    force_sov=force_sov,
-                                    force_general=force_general,
-                                ),
-                                timeout=settings.extraction_timeout_seconds,
-                            )
-                            job_usage.litellm_cost_usd += doc_usage.litellm_cost_usd
-                            job_usage.input_tokens += doc_usage.input_tokens
-                            job_usage.output_tokens += doc_usage.output_tokens
-                            job_usage.vision_input_tokens += doc_usage.vision_input_tokens
-                            job_usage.vision_output_tokens += doc_usage.vision_output_tokens
-                            job_usage.cleanup_input_tokens += doc_usage.cleanup_input_tokens
-                            job_usage.cleanup_output_tokens += doc_usage.cleanup_output_tokens
-                            job_usage.ocr_cost_usd += doc_usage.ocr_cost_usd
-                            job_usage.bear_removed_tokens += doc_usage.bear_removed_tokens
-                            job_usage.bear_latency_ms += doc_usage.bear_latency_ms
-                            job_usage.bear_cache.update(doc_usage.bear_cache)
-                            doc_obj.extracted_data = rows
-                            doc_obj.status = "complete"
-                            results_ordered[idx] = rows
-                            await doc_db.commit()
-
-                            completed_count += 1
-                            doc_elapsed = (time.monotonic() - doc_start) * 1000
-                            error_rows = sum(1 for r in rows if r.get("_error"))
-                            filled = sum(1 for r in rows for k, v in r.items() if k not in ("_source_file", "_error") and v not in (None, ""))
-                            total_cells = len(rows) * len(field_names)
-                            logger.info(
-                                "Job %s — extracted %s: rows=%d filled_cells=%d/%d error_rows=%d in %.0fms doc_cost=$%.6f job_total=$%.6f",
-                                job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, doc_usage.cost_usd, job_usage.cost_usd,
-                            )
-                            # Persist completed_docs so polling endpoint shows real progress
-                            pct = 5 + int((completed_count / total_docs) * 65)
-                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
-                            job_rec = job_res2.scalar_one_or_none()
-                            if job_rec:
-                                job_rec.status = "extracting"
-                                job_rec.progress = pct
-                                job_rec.completed_docs = completed_count
-                                await doc_db.commit()
-                            await emit(
-                                "extracting", pct,
-                                f"✓ {filename} done ({completed_count}/{total_docs})",
-                                completed_count, total_docs,
-                            )
-
-                        except asyncio.TimeoutError:
-                            exc_msg = f"Extraction timed out after {int(settings.extraction_timeout_seconds)}s (file may be too large or API slow)"
-                            logger.error("Job %s — timeout processing %s", job_id, filename)
-                            doc_obj.status = "error"
-                            row = {f: "" for f in field_names}
-                            row["_source_file"] = filename
-                            row["_error"] = exc_msg
-                            results_ordered[idx] = [row]
-                            completed_count += 1
-                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
-                            job_rec = job_res2.scalar_one_or_none()
-                            if job_rec:
-                                pct = 5 + int((completed_count / total_docs) * 65)
-                                job_rec.status = "extracting"
-                                job_rec.progress = pct
-                                job_rec.completed_docs = completed_count
-                            await doc_db.commit()
-                            await emit("extracting", pct, f"✗ {filename} timed out ({completed_count}/{total_docs})", completed_count, total_docs)
-                        except Exception as exc:
-                            logger.error(
-                                "Job %s — error processing %s: %s",
-                                job_id, filename, exc, exc_info=True,
-                            )
-                            logger.error(
-                                "Job %s — doc %s failed; recording error row for downstream",
-                                job_id, filename,
-                            )
-                            doc_obj.status = "error"
-                            row: Dict[str, Any] = {f: "" for f in field_names}
-                            row["_source_file"] = filename
-                            row["_error"] = str(exc)
-                            results_ordered[idx] = [row]
-                            completed_count += 1
-                            # Also persist on error
-                            job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
-                            job_rec = job_res2.scalar_one_or_none()
-                            if job_rec:
-                                pct = 5 + int((completed_count / total_docs) * 65)
-                                job_rec.status = "extracting"
-                                job_rec.progress = pct
-                                job_rec.completed_docs = completed_count
-                            await doc_db.commit()
-                            await emit("extracting", pct, f"✗ {filename} failed ({completed_count}/{total_docs})", completed_count, total_docs)
-
-            # Kick off all docs in parallel (semaphore caps at 8 concurrent)
-            job.status = "extracting"
-            job.progress = 5
-            await db.commit()
-            await emit("extracting", 5, f"Extracting {total_docs} document(s) in parallel…", 0, total_docs)
-
-            await asyncio.gather(*[
-                _process_doc(i, doc.id, doc.filename, doc.file_path)
-                for i, doc in enumerate(documents)
-            ])
-
-            # Flatten results preserving original document order
-            for slot in results_ordered:
-                all_extracted.extend(slot)
-
-            # ── SOV cross-document merge ───────────────────────────────
-            # When multiple docs describe the same locations (e.g. primary SOV +
-            # intake form + appraisal), merge rows that share the same Loc # into
-            # one complete row instead of emitting a separate row per document.
             if force_sov and total_docs > 1:
-                from app.services.extraction.llm import merge_sov_rows_across_documents
-                pre_merge_count = len(all_extracted)
-                all_extracted = merge_sov_rows_across_documents(all_extracted, field_names)
-                if len(all_extracted) != pre_merge_count:
-                    logger.info(
-                        "Job %s — SOV cross-doc merge: %d rows -> %d rows",
-                        job_id, pre_merge_count, len(all_extracted),
-                    )
+                # ── SOV multi-doc: parse all in parallel, combine into one document,
+                #    then run a single extraction pass so the LLM sees all content
+                #    at once and naturally produces one unified row per location. ──
+                from app.services.pdf_service import combine_parsed_documents
+
+                parsed_by_idx: dict[int, Any] = {}
+                parse_sem = asyncio.Semaphore(6)
+
+                async def _parse_only(idx: int, doc_id: str, filename: str, file_path: str) -> None:
+                    nonlocal total_pages, completed_count
+                    async with parse_sem:
+                        async with _WorkerSession() as doc_db:
+                            doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
+                            doc_obj = doc_res.scalar_one()
+                            try:
+                                pct = 5 + int(((idx + 1) / total_docs) * 30)
+                                await emit("extracting", pct, f"Reading {idx + 1}/{total_docs}: {filename}", idx, total_docs)
+                                parsed = await asyncio.to_thread(parse_pdf, file_path, filename)
+                                doc_obj.page_count = parsed.page_count
+                                doc_obj.status = "processing"
+                                total_pages += parsed.page_count
+                                completed_count += 1
+                                parsed_by_idx[idx] = parsed
+                                logger.info("Job %s — parsed %s: %d pages type=%s", job_id, filename, parsed.page_count, parsed.doc_type_hint)
+                                await doc_db.commit()
+                            except Exception as exc:
+                                logger.error("Job %s — parse failed %s: %s", job_id, filename, exc)
+                                doc_obj.status = "error"
+                                await doc_db.commit()
+                                parsed_by_idx[idx] = None
+
+                job.status = "extracting"
+                job.progress = 5
+                await db.commit()
+                await emit("extracting", 5, f"Reading {total_docs} documents…", 0, total_docs)
+                await asyncio.gather(*[
+                    _parse_only(i, doc.id, doc.filename, doc.file_path)
+                    for i, doc in enumerate(documents)
+                ])
+
+                valid_parsed = [parsed_by_idx[i] for i in range(total_docs) if parsed_by_idx.get(i) is not None]
+                if not valid_parsed:
+                    raise RuntimeError("All documents failed to parse")
+
+                combined_doc = combine_parsed_documents(valid_parsed)
+                logger.info(
+                    "Job %s — combined %d docs into one: %d pages %d tables",
+                    job_id, len(valid_parsed), combined_doc.page_count, len(combined_doc.tables),
+                )
+
+                await emit("extracting", 40, f"Extracting from all {total_docs} documents combined…", total_docs, total_docs)
+
+                doc_usage = LLMUsage()
+                all_extracted = await asyncio.wait_for(
+                    extract_from_document(
+                        combined_doc, fields, doc_usage, instructions,
+                        batch_document_count=1,
+                        use_cerebras=False,
+                        force_sov=True,
+                        force_general=False,
+                    ),
+                    timeout=settings.extraction_timeout_seconds,
+                )
+                job_usage.litellm_cost_usd += doc_usage.litellm_cost_usd
+                job_usage.input_tokens += doc_usage.input_tokens
+                job_usage.output_tokens += doc_usage.output_tokens
+                job_usage.cleanup_input_tokens += doc_usage.cleanup_input_tokens
+                job_usage.cleanup_output_tokens += doc_usage.cleanup_output_tokens
+                job_usage.ocr_cost_usd += doc_usage.ocr_cost_usd
+
+                # Mark all docs complete and store the combined rows on each
+                for doc in documents:
+                    async with _WorkerSession() as doc_db:
+                        doc_res = await doc_db.execute(select(Document).where(Document.id == doc.id))
+                        doc_obj = doc_res.scalar_one()
+                        doc_obj.extracted_data = all_extracted
+                        doc_obj.status = "complete"
+                        await doc_db.commit()
+
+                filled = sum(1 for r in all_extracted for k, v in r.items() if k not in ("_source_file","_error") and v not in (None,""))
+                logger.info(
+                    "Job %s — SOV combined extraction: rows=%d filled=%d cost=$%.6f",
+                    job_id, len(all_extracted), filled, doc_usage.cost_usd,
+                )
+                await emit("extracting", 70, f"✓ Extracted {len(all_extracted)} rows from {total_docs} documents", total_docs, total_docs)
+
+            else:
+                # ── Standard path: extract each document independently in parallel ──
+                results_ordered: List[List[Dict[str, Any]]] = [[] for _ in range(total_docs)]
+                sem = asyncio.Semaphore(6)
+
+                async def _process_doc(idx: int, doc_id: str, filename: str, file_path: str) -> None:
+                    nonlocal total_pages, completed_count
+                    async with sem:
+                        doc_start = time.monotonic()
+                        logger.info("Job %s — processing doc %d/%d: %s", job_id, idx + 1, total_docs, filename)
+                        pct_start = 5 + int((idx / total_docs) * 65)
+                        async with _WorkerSession() as doc_db:
+                            doc_res = await doc_db.execute(select(Document).where(Document.id == doc_id))
+                            doc_obj = doc_res.scalar_one()
+                            try:
+                                job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                                job_rec = job_res2.scalar_one_or_none()
+                                if job_rec:
+                                    job_rec.status = "extracting"
+                                    job_rec.progress = pct_start
+                                    job_rec.completed_docs = completed_count
+                                    await doc_db.commit()
+                                await emit("extracting", pct_start, f"Processing {idx + 1}/{total_docs}: {filename}", completed_count, total_docs)
+
+                                parsed_doc = await asyncio.to_thread(parse_pdf, file_path, filename)
+                                doc_obj.page_count = parsed_doc.page_count
+                                total_pages += parsed_doc.page_count
+                                doc_obj.status = "processing"
+                                await doc_db.commit()
+                                logger.info("Job %s — parsed %s: %d pages, type=%s", job_id, filename, parsed_doc.page_count, getattr(parsed_doc, "doc_type_hint", "unknown"))
+
+                                doc_usage = LLMUsage()
+                                rows = await asyncio.wait_for(
+                                    extract_from_document(parsed_doc, fields, doc_usage, instructions, batch_document_count=total_docs, use_cerebras=use_cerebras, force_sov=force_sov, force_general=force_general),
+                                    timeout=settings.extraction_timeout_seconds,
+                                )
+                                job_usage.litellm_cost_usd += doc_usage.litellm_cost_usd
+                                job_usage.input_tokens += doc_usage.input_tokens
+                                job_usage.output_tokens += doc_usage.output_tokens
+                                job_usage.vision_input_tokens += doc_usage.vision_input_tokens
+                                job_usage.vision_output_tokens += doc_usage.vision_output_tokens
+                                job_usage.cleanup_input_tokens += doc_usage.cleanup_input_tokens
+                                job_usage.cleanup_output_tokens += doc_usage.cleanup_output_tokens
+                                job_usage.ocr_cost_usd += doc_usage.ocr_cost_usd
+                                job_usage.bear_removed_tokens += doc_usage.bear_removed_tokens
+                                job_usage.bear_latency_ms += doc_usage.bear_latency_ms
+                                job_usage.bear_cache.update(doc_usage.bear_cache)
+                                doc_obj.extracted_data = rows
+                                doc_obj.status = "complete"
+                                results_ordered[idx] = rows
+                                await doc_db.commit()
+
+                                completed_count += 1
+                                doc_elapsed = (time.monotonic() - doc_start) * 1000
+                                error_rows = sum(1 for r in rows if r.get("_error"))
+                                filled = sum(1 for r in rows for k, v in r.items() if k not in ("_source_file", "_error") and v not in (None, ""))
+                                total_cells = len(rows) * len(field_names)
+                                logger.info("Job %s — extracted %s: rows=%d filled_cells=%d/%d error_rows=%d in %.0fms doc_cost=$%.6f job_total=$%.6f", job_id, filename, len(rows), filled, total_cells, error_rows, doc_elapsed, doc_usage.cost_usd, job_usage.cost_usd)
+                                pct = 5 + int((completed_count / total_docs) * 65)
+                                job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                                job_rec = job_res2.scalar_one_or_none()
+                                if job_rec:
+                                    job_rec.status = "extracting"
+                                    job_rec.progress = pct
+                                    job_rec.completed_docs = completed_count
+                                    await doc_db.commit()
+                                await emit("extracting", pct, f"✓ {filename} done ({completed_count}/{total_docs})", completed_count, total_docs)
+
+                            except asyncio.TimeoutError:
+                                exc_msg = f"Extraction timed out after {int(settings.extraction_timeout_seconds)}s"
+                                logger.error("Job %s — timeout processing %s", job_id, filename)
+                                doc_obj.status = "error"
+                                row = {f: "" for f in field_names}
+                                row["_source_file"] = filename
+                                row["_error"] = exc_msg
+                                results_ordered[idx] = [row]
+                                completed_count += 1
+                                job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                                job_rec = job_res2.scalar_one_or_none()
+                                if job_rec:
+                                    pct = 5 + int((completed_count / total_docs) * 65)
+                                    job_rec.status = "extracting"
+                                    job_rec.progress = pct
+                                    job_rec.completed_docs = completed_count
+                                await doc_db.commit()
+                                await emit("extracting", pct, f"✗ {filename} timed out ({completed_count}/{total_docs})", completed_count, total_docs)
+                            except Exception as exc:
+                                logger.error("Job %s — error processing %s: %s", job_id, filename, exc, exc_info=True)
+                                doc_obj.status = "error"
+                                row: Dict[str, Any] = {f: "" for f in field_names}
+                                row["_source_file"] = filename
+                                row["_error"] = str(exc)
+                                results_ordered[idx] = [row]
+                                completed_count += 1
+                                job_res2 = await doc_db.execute(select(ExtractionJob).where(ExtractionJob.id == job_id))
+                                job_rec = job_res2.scalar_one_or_none()
+                                if job_rec:
+                                    pct = 5 + int((completed_count / total_docs) * 65)
+                                    job_rec.status = "extracting"
+                                    job_rec.progress = pct
+                                    job_rec.completed_docs = completed_count
+                                await doc_db.commit()
+                                await emit("extracting", pct, f"✗ {filename} failed ({completed_count}/{total_docs})", completed_count, total_docs)
+
+                job.status = "extracting"
+                job.progress = 5
+                await db.commit()
+                await emit("extracting", 5, f"Extracting {total_docs} document(s) in parallel…", 0, total_docs)
+                await asyncio.gather(*[_process_doc(i, doc.id, doc.filename, doc.file_path) for i, doc in enumerate(documents)])
+                for slot in results_ordered:
+                    all_extracted.extend(slot)
 
             # ── Phase 2: generate spreadsheet ─────────────────────────
             job.status = "generating"

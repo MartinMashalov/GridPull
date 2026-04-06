@@ -238,6 +238,71 @@ def _merge_attachment_into(base_text_parts: list, attachment_docs: list) -> "tup
         return True, scanned_paths[0] if scanned_paths else None
 
 
+def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
+    """Combine multiple ParsedDocuments into one for joint extraction.
+
+    Content from each document is concatenated with a source header so the
+    LLM can see everything in a single pass — no post-extraction merging needed.
+    """
+    if not docs:
+        raise ValueError("No documents to combine")
+    if len(docs) == 1:
+        return docs[0]
+
+    content_parts: List[str] = []
+    tables_md_parts: List[str] = []
+    all_tables: List[ParsedTable] = []
+    all_pages: List[ParsedPage] = []
+    page_offset = 0
+
+    for doc in docs:
+        sep = f"=== DOCUMENT: {doc.filename} ==="
+
+        if doc.content_text:
+            content_parts.append(f"{sep}\n{doc.content_text}")
+
+        if doc.tables_markdown:
+            tables_md_parts.append(f"{sep}\n{doc.tables_markdown}")
+
+        for table in doc.tables:
+            all_tables.append(ParsedTable(
+                page_num=table.page_num + page_offset,
+                row_count=table.row_count,
+                col_count=table.col_count,
+                markdown=table.markdown,
+            ))
+
+        for page in doc.pages:
+            all_pages.append(ParsedPage(
+                page_num=page.page_num + page_offset,
+                text=page.text,
+                tables=page.tables,
+                word_count=page.word_count,
+                has_numbers=page.has_numbers,
+                has_dates=page.has_dates,
+                image_count=page.image_count,
+            ))
+
+        page_offset += doc.page_count
+
+    hint_priority = {"dense_tables": 4, "mixed": 3, "form": 2, "narrative": 1}
+    best_hint = max(docs, key=lambda d: hint_priority.get(d.doc_type_hint, 0)).doc_type_hint
+
+    combined_name = f"Combined ({len(docs)} docs)"
+    return ParsedDocument(
+        filename=combined_name,
+        file_path=docs[0].file_path,
+        page_count=sum(d.page_count for d in docs),
+        pages=all_pages,
+        tables=all_tables,
+        content_text="\n\n".join(content_parts),
+        tables_markdown="\n\n".join(tables_md_parts),
+        doc_type_hint=best_hint,
+        has_tables=any(d.has_tables for d in docs),
+        is_scanned=any(d.is_scanned for d in docs),
+    )
+
+
 def parse_pdf(file_path: str, filename: str = "") -> ParsedDocument:
     """
     Parse a PDF or image file into a structured ParsedDocument ready for LLM extraction.
