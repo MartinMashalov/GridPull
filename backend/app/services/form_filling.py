@@ -21,15 +21,16 @@ _MIN_PYPDF_TEXT_LEN = 200
 _OCR_MAX_RETRIES = 3
 _OCR_RETRY_BACKOFF = [1, 3, 6]
 _OCR_MAX_FILE_SIZE = 1_000_000
+_MAX_SOURCE_PAGES = 40  # cap pages read/OCR'd per source PDF
 
 
 # ─── OCR ───────────────────────────────────────────────────────────────────────
 
-def _extract_text_pypdf(file_bytes: bytes) -> str:
+def _extract_text_pypdf(file_bytes: bytes, max_pages: int = _MAX_SOURCE_PAGES) -> str:
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
         pages = []
-        for page in reader.pages:
+        for page in reader.pages[:max_pages]:
             t = page.extract_text() or ""
             if t.strip():
                 pages.append(t)
@@ -47,8 +48,11 @@ class MistralOCR:
 
     async def _chunked(self, file_bytes: bytes) -> str:
         reader = PdfReader(io.BytesIO(file_bytes))
+        pages = reader.pages[:_MAX_SOURCE_PAGES]
+        if len(reader.pages) > _MAX_SOURCE_PAGES:
+            logger.info("[OCR] Capping OCR at %d/%d pages", _MAX_SOURCE_PAGES, len(reader.pages))
         texts = []
-        for i, page in enumerate(reader.pages):
+        for i, page in enumerate(pages):
             w = PdfWriter()
             w.add_page(page)
             buf = io.BytesIO()
@@ -196,12 +200,21 @@ async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR
         if field_text:
             return f"[PDF Form Fields]\n{field_text}"
 
-        # No form fields — fall back to text/OCR
+        # Check page count for logging
+        try:
+            page_count = len(PdfReader(io.BytesIO(file_bytes)).pages)
+            if page_count > _MAX_SOURCE_PAGES:
+                logger.info("[FORM-FILL] Source '%s' has %d pages — capping at %d",
+                            filename, page_count, _MAX_SOURCE_PAGES)
+        except Exception:
+            page_count = 0
+
+        # No form fields — fall back to text/OCR (capped at _MAX_SOURCE_PAGES)
         pypdf_text = await asyncio.to_thread(_extract_text_pypdf, file_bytes)
         if len(pypdf_text.strip()) >= _MIN_PYPDF_TEXT_LEN:
             return _first_n_words(pypdf_text, 15000)
 
-        # Scanned PDF — OCR it
+        # Scanned PDF — OCR it (capped at _MAX_SOURCE_PAGES)
         ocr_text = await ocr.extract_text_async(file_bytes, 'application/pdf')
         return _first_n_words(ocr_text, 15000) if ocr_text else ""
 
