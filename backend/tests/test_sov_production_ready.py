@@ -59,7 +59,13 @@ RESET  = "\033[0m"
 CYAN   = "\033[96m"
 
 _EMPTY = {"", "null", "none", "n/a", "na", "-", "—", "unknown", "not found", "not available"}
-_BAD_OCR = ["dban", "maysdby", "harb or", "st ree", "dbay", "dbos"]
+_BAD_OCR = [
+    "dban", "maysdby", "harb or", "st ree", "dbay", "dbos",
+    # patterns from Mistral OCR garbling "San" city names into the street field
+    "dsran", "stsan", "stden", "stchi", "sthou", "stpho", "stdal", "staus",
+    # city name concatenated directly after street suffix with no space
+    r"st[A-Z][a-z]{2,}",  # e.g. "StSan", "StDen"
+]
 
 
 def is_filled(v: Any) -> bool:
@@ -75,10 +81,17 @@ def find_garble(rows: List[Dict], field_names: List[str]) -> List[str]:
     hits = []
     for r in rows:
         for fn in field_names:
-            val = str(r.get(fn) or "").lower()
+            val = str(r.get(fn) or "")
+            val_lower = val.lower()
             for pat in _BAD_OCR:
-                if pat in val:
-                    hits.append(f"Loc#{r.get('Loc #','?')} {fn}={r.get(fn)!r}")
+                if pat.startswith("r"):
+                    # regex pattern
+                    if re.search(pat[1:], val):
+                        hits.append(f"Loc#{r.get('Loc #','?')} {fn}={val!r}")
+                        break
+                elif pat in val_lower:
+                    hits.append(f"Loc#{r.get('Loc #','?')} {fn}={val!r}")
+                    break
     return hits
 
 
@@ -189,16 +202,23 @@ _SHEET   = {".xlsx", ".xls", ".xlsm", ".csv"}
 
 
 async def _parse_ocr(path: Path) -> Any:
+    """Mirror job_processor._parse_only: OCR only for scanned docs or dense_tables/mixed hints."""
     p = await asyncio.to_thread(parse_pdf, str(path), path.name)
-    if settings.mistral_api_key and not any(path.suffix.lower() == e for e in _NO_OCR | _SHEET):
+    needs_ocr = p.is_scanned or p.doc_type_hint in ("dense_tables", "mixed")
+    if (settings.mistral_api_key
+            and needs_ocr
+            and not any(path.suffix.lower() == e for e in _NO_OCR | _SHEET)):
         try:
             ocr = await run_mistral_ocr(str(path), settings.mistral_api_key, max_pages=50)
             secs = _build_sections_from_ocr_pages(ocr.pages)
             txt = "\n\n".join(s.content for s in secs).strip()
             if txt:
                 p.content_text = txt
+                print(f"    [OCR] {path.name} hint={p.doc_type_hint}: {ocr.page_count}p → {len(txt):,}c")
         except Exception as exc:
             print(f"    {YELLOW}OCR failed for {path.name}: {exc}{RESET}")
+    else:
+        print(f"    [liteparse] {path.name} hint={p.doc_type_hint} scanned={p.is_scanned}")
     return p
 
 

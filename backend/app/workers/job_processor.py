@@ -151,15 +151,22 @@ async def process_job(
                                 doc_obj.status = "processing"
                                 total_pages += parsed.page_count
 
-                                # Replace PyMuPDF text with Mistral OCR text for each file so
-                                # the combined doc gets OCR-quality content, not raw parser text.
-                                # Same routing as the single-doc SOV path: skip emails/spreadsheets.
+                                # Replace PyMuPDF text with Mistral OCR text for files that
+                                # benefit from OCR: scanned docs, or docs with dense tables.
+                                # Skip OCR for text-based form/narrative docs (emails, plain
+                                # narrative PDFs) — PyMuPDF already reads them cleanly, and
+                                # Mistral OCR introduces garble on city names in those docs.
                                 _NO_OCR_EXTS = {".eml", ".emlx", ".msg", ".html", ".htm"}
                                 _SHEET_EXTS = {".xlsx", ".xls", ".xlsm", ".csv"}
                                 fname_lower = filename.lower()
+                                _needs_ocr = (
+                                    parsed.is_scanned
+                                    or parsed.doc_type_hint in ("dense_tables", "mixed")
+                                )
                                 if (
                                     settings.mistral_api_key
                                     and file_path
+                                    and _needs_ocr
                                     and not any(fname_lower.endswith(e) for e in _NO_OCR_EXTS)
                                     and not any(fname_lower.endswith(e) for e in _SHEET_EXTS)
                                 ):
@@ -182,6 +189,11 @@ async def process_job(
                                             "Job %s — pre-combine OCR failed for %s: %s (using liteparse text)",
                                             job_id, filename, ocr_exc,
                                         )
+                                else:
+                                    logger.info(
+                                        "Job %s — pre-combine skipping OCR for %s (hint=%s, scanned=%s) — using liteparse",
+                                        job_id, filename, parsed.doc_type_hint, parsed.is_scanned,
+                                    )
 
                                 completed_count += 1
                                 parsed_by_idx[idx] = parsed
