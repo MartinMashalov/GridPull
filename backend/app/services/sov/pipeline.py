@@ -448,8 +448,20 @@ async def _extract_rows(
     if tables_markdown:
         prompt_parts.append(f"\n--- Parsed Tables From Kept Pages ---\n{tables_markdown}")
     prompt_parts.append(f"\n--- Trimmed OCR Text ---\n{trimmed_text}")
+    # In multi-doc mode the trimmed_text starts with the MULTI-DOCUMENT preamble.
+    # Address fields must come from the PRIMARY SCHEDULE table only.
+    is_multi_doc = "MULTI-DOCUMENT SOV EXTRACTION" in trimmed_text
+    address_rule = (
+        "ADDRESS FIELDS (Street Address, City, State, Zip): copy these EXACTLY and ONLY from the "
+        "[PRIMARY SCHEDULE] tabular data. Narrative text in [SUPPLEMENTAL] documents may reference "
+        "location names or cities — those mentions are for row identification only. "
+        "NEVER use them to populate or modify address fields. "
+        "If a supplemental narrative says 'Harbor location in San Antonio' do not write that into "
+        "the Street Address — take the address exclusively from the primary schedule table.\n"
+    ) if is_multi_doc else ""
     prompt_parts.append(
         "\n--- Extraction Rules ---\n"
+        + address_rule +
         "COMPLETENESS IS CRITICAL — read every page of the OCR text in full before outputting anything.\n"
         "Schedules often continue across pages with the same column headers repeated; include ALL rows from ALL pages.\n"
         "Before writing output: count the data rows visible in the schedule table(s) and return that exact count.\n"

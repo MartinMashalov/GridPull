@@ -275,7 +275,10 @@ def combine_parsed_documents(docs: List["ParsedDocument"]) -> "ParsedDocument":
         "SUPPLEMENTAL documents provide additional or corrected field values for locations already "
         "listed in the PRIMARY SCHEDULE — they never add or remove locations. "
         "Named-location references and numbered references are the same location when context matches: "
-        "'Location 3', 'Loc 3', and 'Desert Warehouse Complex' are the same row if Loc #, address, or city align."
+        "'Location 3', 'Loc 3', and 'Desert Warehouse Complex' are the same row if Loc #, address, or city align. "
+        "ADDRESS RULE: Street Address, City, State, and Zip must come EXCLUSIVELY from the PRIMARY SCHEDULE "
+        "tabular data. Narrative text in SUPPLEMENTAL documents (emails, letters) may mention location names or "
+        "city names for cross-reference only — never use those mentions to populate or override address fields."
     )
 
     content_parts: List[str] = [preamble]
