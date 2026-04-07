@@ -202,9 +202,10 @@ _SHEET   = {".xlsx", ".xls", ".xlsm", ".csv"}
 
 
 async def _parse_ocr(path: Path) -> Any:
-    """Mirror job_processor._parse_only: OCR only for scanned docs or dense_tables/mixed hints."""
+    """Mirror job_processor._parse_only: OCR only for truly scanned (image-based) documents.
+    Non-scanned PDFs — including dense-table ones — use liteparse to avoid Mistral OCR garble."""
     p = await asyncio.to_thread(parse_pdf, str(path), path.name)
-    needs_ocr = p.is_scanned or p.doc_type_hint in ("dense_tables", "mixed")
+    needs_ocr = p.is_scanned  # only image-based docs need OCR; text-layer PDFs use liteparse
     if (settings.mistral_api_key
             and needs_ocr
             and not any(path.suffix.lower() == e for e in _NO_OCR | _SHEET)):

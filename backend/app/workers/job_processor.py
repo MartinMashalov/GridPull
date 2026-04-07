@@ -151,18 +151,16 @@ async def process_job(
                                 doc_obj.status = "processing"
                                 total_pages += parsed.page_count
 
-                                # Replace PyMuPDF text with Mistral OCR text for files that
-                                # benefit from OCR: scanned docs, or docs with dense tables.
-                                # Skip OCR for text-based form/narrative docs (emails, plain
-                                # narrative PDFs) — PyMuPDF already reads them cleanly, and
-                                # Mistral OCR introduces garble on city names in those docs.
+                                # Only OCR truly scanned (image-based) documents in the
+                                # multi-doc pre-combine path. Native PDFs with text layers
+                                # (even dense-table ones) are read cleanly by PyMuPDF —
+                                # Mistral OCR on non-scanned PDFs is non-deterministic and
+                                # sometimes garbles city names inside table cells
+                                # (e.g. "San Antonio" → "DSran Antoni o").
                                 _NO_OCR_EXTS = {".eml", ".emlx", ".msg", ".html", ".htm"}
                                 _SHEET_EXTS = {".xlsx", ".xls", ".xlsm", ".csv"}
                                 fname_lower = filename.lower()
-                                _needs_ocr = (
-                                    parsed.is_scanned
-                                    or parsed.doc_type_hint in ("dense_tables", "mixed")
-                                )
+                                _needs_ocr = parsed.is_scanned
                                 if (
                                     settings.mistral_api_key
                                     and file_path
