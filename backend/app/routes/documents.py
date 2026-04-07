@@ -392,6 +392,7 @@ async def start_extraction_service(
     baseline_update_mode: bool = Form(False),
     allow_edit_past_values: bool = Form(False),
     use_cerebras: bool = Form(False),
+    pipeline: str = Form("auto"),
     fields: str = Form(...),
     instructions: str = Form(""),
     format: str = Form("xlsx"),
@@ -428,6 +429,7 @@ async def start_extraction_service(
         baseline_update_mode=baseline_update_mode,
         allow_edit_past_values=allow_edit_past_values,
         use_cerebras=use_cerebras,
+        pipeline=pipeline,
     )
 
 
