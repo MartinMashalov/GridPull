@@ -29,7 +29,7 @@ _WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9/&().,#:%-]*")
 _SECTION_SELECTOR_MAX_TOKENS = 1_200
 _SOV_EXTRACT_MAX_TOKENS = 12_000
 _SOV_LITEPARSE_THRESHOLD_PAGES = 0   # always OCR — LiteParse silently drops table rows
-_SOV_OCR_MAX_PAGES = 80          # truncate large docs before OCR
+_SOV_OCR_MAX_PAGES = 50          # cap at 50 pages; end of long SOVs is usually exceptions/appendices
 _TRAILING_COMMA_RE = re.compile(r",\s*([}\]])")
 # Max rows to attempt in a single LLM pass (output token budget constraint)
 # 32K output tokens / ~650 tokens per row (46 fields) ≈ 50 rows safe limit
@@ -722,13 +722,11 @@ async def extract_sov_from_document(
 
     if use_ocr and ocr_succeeded:
         sections = _build_sections_from_ocr_pages(ocr_result.pages)
-        selected_sections = await _select_sections(doc, fields, sections, usage, instructions)
+        # Use all OCR pages up to the cap — no LLM-based section selector.
+        # End-of-document pages (appendices, endorsements) are cut off by the
+        # _SOV_OCR_MAX_PAGES cap, so selecting a subset adds cost without benefit.
+        selected_sections = sections
         kept_pages = {section.page_num for section in selected_sections}
-
-        if not kept_pages:
-            # Selector returned nothing — keep all OCR pages
-            kept_pages = {page.page_num for page in ocr_result.pages}
-            selected_sections = sections
 
         page_sections = selected_sections
         trimmed_text = "\n\n".join(section.content for section in selected_sections).strip()
@@ -738,12 +736,12 @@ async def extract_sov_from_document(
         selected_headers = "\n".join(
             f"- page {section.page_num}: header={json.dumps(section.header or '', ensure_ascii=True)} — {section.preview}"
             for section in selected_sections
-        ) or "- no OCR headers were returned; kept pages selected by preview"
+        ) or "- no OCR headers were returned"
         selected_tables = _selected_tables(doc, kept_pages)
 
         logger.info(
-            "SOV OCR routing for %s: scanned=%s pages=%d → kept %d/%d OCR pages",
-            doc.filename, doc.is_scanned, doc.page_count, len(kept_pages), len(sections),
+            "SOV OCR routing for %s: scanned=%s pages=%d → using all %d OCR pages (no selector)",
+            doc.filename, doc.is_scanned, doc.page_count, len(sections),
         )
     else:
         # LiteParse: small non-scanned doc (≤15 pages) or spreadsheet

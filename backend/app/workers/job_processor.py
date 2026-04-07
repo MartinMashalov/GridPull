@@ -150,6 +150,39 @@ async def process_job(
                                 doc_obj.page_count = parsed.page_count
                                 doc_obj.status = "processing"
                                 total_pages += parsed.page_count
+
+                                # Replace PyMuPDF text with Mistral OCR text for each file so
+                                # the combined doc gets OCR-quality content, not raw parser text.
+                                # Same routing as the single-doc SOV path: skip emails/spreadsheets.
+                                _NO_OCR_EXTS = {".eml", ".emlx", ".msg", ".html", ".htm"}
+                                _SHEET_EXTS = {".xlsx", ".xls", ".xlsm", ".csv"}
+                                fname_lower = filename.lower()
+                                if (
+                                    settings.mistral_api_key
+                                    and file_path
+                                    and not any(fname_lower.endswith(e) for e in _NO_OCR_EXTS)
+                                    and not any(fname_lower.endswith(e) for e in _SHEET_EXTS)
+                                ):
+                                    try:
+                                        from app.services.ocr_service import run_mistral_ocr
+                                        ocr_res = await run_mistral_ocr(
+                                            file_path, settings.mistral_api_key, max_pages=50
+                                        )
+                                        from app.services.sov.pipeline import _build_sections_from_ocr_pages
+                                        sections = _build_sections_from_ocr_pages(ocr_res.pages)
+                                        ocr_text = "\n\n".join(s.content for s in sections).strip()
+                                        if ocr_text:
+                                            parsed.content_text = ocr_text
+                                            logger.info(
+                                                "Job %s — pre-combine OCR %s: %d pages → %d chars",
+                                                job_id, filename, ocr_res.page_count, len(ocr_text),
+                                            )
+                                    except Exception as ocr_exc:
+                                        logger.warning(
+                                            "Job %s — pre-combine OCR failed for %s: %s (using liteparse text)",
+                                            job_id, filename, ocr_exc,
+                                        )
+
                                 completed_count += 1
                                 parsed_by_idx[idx] = parsed
                                 logger.info("Job %s — parsed %s: %d pages type=%s", job_id, filename, parsed.page_count, parsed.doc_type_hint)
