@@ -431,31 +431,57 @@ def _is_filled_value(value: Any) -> bool:
 def property_schedule_row_cleanup_matches_schema(field_names: List[str]) -> bool:
     """True when the field set looks like a multi-row schedule (property, vehicle, employee, etc.).
 
-    Detection uses generic structural cues only — identifier fields paired with
-    descriptive or value fields — with no domain-specific keyword lists.
+    Detection uses structural cues: explicit row-numbering indicators ("#" in
+    field names), separate address-component fields (city/state/zip as distinct
+    columns), and entity-level descriptor+value pairings.  Generic words like
+    "name" or "number" are intentionally excluded because they appear in almost
+    every field set (invoices, EOBs, etc.) and cause false-positive SOV routing.
     """
     if len(field_names) < 4:
         return False
 
     blob = " ".join(n.lower() for n in field_names)
 
-    # Identifier cues: fields that label individual records
-    has_identifier = bool(re.search(
-        r"\b(id|no|num|code|name|number|index|ref|serial|account)\b|#",
+    # 1. Explicit row-numbering indicator — a "#" literal in a field name
+    #    (e.g. "Location #", "Vehicle #", "Unit #") is a strong signal that
+    #    the user expects multiple numbered rows.
+    has_row_numbering = any("#" in fn for fn in field_names)
+
+    # 2. Separate address/location component fields as individual columns.
+    #    Schedules break location into city/state/zip columns; single-record
+    #    documents use one composite "Address" field.
+    address_components = sum(
+        1 for fn in field_names
+        if re.search(r"\b(city|state|province|zip|postal|county|country)\b", fn.lower())
+    )
+
+    # 3. Entity-level descriptor cues (physical/classification attributes)
+    has_entity_descriptor = bool(re.search(
+        r"\b(city|state|zip|postal|location|site|type|class|category|county|province|country)\b",
         blob,
     ))
-    # Location/entity descriptor cues
-    has_descriptor = bool(re.search(
-        r"\b(address|street|city|state|zip|postal|location|site|description|type|class|category)\b",
-        blob,
-    ))
-    # Value/quantity cues
+
+    # 4. Value/quantity cues
     has_value = bool(re.search(
         r"\b(value|amount|cost|total|premium|rate|quantity|count|area|size|sq\s*ft|sq\.?\s*ft|square)\b",
         blob,
     ))
 
-    return has_identifier or (has_descriptor and has_value)
+    # Route 1: explicit row numbering + entity descriptor (location/type fields)
+    #   Require descriptor to distinguish schedule-like "#" (Location #, Vehicle #)
+    #   from document-identifier "#" (Form #, Contract #).
+    if has_row_numbering and has_entity_descriptor:
+        return True
+
+    # Route 2: ≥2 separate address-component fields → per-entity location data
+    if address_components >= 2:
+        return True
+
+    # Route 3: entity descriptor + value + at least one address component
+    if has_entity_descriptor and has_value and address_components >= 1:
+        return True
+
+    return False
 
 
 def _extract_table_headers(tables: list) -> set[str]:
@@ -633,10 +659,22 @@ def sanitize_unmatched_field_values(
 
         unique_count = len(set(filled))
         if unique_count == 1:
+            # Before nulling, check if the uniform value actually appears in
+            # the document text.  A real document-level value (e.g. customer
+            # name from the letterhead, propagated to every line-item row) will
+            # be present in the text — only null if it's truly absent.
+            uniform_val = filled[0]
+            if uniform_val.lower() in doc_text_lower:
+                logger.info(
+                    "Kept uniform value '%s' for field '%s' across %d rows "
+                    "(field label not in headers but value found in document text)",
+                    uniform_val, fn, len(filled),
+                )
+                continue
             logger.info(
                 "Nulled uniform value '%s' for field '%s' across %d rows "
                 "(field label not found in table headers or document)",
-                filled[0], fn, len(filled),
+                uniform_val, fn, len(filled),
             )
             for row in rows:
                 row[fn] = None

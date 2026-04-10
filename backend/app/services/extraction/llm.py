@@ -108,9 +108,12 @@ async def _llm_extract_vision(
     field_names: List[str],
     filename: str,
     usage: LLMUsage,
+    model: str = "",
+    max_tokens: int = 4_096,
 ) -> List[Dict[str, Any]]:
     return await _llm_extract(
-        system, user_prompt, field_names, filename, usage, _VISION_MODEL, vision_tokens=True
+        system, user_prompt, field_names, filename, usage,
+        model or _VISION_MODEL, max_tokens=max_tokens, vision_tokens=True,
     )
 
 
