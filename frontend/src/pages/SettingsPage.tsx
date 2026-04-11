@@ -328,7 +328,7 @@ export default function SettingsPage() {
                 {/* Usage meter */}
                 <div className="mt-5">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium">Credits used this period</span>
+                    <span className="text-xs font-medium">Pages used this period</span>
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {sub.pages_used.toLocaleString()} / {sub.pages_limit.toLocaleString()}
                     </span>
