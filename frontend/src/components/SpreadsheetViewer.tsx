@@ -221,7 +221,7 @@ export default function SpreadsheetViewer({
                 </div>
                 <p className="text-base font-semibold mb-1">Upgrade to download your results</p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Your extraction is complete! Upgrade to Starter to download your results and get 150 credits/month.
+                  Your extraction is complete! Upgrade to Starter to download your results and get 7,500 pages/month.
                 </p>
                 <div className="flex items-center justify-center gap-3">
                   <Button onClick={() => navigate('/settings')} className="gap-1.5">

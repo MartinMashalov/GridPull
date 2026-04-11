@@ -23,7 +23,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "balance": current_user.balance,
         "subscription_tier": current_user.subscription_tier or "free",
         "subscription_status": current_user.subscription_status or "active",
-        "credits_used_this_period": current_user.credits_used_this_period or 0,
+        "pages_used_this_period": current_user.pages_used_this_period or 0,
         "current_period_end": current_user.current_period_end.isoformat() if current_user.current_period_end else None,
     }
 

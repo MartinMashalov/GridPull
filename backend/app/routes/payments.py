@@ -127,7 +127,7 @@ async def _get_stripe_price_id(tier_name: str) -> str:
 
 
 def _maybe_reset_usage(user: User) -> bool:
-    """Reset credits_used if the billing period has rolled over. Returns True if reset."""
+    """Reset pages_used if the billing period has rolled over. Returns True if reset."""
     if not user.usage_reset_at:
         return False
     now = datetime.now(timezone.utc)
@@ -135,8 +135,8 @@ def _maybe_reset_usage(user: User) -> bool:
     if reset_at.tzinfo is None:
         reset_at = reset_at.replace(tzinfo=timezone.utc)
     if now >= reset_at:
-        user.credits_used_this_period = 0
-        user.overage_credits_this_period = 0
+        user.pages_used_this_period = 0
+        user.overage_pages_this_period = 0
         if user.current_period_end:
             pe = user.current_period_end
             if pe.tzinfo is None:
@@ -161,14 +161,14 @@ async def get_subscription(
     await db.commit()
 
     tier = get_tier(user.subscription_tier)
-    usage_pct = (user.credits_used_this_period / tier.credits_per_month * 100) if tier.credits_per_month else 0
+    usage_pct = (user.pages_used_this_period / tier.pages_per_month * 100) if tier.pages_per_month else 0
 
     return {
         "tier": tier_info_dict(tier),
         "status": user.subscription_status,
-        "credits_used": user.credits_used_this_period,
-        "overage_credits": user.overage_credits_this_period,
-        "credits_limit": tier.credits_per_month,
+        "pages_used": user.pages_used_this_period,
+        "overage_pages": user.overage_pages_this_period,
+        "pages_limit": tier.pages_per_month,
         "usage_percent": min(usage_pct, 100),
         "current_period_end": user.current_period_end.isoformat() if user.current_period_end else None,
         "all_tiers": [tier_info_dict(TIERS[t]) for t in TIER_ORDER],
@@ -373,14 +373,14 @@ async def get_usage_warning(
     await db.commit()
 
     tier = get_tier(user.subscription_tier)
-    pct = (user.credits_used_this_period / tier.credits_per_month * 100) if tier.credits_per_month else 0
-    at_limit = user.credits_used_this_period >= tier.credits_per_month
+    pct = (user.pages_used_this_period / tier.pages_per_month * 100) if tier.pages_per_month else 0
+    at_limit = user.pages_used_this_period >= tier.pages_per_month
     near_limit = pct >= 80 and not at_limit
 
     warning = None
     if at_limit and tier.name == "free":
         warning = "limit_reached_free"
-    elif at_limit and tier.overage_rate:
+    elif at_limit and tier.overage_rate_cents_per_page:
         warning = "limit_reached_paid"
     elif near_limit:
         warning = "near_limit"
@@ -392,10 +392,10 @@ async def get_usage_warning(
 
     return {
         "warning": warning,
-        "credits_used": user.credits_used_this_period,
-        "credits_limit": tier.credits_per_month,
-        "overage_credits": user.overage_credits_this_period,
-        "overage_rate": tier.overage_rate,
+        "pages_used": user.pages_used_this_period,
+        "pages_limit": tier.pages_per_month,
+        "overage_pages": user.overage_pages_this_period,
+        "overage_rate_cents_per_page": tier.overage_rate_cents_per_page,
         "usage_percent": min(pct, 100),
         "tier": tier.name,
         "next_tier": next_tier,
@@ -517,8 +517,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if isinstance(sub, dict) and sub.get("current_period_end"):
                 user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
                 user.usage_reset_at = user.current_period_end
-            user.credits_used_this_period = 0
-            user.overage_credits_this_period = 0
+            user.pages_used_this_period = 0
+            user.overage_pages_this_period = 0
             await db.commit()
             logger.info(
                 "Checkout subscription completed: user=%s tier=%s sub=%s",
@@ -549,8 +549,8 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
-    user.credits_used_this_period = 0
-    user.overage_credits_this_period = 0
+    user.pages_used_this_period = 0
+    user.overage_pages_this_period = 0
     await db.commit()
     logger.info("Subscription created: user=%s tier=%s sub=%s", user.id, tier, sub["id"])
 
@@ -589,8 +589,8 @@ async def _handle_subscription_deleted(sub: dict, db: AsyncSession):
     user.subscription_status = "active"
     user.stripe_subscription_id = None
     user.current_period_end = None
-    user.credits_used_this_period = 0
-    user.overage_credits_this_period = 0
+    user.pages_used_this_period = 0
+    user.overage_pages_this_period = 0
     await db.commit()
     logger.info("Subscription deleted — user %s reverted to free", user.id)
 
@@ -605,8 +605,8 @@ async def _handle_invoice_paid(invoice: dict, db: AsyncSession):
         return
 
     # Reset usage on successful renewal payment
-    user.credits_used_this_period = 0
-    user.overage_credits_this_period = 0
+    user.pages_used_this_period = 0
+    user.overage_pages_this_period = 0
     user.subscription_status = "active"
     period_end_ts = None
     try:

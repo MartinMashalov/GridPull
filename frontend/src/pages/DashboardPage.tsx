@@ -19,13 +19,13 @@ import InboxModal from '@/components/InboxModal'
 
 interface UsageWarning {
   warning: string | null
-  credits_used: number
-  credits_limit: number
-  overage_credits: number
-  overage_rate: number | null
+  pages_used: number
+  pages_limit: number
+  overage_pages: number
+  overage_rate_cents_per_page: number | null
   usage_percent: number
   tier: string
-  next_tier: { name: string; display_name: string; price_monthly: number; credits_per_month: number } | null
+  next_tier: { name: string; display_name: string; price_monthly: number; pages_per_month: number } | null
 }
 
 export type ExportFormat = 'xlsx' | 'csv'
@@ -467,7 +467,7 @@ export default function DashboardPage() {
       setInboxDocIds([])
 
       if (res.data.usage) {
-        updateSubscription({ credits_used_this_period: res.data.usage.credits_used })
+        updateSubscription({ pages_used_this_period: res.data.usage.pages_used })
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
       }
     } catch (err: any) {
@@ -525,7 +525,7 @@ export default function DashboardPage() {
       setActiveJobId(jobId)
 
       if (res.data.usage) {
-        updateSubscription({ credits_used_this_period: res.data.usage.credits_used })
+        updateSubscription({ pages_used_this_period: res.data.usage.pages_used })
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
       }
     } catch (err: unknown) {
@@ -542,8 +542,8 @@ export default function DashboardPage() {
           ? (detail as { type?: string; message?: string })
           : null
 
-      if (status === 402 && paywallDetail?.type === 'credit_limit_reached') {
-        setJob((p) => p ? { ...p, status: 'error', message: 'Credit limit reached', error: paywallDetail.message } : null)
+      if (status === 402 && (paywallDetail?.type === 'page_limit_reached' || paywallDetail?.type === 'credit_limit_reached')) {
+        setJob((p) => p ? { ...p, status: 'error', message: 'Page limit reached', error: paywallDetail.message } : null)
         setIsPaywalled(true)
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
         return
@@ -621,12 +621,12 @@ export default function DashboardPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Upload Data from any File</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 5 MB each) — 1 credit covers one file up to 50 pages</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Upload PDFs, PNGs, JPEGs, or ZIPs (up to 5 MB each) — each page counts toward your monthly limit</p>
         </div>
         <div className="flex items-center gap-2">
           {usageWarning && (
             <>
-              <span className="text-xs text-muted-foreground">{usageWarning.credits_used}/{usageWarning.credits_limit} credits</span>
+              <span className="text-xs text-muted-foreground">{usageWarning.pages_used.toLocaleString()}/{usageWarning.pages_limit.toLocaleString()} pages</span>
               <Badge
                 variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
                 className="font-mono text-[11px]"
@@ -646,14 +646,14 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">
-              You've used {usageWarning.credits_used} of {usageWarning.credits_limit} credits this month
+              You've used {usageWarning.pages_used.toLocaleString()} of {usageWarning.pages_limit.toLocaleString()} pages this month
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {usageWarning.overage_rate
-                ? `Extra credits cost $${(usageWarning.overage_rate / 100).toFixed(2)} each.`
+              {usageWarning.overage_rate_cents_per_page
+                ? `Extra pages cost $${(usageWarning.overage_rate_cents_per_page / 100).toFixed(3)} each.`
                 : 'You\'ll be blocked when you hit the limit.'
               }
-              {' '}Upgrade to {usageWarning.next_tier.display_name} for {usageWarning.next_tier.credits_per_month.toLocaleString()} credits at ${(usageWarning.next_tier.price_monthly / 100).toFixed(0)}/mo.
+              {' '}Upgrade to {usageWarning.next_tier.display_name} for {usageWarning.next_tier.pages_per_month.toLocaleString()} pages at ${(usageWarning.next_tier.price_monthly / 100).toFixed(0)}/mo.
             </p>
           </div>
           <Button size="sm" variant="outline" onClick={() => navigate('/settings')} className="flex-shrink-0">
@@ -669,10 +669,10 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">
-              Free limit reached ({usageWarning.credits_limit} credits/month)
+              Free limit reached ({usageWarning.pages_limit.toLocaleString()} pages/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 150 credits/month starting at $49/mo.
+              Upgrade to Starter for 7,500 pages/month starting at $49/mo.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">

@@ -41,7 +41,7 @@ from app.middleware.auth_middleware import get_current_user, get_current_user_ss
 from app.models.extraction import Document, ExtractionJob
 from app.models.user import User
 from app.services.spreadsheet_service import generate_quickbooks_csv_bytes, generate_qbo_bytes, read_headers_from_bytes
-from app.services.subscription_tiers import MAX_FILE_SIZE_MB, MAX_PAGES_PER_CREDIT, get_tier
+from app.services.subscription_tiers import MAX_FILE_SIZE_MB, FORM_FILL_PAGE_COST, get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
 
@@ -126,12 +126,11 @@ async def _enqueue_extraction_job(
     _maybe_reset_usage(db_user)
     await db.commit()
     await db.refresh(db_user)
-    used = db_user.credits_used_this_period or 0
+    used = db_user.pages_used_this_period or 0
 
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     uploads_to_save: list[tuple[str, bytes]] = []
     baseline_to_save: bytes | None = None
-    num_credits = 0
     billable_pages = 0
 
     if baseline_spreadsheet is not None:
@@ -181,7 +180,7 @@ async def _enqueue_extraction_job(
                     page_count = max(1, len(pdf))
                     pdf.close()
                 except Exception as exc:
-                    logger.error("Could not read PDF %s for credit counting: %s", fname, exc)
+                    logger.error("Could not read PDF %s for page counting: %s", fname, exc)
                     raise HTTPException(status_code=422, detail=f"Could not read PDF '{fname}'")
             else:
                 page_count = 1
@@ -191,38 +190,38 @@ async def _enqueue_extraction_job(
             continue
 
         billable_pages += page_count
-        num_credits += max(1, (page_count + MAX_PAGES_PER_CREDIT - 1) // MAX_PAGES_PER_CREDIT)
 
     if not uploads_to_save:
         raise HTTPException(status_code=400, detail="No valid documents provided")
 
-    if tier.name == "free" and used + num_credits > tier.credits_per_month:
+    num_pages = billable_pages  # page-based billing: charge actual page count
+
+    if tier.name == "free" and used + num_pages > tier.pages_per_month:
         raise HTTPException(
             status_code=402,
             detail={
-                "type": "credit_limit_reached",
-                "message": f"Free plan allows {tier.credits_per_month} credits/month. You've used {used}.",
-                "credits_used": used,
-                "credits_limit": tier.credits_per_month,
+                "type": "page_limit_reached",
+                "message": f"Free plan allows {tier.pages_per_month:,} pages/month. You've used {used:,}.",
+                "pages_used": used,
+                "pages_limit": tier.pages_per_month,
                 "tier": tier.name,
             },
         )
 
-    overage_count = max(0, (used + num_credits) - tier.credits_per_month)
+    overage_count = max(0, (used + num_pages) - tier.pages_per_month)
 
     filenames = [f.filename for f in files]
     if baseline_to_save is not None:
         filenames.append("[baseline spreadsheet]")
     logger.info(
-        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars billable_pages=%d credits=%d baseline_update_mode=%s allow_edit_past_values=%s ip=%s",
+        "%s request — user_id=%s files=%s fields=%s format=%s instructions=%d chars pages=%d baseline_update_mode=%s allow_edit_past_values=%s ip=%s",
         log_prefix,
         user_id,
         filenames,
         [f["name"] for f in fields_data],
         format,
         len(instructions.strip()),
-        billable_pages,
-        num_credits,
+        num_pages,
         bool(baseline_to_save),
         bool(allow_edit_past_values and baseline_to_save is not None),
         client_ip,
@@ -244,16 +243,16 @@ async def _enqueue_extraction_job(
     await db.commit()
     await db.refresh(job)
 
-    db_user.credits_used_this_period = (db_user.credits_used_this_period or 0) + num_credits
+    db_user.pages_used_this_period = (db_user.pages_used_this_period or 0) + num_pages
     if overage_count > 0:
-        db_user.overage_credits_this_period = (db_user.overage_credits_this_period or 0) + overage_count
+        db_user.overage_pages_this_period = (db_user.overage_pages_this_period or 0) + overage_count
     await db.commit()
 
     logger.info(
-        "Job created — job_id=%s user_id=%s credits_used=%d",
+        "Job created — job_id=%s user_id=%s pages_used=%d",
         job.id,
         user_id,
-        db_user.credits_used_this_period,
+        db_user.pages_used_this_period,
     )
 
     upload_dir = os.path.join(settings.upload_dir, job.id)
@@ -287,17 +286,17 @@ async def _enqueue_extraction_job(
         user_id,
     )
 
-    new_used = db_user.credits_used_this_period
-    usage_pct = (new_used / tier.credits_per_month * 100) if tier.credits_per_month else 0
+    new_used = db_user.pages_used_this_period
+    usage_pct = (new_used / tier.pages_per_month * 100) if tier.pages_per_month else 0
 
     return {
         "job_id": job.id,
         "status": "queued",
         "usage": {
-            "credits_used": new_used,
-            "credits_limit": tier.credits_per_month,
+            "pages_used": new_used,
+            "pages_limit": tier.pages_per_month,
             "usage_percent": min(usage_pct, 100),
-            "overage_credits": overage_count,
+            "overage_pages": overage_count,
             "tier": tier.name,
         },
     }
@@ -847,15 +846,15 @@ async def get_job_history(
         _maybe_reset_usage(db_user)
         await db.commit()
 
-    credits_used = db_user.credits_used_this_period if db_user else 0
-    credits_limit = tier.credits_per_month
+    pages_used = db_user.pages_used_this_period if db_user else 0
+    pages_limit = tier.pages_per_month
 
     return {
         "jobs": items,
         "total": total,
-        "credits_used_this_period": credits_used,
-        "credits_limit": credits_limit,
-        "usage_percent": min((credits_used / credits_limit * 100) if credits_limit else 0, 100),
+        "pages_used_this_period": pages_used,
+        "pages_limit": pages_limit,
+        "usage_percent": min((pages_used / pages_limit * 100) if pages_limit else 0, 100),
         "tier": tier.name,
     }
 
@@ -891,7 +890,7 @@ async def download_result(
     if tier.name == "free":
         r2 = await db.execute(select(User).where(User.id == current_user.id))
         u = r2.scalar_one_or_none()
-        if u and (u.credits_used_this_period or 0) > tier.credits_per_month:
+        if u and (u.pages_used_this_period or 0) > tier.pages_per_month:
             raise HTTPException(
                 status_code=402,
                 detail={
@@ -946,7 +945,7 @@ async def download_accounting_format(
     if tier.name == "free":
         r2 = await db.execute(select(User).where(User.id == current_user.id))
         u = r2.scalar_one_or_none()
-        if u and (u.credits_used_this_period or 0) > tier.credits_per_month:
+        if u and (u.pages_used_this_period or 0) > tier.pages_per_month:
             raise HTTPException(status_code=402, detail={"type": "paywall", "message": "Upgrade to download"})
 
     flat_results: list[dict] = []

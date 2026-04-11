@@ -162,7 +162,7 @@ export default function FormFillingPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Fill PDF Forms</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Upload a blank PDF form and source documents — AI fills every field automatically. 1 credit per fill.
+            Upload a blank PDF form and source documents — AI fills every field automatically. 5 pages per fill.
           </p>
         </div>
       </div>

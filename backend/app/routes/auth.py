@@ -67,7 +67,7 @@ async def dev_login(body: DevLoginRequest, db: AsyncSession = Depends(get_db)):
             "has_card": bool(user.stripe_payment_method_id),
             "subscription_tier": user.subscription_tier or "free",
             "subscription_status": user.subscription_status or "active",
-            "credits_used_this_period": user.credits_used_this_period or 0,
+            "pages_used_this_period": user.pages_used_this_period or 0,
             "current_period_end": period_end,
         },
     }
@@ -111,7 +111,7 @@ async def google_auth(request: Request, body: GoogleAuthRequest, db: AsyncSessio
             "has_card": bool(user.stripe_payment_method_id),
             "subscription_tier": user.subscription_tier or "free",
             "subscription_status": user.subscription_status or "active",
-            "credits_used_this_period": user.credits_used_this_period or 0,
+            "pages_used_this_period": user.pages_used_this_period or 0,
             "current_period_end": period_end,
         },
     }
@@ -155,7 +155,7 @@ async def microsoft_auth(request: Request, body: MicrosoftAuthRequest, db: Async
             "has_card": bool(user.stripe_payment_method_id),
             "subscription_tier": user.subscription_tier or "free",
             "subscription_status": user.subscription_status or "active",
-            "credits_used_this_period": user.credits_used_this_period or 0,
+            "pages_used_this_period": user.pages_used_this_period or 0,
             "current_period_end": period_end,
         },
     }

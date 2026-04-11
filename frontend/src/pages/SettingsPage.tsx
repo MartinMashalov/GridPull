@@ -33,10 +33,9 @@ interface TierInfo {
   name: string
   display_name: string
   price_monthly: number
-  credits_per_month: number
-  max_pages_per_credit: number
+  pages_per_month: number
   max_file_size_mb: number
-  overage_rate: number | null
+  overage_rate_cents_per_page: number | null
   has_pipeline: boolean
 }
 
@@ -54,8 +53,8 @@ interface JobHistoryItem {
 interface JobHistoryData {
   jobs: JobHistoryItem[]
   total: number
-  credits_used_this_period: number
-  credits_limit: number
+  pages_used_this_period: number
+  pages_limit: number
   usage_percent: number
   tier: string
 }
@@ -63,9 +62,9 @@ interface JobHistoryData {
 interface SubscriptionData {
   tier: TierInfo
   status: string
-  credits_used: number
-  overage_credits: number
-  credits_limit: number
+  pages_used: number
+  overage_pages: number
+  pages_limit: number
   usage_percent: number
   current_period_end: string | null
   all_tiers: TierInfo[]
@@ -144,7 +143,7 @@ export default function SettingsPage() {
         updateSubscription({
           subscription_tier: r.data.tier.name,
           subscription_status: r.data.status,
-          credits_used_this_period: r.data.credits_used,
+          pages_used_this_period: r.data.pages_used,
           current_period_end: r.data.current_period_end,
           has_card: r.data.has_card ?? false,
         })
@@ -268,7 +267,7 @@ export default function SettingsPage() {
       <div className="mb-7">
         <h1 className="text-xl font-semibold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage your subscription, payment method, and extraction defaults</p>
-        <p className="text-muted-foreground text-xs mt-2">1 credit = 1 file up to 50 pages or 1 form fill. Excel and CSV count as 1 page. Max file size is 5 MB.</p>
+        <p className="text-muted-foreground text-xs mt-2">Each page of your uploaded documents counts toward your monthly limit. Form fills cost 5 pages each. Max file size is 5 MB.</p>
       </div>
 
       <Tabs defaultValue={searchParams.get('tab') || 'subscription'}>
@@ -331,7 +330,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-medium">Credits used this period</span>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {sub.credits_used} / {sub.credits_limit}
+                      {sub.pages_used.toLocaleString()} / {sub.pages_limit.toLocaleString()}
                     </span>
                   </div>
                   <Progress
@@ -345,7 +344,7 @@ export default function SettingsPage() {
                     <div className="mt-2.5 flex items-center gap-1.5 text-amber-500">
                       <AlertTriangle size={12} />
                       <p className="text-xs font-medium">
-                        You've used {sub.credits_used} of {sub.credits_limit} credits.
+                        You've used {sub.pages_used.toLocaleString()} of {sub.pages_limit.toLocaleString()} pages.
                         {currentTier !== 'business' && ' Upgrade to avoid overage charges.'}
                       </p>
                     </div>
@@ -358,10 +357,10 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   )}
-                  {sub.overage_credits > 0 && sub.tier.overage_rate && (
+                  {sub.overage_pages > 0 && sub.tier.overage_rate_cents_per_page && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {sub.overage_credits} overage credit{sub.overage_credits !== 1 ? 's' : ''} this period
-                      (${(sub.tier.overage_rate / 100).toFixed(2)}/credit)
+                      {sub.overage_pages.toLocaleString()} overage page{sub.overage_pages !== 1 ? 's' : ''} this period
+                      (${(sub.tier.overage_rate_cents_per_page / 100).toFixed(3)}/page)
                     </p>
                   )}
                 </div>
@@ -405,9 +404,9 @@ export default function SettingsPage() {
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {tier.credits_per_month.toLocaleString()} credits/mo
+                              {tier.pages_per_month.toLocaleString()} pages/mo
                               {tier.has_pipeline && ' · Pipeline access'}
-                              {tier.overage_rate && ` · $${(tier.overage_rate / 100).toFixed(2)}/credit overage`}
+                              {tier.overage_rate_cents_per_page && ` · $${(tier.overage_rate_cents_per_page / 100).toFixed(3)}/page overage`}
                             </p>
                           </div>
                         </div>
@@ -497,8 +496,8 @@ export default function SettingsPage() {
                         </div>
                         {target.name !== 'free' && (
                           <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Credits</span>
-                            <span className="font-medium">{target.credits_per_month.toLocaleString()}/mo</span>
+                            <span className="text-muted-foreground">Pages</span>
+                            <span className="font-medium">{target.pages_per_month.toLocaleString()}/mo</span>
                           </div>
                         )}
                       </div>
@@ -567,14 +566,14 @@ export default function SettingsPage() {
                       <BarChart3 size={16} className="text-primary" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">Credits Used</p>
+                      <p className="text-sm font-semibold">Pages Used</p>
                       <p className="text-xs text-muted-foreground">Current billing period</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-2xl font-bold tabular-nums">
-                      {history.credits_used_this_period}
-                      <span className="text-sm font-normal text-muted-foreground"> / {history.credits_limit}</span>
+                      {history.pages_used_this_period.toLocaleString()}
+                      <span className="text-sm font-normal text-muted-foreground"> / {history.pages_limit.toLocaleString()}</span>
                     </p>
                   </div>
                 </div>
@@ -591,7 +590,7 @@ export default function SettingsPage() {
                     {Math.round(history.usage_percent)}% of {history.tier} plan limit
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    {Math.max(0, history.credits_limit - history.credits_used_this_period)} remaining
+                    {Math.max(0, history.pages_limit - history.pages_used_this_period).toLocaleString()} remaining
                   </span>
                 </div>
               </div>
@@ -788,11 +787,11 @@ export default function SettingsPage() {
                       {sub.tier.price_monthly > 0 ? `$${(sub.tier.price_monthly / 100).toFixed(0)}` : 'Free'}
                     </span>
                   </div>
-                  {sub.overage_credits > 0 && sub.tier.overage_rate && (
+                  {sub.overage_pages > 0 && sub.tier.overage_rate_cents_per_page && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Overage charges (est.)</span>
                       <span className="font-medium text-amber-600">
-                        +${((sub.overage_credits * sub.tier.overage_rate) / 100).toFixed(2)}
+                        +${((sub.overage_pages * sub.tier.overage_rate_cents_per_page) / 100).toFixed(2)}
                       </span>
                     </div>
                   )}

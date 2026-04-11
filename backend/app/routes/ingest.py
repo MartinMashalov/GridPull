@@ -37,7 +37,7 @@ from app.services.ingest.s3_service import (
     download_file as download_from_s3,
     upload_file as upload_to_s3,
 )
-from app.services.subscription_tiers import MAX_PAGES_PER_CREDIT, get_tier
+from app.services.subscription_tiers import get_tier
 from app.workers.job_processor import process_job
 from app.workers.pool import worker_pool
 
@@ -193,28 +193,28 @@ async def extract_from_inbox(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Credit check
+    # Page usage check
     _maybe_reset_usage(user)
     await db.commit()
     await db.refresh(user)
 
     tier = get_tier(getattr(user, "subscription_tier", "free") or "free")
-    used = user.credits_used_this_period or 0
-    num_credits = len(ingest_docs)  # 1 credit per document (simplified)
+    used = user.pages_used_this_period or 0
+    num_pages = len(ingest_docs)  # 1 page per document (minimum)
 
-    if tier.name == "free" and used + num_credits > tier.credits_per_month:
+    if tier.name == "free" and used + num_pages > tier.pages_per_month:
         raise HTTPException(
             status_code=402,
             detail={
-                "type": "credit_limit_reached",
-                "message": f"Free plan allows {tier.credits_per_month} credits/month. You've used {used}.",
-                "credits_used": used,
-                "credits_limit": tier.credits_per_month,
+                "type": "page_limit_reached",
+                "message": f"Free plan allows {tier.pages_per_month:,} pages/month. You've used {used:,}.",
+                "pages_used": used,
+                "pages_limit": tier.pages_per_month,
                 "tier": tier.name,
             },
         )
 
-    overage_count = max(0, (used + num_credits) - tier.credits_per_month)
+    overage_count = max(0, (used + num_pages) - tier.pages_per_month)
 
     # Create extraction job
     pipeline_val = body.pipeline if body.pipeline in ("sov", "general") else "auto"
@@ -231,9 +231,9 @@ async def extract_from_inbox(
     await db.commit()
     await db.refresh(job)
 
-    user.credits_used_this_period = (user.credits_used_this_period or 0) + num_credits
+    user.pages_used_this_period = (user.pages_used_this_period or 0) + num_pages
     if overage_count > 0:
-        user.overage_credits_this_period = (user.overage_credits_this_period or 0) + overage_count
+        user.overage_pages_this_period = (user.overage_pages_this_period or 0) + overage_count
     await db.commit()
 
     # Download from S3 and save locally for the extraction pipeline
@@ -268,8 +268,8 @@ async def extract_from_inbox(
         "job_id": job.id,
         "status": "queued",
         "usage": {
-            "credits_used": user.credits_used_this_period,
-            "credits_limit": tier.credits_per_month,
+            "pages_used": user.pages_used_this_period,
+            "pages_limit": tier.pages_per_month,
             "tier": tier.name,
         },
     }

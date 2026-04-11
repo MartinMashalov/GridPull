@@ -83,27 +83,28 @@ async def fill_form(
     await db.commit()
     await db.refresh(user)
 
-    used = user.credits_used_this_period or 0
-    if tier.name == "free" and used + 1 > tier.credits_per_month:
+    used = user.pages_used_this_period or 0
+    form_fill_cost = 5  # pages per form fill
+    if tier.name == "free" and used + form_fill_cost > tier.pages_per_month:
         raise HTTPException(
             status_code=402,
             detail={
-                "type": "credit_limit_reached",
-                "message": f"Free plan allows {tier.credits_per_month} credits/month. You've used {used}.",
-                "credits_used": used,
-                "credits_limit": tier.credits_per_month,
+                "type": "page_limit_reached",
+                "message": f"Free plan allows {tier.pages_per_month:,} pages/month. You've used {used:,}.",
+                "pages_used": used,
+                "pages_limit": tier.pages_per_month,
                 "tier": tier.name,
             },
         )
 
-    user.credits_used_this_period = used + 1
-    if user.credits_used_this_period > tier.credits_per_month:
-        user.overage_credits_this_period = (user.overage_credits_this_period or 0) + 1
+    user.pages_used_this_period = used + form_fill_cost
+    if user.pages_used_this_period > tier.pages_per_month:
+        user.overage_pages_this_period = (user.overage_pages_this_period or 0) + form_fill_cost
     await db.commit()
 
     logger.info(
-        "Form fill request — user_id=%s target=%s sources=%d credits=%d",
-        current_user.id, target_form.filename, len(source_data), 1,
+        "Form fill request — user_id=%s target=%s sources=%d pages=%d",
+        current_user.id, target_form.filename, len(source_data), form_fill_cost,
     )
 
     try:

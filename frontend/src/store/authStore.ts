@@ -10,7 +10,7 @@ interface User {
   has_card: boolean
   subscription_tier: string
   subscription_status: string
-  credits_used_this_period: number
+  pages_used_this_period: number
   current_period_end?: string | null
 }
 
@@ -19,7 +19,7 @@ interface AuthState {
   token: string | null
   setUser: (user: User, token: string) => void
   updateBalance: (balance: number) => void
-  updateSubscription: (data: Partial<Pick<User, 'subscription_tier' | 'subscription_status' | 'credits_used_this_period' | 'current_period_end' | 'has_card'>>) => void
+  updateSubscription: (data: Partial<Pick<User, 'subscription_tier' | 'subscription_status' | 'pages_used_this_period' | 'current_period_end' | 'has_card'>>) => void
   logout: () => void
 }
 

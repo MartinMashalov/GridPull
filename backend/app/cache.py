@@ -73,8 +73,8 @@ class CachedUser:
     subscription_tier: str = "free"
     stripe_subscription_id: Optional[str] = None
     subscription_status: str = "active"
-    credits_used_this_period: int = 0
-    overage_credits_this_period: int = 0
+    pages_used_this_period: int = 0
+    overage_pages_this_period: int = 0
 
     def to_json(self) -> str:
         return json.dumps(
@@ -92,8 +92,8 @@ class CachedUser:
                 "subscription_tier": self.subscription_tier,
                 "stripe_subscription_id": self.stripe_subscription_id,
                 "subscription_status": self.subscription_status,
-                "credits_used_this_period": self.credits_used_this_period,
-                "overage_credits_this_period": self.overage_credits_this_period,
+                "pages_used_this_period": self.pages_used_this_period,
+                "overage_pages_this_period": self.overage_pages_this_period,
             }
         )
 
@@ -107,8 +107,11 @@ class CachedUser:
         d.setdefault("subscription_tier", "free")
         d.setdefault("stripe_subscription_id", None)
         d.setdefault("subscription_status", "active")
-        d.setdefault("credits_used_this_period", d.pop("files_used_this_period", 0))
-        d.setdefault("overage_credits_this_period", d.pop("overage_files_this_period", 0))
+        # Backward compat: old cache entries may use credits_used_this_period or files_used_this_period
+        d.setdefault("pages_used_this_period",
+                      d.pop("credits_used_this_period", d.pop("files_used_this_period", 0)))
+        d.setdefault("overage_pages_this_period",
+                      d.pop("overage_credits_this_period", d.pop("overage_files_this_period", 0)))
         d.pop("first_month_discount_used", None)
         return cls(**d)
 
@@ -128,8 +131,8 @@ class CachedUser:
             subscription_tier=getattr(user, "subscription_tier", "free") or "free",
             stripe_subscription_id=getattr(user, "stripe_subscription_id", None),
             subscription_status=getattr(user, "subscription_status", "active") or "active",
-            credits_used_this_period=getattr(user, "credits_used_this_period", 0) or 0,
-            overage_credits_this_period=getattr(user, "overage_credits_this_period", 0) or 0,
+            pages_used_this_period=getattr(user, "pages_used_this_period", 0) or 0,
+            overage_pages_this_period=getattr(user, "overage_pages_this_period", 0) or 0,
         )
 
 

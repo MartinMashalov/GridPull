@@ -29,8 +29,8 @@ class User(Base):
     stripe_subscription_id = Column(String, nullable=True)
     subscription_status = Column(String, default="active")  # active / canceled / past_due / trialing
     current_period_end = Column(DateTime, nullable=True)
-    credits_used_this_period = Column(Integer, default=0)
-    overage_credits_this_period = Column(Integer, default=0)
+    pages_used_this_period = Column(Integer, default=0)
+    overage_pages_this_period = Column(Integer, default=0)
     usage_reset_at = Column(DateTime, nullable=True)
 
     # Email ingest

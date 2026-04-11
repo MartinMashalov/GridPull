@@ -1,5 +1,8 @@
 """
 Subscription tier definitions — single source of truth for limits, pricing, and overage rates.
+
+Billing is page-based: each page of an uploaded document counts as 1 page toward
+the monthly limit. Form fills cost 5 pages each.
 """
 
 from __future__ import annotations
@@ -8,7 +11,7 @@ from typing import Optional
 
 
 # ── Global limits ────────────────────────────────────────────────────────────────
-MAX_PAGES_PER_CREDIT = 50      # 1 credit = up to 50 pages
+FORM_FILL_PAGE_COST = 5        # 1 form fill = 5 pages
 MAX_FILE_SIZE_MB = 5           # hard cap per uploaded file
 
 
@@ -16,9 +19,9 @@ MAX_FILE_SIZE_MB = 5           # hard cap per uploaded file
 class TierConfig:
     name: str
     display_name: str
-    price_monthly: int           # cents
-    credits_per_month: int
-    overage_rate: Optional[int]  # cents per credit, None = blocked
+    price_monthly: int                       # cents
+    pages_per_month: int
+    overage_rate_cents_per_page: Optional[float]  # cents per page, None = blocked
     has_pipeline: bool
 
 
@@ -27,32 +30,32 @@ TIERS: dict[str, TierConfig] = {
         name="free",
         display_name="Free",
         price_monthly=0,
-        credits_per_month=10,
-        overage_rate=None,
+        pages_per_month=500,
+        overage_rate_cents_per_page=None,
         has_pipeline=False,
     ),
     "starter": TierConfig(
         name="starter",
         display_name="Starter",
-        price_monthly=1900,
-        credits_per_month=150,
-        overage_rate=60,
+        price_monthly=4900,
+        pages_per_month=7500,
+        overage_rate_cents_per_page=1.2,
         has_pipeline=False,
     ),
     "pro": TierConfig(
         name="pro",
         display_name="Pro",
-        price_monthly=4900,
-        credits_per_month=500,
-        overage_rate=50,
+        price_monthly=19900,
+        pages_per_month=25000,
+        overage_rate_cents_per_page=1.0,
         has_pipeline=True,
     ),
     "business": TierConfig(
         name="business",
         display_name="Business",
-        price_monthly=14900,
-        credits_per_month=1500,
-        overage_rate=40,
+        price_monthly=69900,
+        pages_per_month=100000,
+        overage_rate_cents_per_page=0.6,
         has_pipeline=True,
     ),
 }
@@ -73,9 +76,8 @@ def tier_info_dict(tier: TierConfig) -> dict:
         "name": tier.name,
         "display_name": tier.display_name,
         "price_monthly": tier.price_monthly,
-        "credits_per_month": tier.credits_per_month,
-        "max_pages_per_credit": MAX_PAGES_PER_CREDIT,
+        "pages_per_month": tier.pages_per_month,
         "max_file_size_mb": MAX_FILE_SIZE_MB,
-        "overage_rate": tier.overage_rate,
+        "overage_rate_cents_per_page": tier.overage_rate_cents_per_page,
         "has_pipeline": tier.has_pipeline,
     }

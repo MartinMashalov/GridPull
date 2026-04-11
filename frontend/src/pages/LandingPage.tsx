@@ -99,7 +99,7 @@ const PRICING_TIERS = [
     price: '$0',
     period: '',
     desc: 'Try it out — no card required',
-    features: ['10 credits / month', '1 credit = 1 file (up to 50 pages)', 'Excel & CSV export', 'OCR for scanned docs'],
+    features: ['500 pages / month', 'Excel & CSV export', 'OCR for scanned docs', '5 MB max file size'],
     cta: 'Start free',
     highlight: false,
   },
@@ -108,7 +108,7 @@ const PRICING_TIERS = [
     price: '$49',
     period: '/mo',
     desc: 'For solo agents & small agencies',
-    features: ['150 credits / month', '$0.60 per credit overage', '5 MB max file size', 'Priority processing'],
+    features: ['7,500 pages / month', '$0.012 per page overage', 'Priority processing', '5 MB max file size'],
     cta: 'Get started',
     highlight: false,
   },
@@ -117,16 +117,16 @@ const PRICING_TIERS = [
     price: '$199',
     period: '/mo',
     desc: 'For growing agencies & teams',
-    features: ['500 credits / month', '$0.50 per credit overage', 'Automated pipelines', '5 MB max file size'],
+    features: ['25,000 pages / month', '$0.01 per page overage', 'Automated pipelines', '5 MB max file size'],
     cta: 'Go Pro',
     highlight: true,
   },
   {
     name: 'Business',
-    price: '$549',
+    price: '$699',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
-    features: ['1,500 credits / month', '$0.40 per credit overage', 'Automated pipelines', '5 MB max file size'],
+    features: ['100,000 pages / month', '$0.006 per page overage', 'Automated pipelines', '5 MB max file size'],
     cta: 'Contact us',
     highlight: false,
   },
@@ -285,7 +285,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting with 10 credits per month at no cost. Each credit covers one file up to 50 pages. When you\'re ready, plans start at $49/mo for 150 credits. Need more? Every paid plan includes on-demand overage so you\'re never blocked. For context, manually processing 150 documents costs $750+ in analyst time — Starter does it for $49.',
+    a: 'It\'s free to get started — just sign up and start extracting with 500 pages per month at no cost. Each page of your uploaded document counts as one page. When you\'re ready, plans start at $49/mo for 7,500 pages. Need more? Every paid plan includes on-demand overage so you\'re never blocked.',
   },
   {
     q: 'Are my files secure? Who can see my documents?',
@@ -895,7 +895,7 @@ export default function LandingPage() {
             Plans that scale with your agency.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free with 10 credits. A card is required on file, but you are not charged on the free plan. 1 credit = 1 file (up to 50 pages).
+            Start free with 500 pages/month. A card is required on file, but you are not charged on the free plan.
             From solo agents to large brokerages, pay only for what you need.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
@@ -928,7 +928,7 @@ export default function LandingPage() {
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-5">
-              1 credit = 1 file (up to 50 pages) or 1 form fill. 5 MB max file size. All plans include 99%+ accuracy, OCR, and Excel/CSV export. No contracts — cancel anytime.
+              Each page of your document counts toward your monthly limit. Form fills cost 5 pages. 5 MB max file size. All plans include 99%+ accuracy, OCR, and Excel/CSV export. No contracts — cancel anytime.
             </p>
             <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
