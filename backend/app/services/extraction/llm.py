@@ -182,11 +182,17 @@ def _infer_schedule_key_fields(
     addr_field: str | None = None
     addr_score = float("-inf")
     for fn, profile in profiles.items():
+        # ID field scoring — must be highly unique to be a valid identifier.
+        # Fields with < 80% unique values (e.g. "Model" shared across rows)
+        # are penalised heavily to prevent merging distinct entities.
+        uniqueness_bonus = profile["unique_ratio"] * 6
+        low_uniqueness_penalty = 8 if profile["unique_ratio"] < 0.8 else 0
         score = (
             profile["filled_ratio"] * 1.5
-            + profile["unique_ratio"] * 4
-            + profile["short_code_ratio"] * 3
+            + uniqueness_bonus
+            + profile["short_code_ratio"] * 2
             + profile["numeric_only_ratio"]
+            - low_uniqueness_penalty
             - profile["zip_like_ratio"] * 6
             - profile["address_like_ratio"] * 4
             - profile["money_like_ratio"] * 3
@@ -235,6 +241,12 @@ def _merge_rows_by_identifier(
     id_field, addr_field = _infer_schedule_key_fields(rows, field_names)
     if not id_field and not addr_field:
         return rows
+    # Only merge when we have a proper entity identifier (not just address).
+    # Merging by address alone is destructive for schedules where multiple
+    # entities share a location (e.g. vehicles at the same garage, employees
+    # at the same office).
+    if not id_field:
+        return rows
 
     def _norm(v: Any) -> str:
         return str(v or "").strip().lower()
@@ -247,6 +259,23 @@ def _merge_rows_by_identifier(
                 return token
         return tokens[0] if tokens else v[:20]
 
+    # Identify "distinguisher" fields — fields with near-100% unique values
+    # that can prove two rows are genuinely different entities even if they
+    # share the same merge key (e.g. two vehicles at the same garage with
+    # different VINs).
+    distinguisher_fields: List[str] = []
+    data_rows = [r for r in rows if not r.get("_error")]
+    if len(data_rows) >= 3:
+        for fn in field_names:
+            if fn == id_field or fn == addr_field:
+                continue
+            vals = [str(r.get(fn) or "").strip().lower() for r in data_rows if _is_filled_value(r.get(fn))]
+            if len(vals) < len(data_rows) * 0.5:
+                continue
+            unique_ratio = len(set(vals)) / len(vals) if vals else 0
+            if unique_ratio >= 0.9:
+                distinguisher_fields.append(fn)
+
     def _merge_key(row: Dict[str, Any]) -> str | None:
         parts = []
         if id_field and _is_filled_value(row.get(id_field)):
@@ -255,6 +284,17 @@ def _merge_rows_by_identifier(
         if addr_field and _is_filled_value(row.get(addr_field)):
             v = _norm(row.get(addr_field))
             parts.append(v[:40])
+        if not parts:
+            return None
+        # When the primary ID is missing but address exists, append the first
+        # available distinguisher value to prevent merging distinct entities
+        # that happen to share the same address (e.g. vehicles at one garage).
+        if id_field and not _is_filled_value(row.get(id_field)) and distinguisher_fields:
+            for dfn in distinguisher_fields:
+                dv = row.get(dfn)
+                if _is_filled_value(dv):
+                    parts.append(_norm(dv)[:40])
+                    break
         return "|".join(parts) if parts else None
 
     groups: dict[str, List[Dict[str, Any]]] = {}
@@ -281,6 +321,19 @@ def _merge_rows_by_identifier(
         if len(group) == 1:
             merged.append(group[0])
             continue
+        # Safety check: if rows in this group have distinct values in a
+        # distinguisher field (e.g. different VINs), they are genuinely
+        # different entities — do NOT merge them.
+        if distinguisher_fields:
+            should_skip = False
+            for dfn in distinguisher_fields:
+                dvals = {str(r.get(dfn) or "").strip().lower() for r in group if _is_filled_value(r.get(dfn))}
+                if len(dvals) > 1:
+                    should_skip = True
+                    break
+            if should_skip:
+                merged.extend(group)
+                continue
         any_merged = True
         # Use the row with the most filled fields as the base
         group_sorted = sorted(
@@ -434,8 +487,14 @@ def finalize_property_schedule_rows(
         addr_part = ""
         if primary_addr and _is_filled_value(row.get(primary_addr)):
             addr_part = re.sub(r"\s+", " ", str(row.get(primary_addr)).strip().lower()[:80])
-        ck = f"{loc_part}\x00{addr_part}"
-        if ck == "\x00":
+        # Only merge rows that share a real location/entity ID.
+        # When loc_part is empty, use a unique key to prevent merging
+        # distinct entities that happen to share an address.
+        if loc_part:
+            ck = f"{loc_part}\x00{addr_part}"
+        elif addr_part:
+            ck = f"row_{id(row)}"
+        else:
             ck = f"row_{id(row)}"
         if ck not in bucket:
             bucket[ck] = dict(row)
