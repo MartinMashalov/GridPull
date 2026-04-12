@@ -206,7 +206,7 @@ export default function LandingPage() {
           })
           setUser(res.data.user, res.data.access_token)
           trackEvent('login_success', { method: 'microsoft' })
-          navigate('/dashboard')
+          navigate('/form-filling')
         } catch (err: any) {
           const detail = err.response?.data?.detail
           setLoginError(typeof detail === 'string' ? detail : 'Microsoft login failed. Please try again.')
@@ -237,7 +237,7 @@ export default function LandingPage() {
         })
         setUser(res.data.user, res.data.access_token)
         trackEvent('login_success', { method: 'google' })
-        navigate('/dashboard')
+        navigate('/form-filling')
       } catch (err: any) {
         const detail = err.response?.data?.detail
         setLoginError(typeof detail === 'string' ? detail : 'Login failed. Please try again.')
@@ -278,7 +278,7 @@ export default function LandingPage() {
   }, [])
 
   if (user) {
-    navigate('/dashboard')
+    navigate('/form-filling')
     return null
   }
 
@@ -408,20 +408,20 @@ export default function LandingPage() {
       <section className="border-y border-border/50 bg-card/50 py-6 sm:py-8 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">5 Tools</div>
-            <div className="text-xs text-muted-foreground">Built for insurance workflows</div>
+            <div className="text-2xl font-bold text-primary mb-1">28 LOBs</div>
+            <div className="text-xs text-muted-foreground">Lines of business supported</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">Seconds</div>
-            <div className="text-xs text-muted-foreground">Not hours of manual data entry</div>
+            <div className="text-2xl font-bold text-primary mb-1">90%+ Faster</div>
+            <div className="text-xs text-muted-foreground">Than manual data entry</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">$0/mo</div>
-            <div className="text-xs text-muted-foreground">Free to start, 500 pages</div>
+            <div className="text-2xl font-bold text-primary mb-1">Free to Start</div>
+            <div className="text-xs text-muted-foreground">500 pages/month, no card</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">Any PDF</div>
-            <div className="text-xs text-muted-foreground">ACORD, carrier apps, scanned docs</div>
+            <div className="text-2xl font-bold text-primary mb-1">Any File</div>
+            <div className="text-xs text-muted-foreground">PDFs, scans, images, emails</div>
           </div>
         </div>
       </section>

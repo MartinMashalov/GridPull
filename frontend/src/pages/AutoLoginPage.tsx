@@ -27,7 +27,7 @@ export default function AutoLoginPage() {
     api.post('/auth/dev-login', { secret })
       .then((res) => {
         setUser(res.data.user, res.data.access_token)
-        navigate('/dashboard', { replace: true })
+        navigate('/form-filling', { replace: true })
       })
       .catch(() => {
         navigate('/', { replace: true })
