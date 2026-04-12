@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Home, Settings, LogOut, FileSpreadsheet, ChevronsLeft, Workflow, Clipboard } from 'lucide-react'
+import { Settings, LogOut, FileSpreadsheet, ChevronsLeft, Workflow, Clipboard, Table2, Inbox, FileText } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials, cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -13,10 +13,12 @@ interface SidebarProps {
 }
 
 const NAV = [
-  { icon: Home,          label: 'Dashboard',    path: '/dashboard' },
-  { icon: Clipboard, label: 'Form Filling', path: '/form-filling' },
-  { icon: Workflow,      label: 'Pipelines',    path: '/pipelines' },
-  { icon: Settings,      label: 'Settings',     path: '/settings'  },
+  { icon: Clipboard,  label: 'Form Filling',    path: '/form-filling' },
+  { icon: Table2,     label: 'Schedules',        path: '/schedules' },
+  { icon: Inbox,      label: 'Document Inbox',   path: '/inbox' },
+  { icon: FileText,   label: 'Proposals',        path: '/proposals' },
+  { icon: Workflow,   label: 'Pipelines',        path: '/pipelines' },
+  { icon: Settings,   label: 'Settings',         path: '/settings'  },
 ]
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {

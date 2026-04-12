@@ -2,15 +2,14 @@ import { Component, ReactNode, useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { trackPageView } from '@/lib/analytics'
 import LandingPage from '@/pages/LandingPage'
-import InsurancePage from '@/pages/InsurancePage'
-import AccountingFinancePage from '@/pages/AccountingFinancePage'
-import OtherUseCasesPage from '@/pages/OtherUseCasesPage'
 import PrivacyPage from '@/pages/PrivacyPage'
 import TermsPage from '@/pages/TermsPage'
-import DashboardPage from '@/pages/DashboardPage'
+import SchedulesPage from '@/pages/SchedulesPage'
 import SettingsPage from '@/pages/SettingsPage'
 import PipelinesPage from '@/pages/PipelinesPage'
 import FormFillingPage from '@/pages/FormFillingPage'
+import InboxPage from '@/pages/InboxPage'
+import ProposalsPage from '@/pages/ProposalsPage'
 import MobileUploadPage from '@/pages/MobileUploadPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
@@ -67,51 +66,16 @@ export default function App() {
       <ErrorBoundary>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <DashboardLayout>
-                <DashboardPage />
-              </DashboardLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <DashboardLayout>
-                <SettingsPage />
-              </DashboardLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/pipelines"
-          element={
-            <ProtectedRoute>
-              <DashboardLayout>
-                <PipelinesPage />
-              </DashboardLayout>
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/form-filling"
-          element={
-            <ProtectedRoute>
-              <DashboardLayout>
-                <FormFillingPage />
-              </DashboardLayout>
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/form-filling" element={<ProtectedRoute><DashboardLayout><FormFillingPage /></DashboardLayout></ProtectedRoute>} />
+        <Route path="/schedules" element={<ProtectedRoute><DashboardLayout><SchedulesPage /></DashboardLayout></ProtectedRoute>} />
+        <Route path="/inbox" element={<ProtectedRoute><DashboardLayout><InboxPage /></DashboardLayout></ProtectedRoute>} />
+        <Route path="/proposals" element={<ProtectedRoute><DashboardLayout><ProposalsPage /></DashboardLayout></ProtectedRoute>} />
+        <Route path="/pipelines" element={<ProtectedRoute><DashboardLayout><PipelinesPage /></DashboardLayout></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><DashboardLayout><SettingsPage /></DashboardLayout></ProtectedRoute>} />
+        {/* Backward compat: old dashboard URL redirects to schedules */}
+        <Route path="/dashboard" element={<Navigate to="/schedules" replace />} />
         <Route path="/auto-login" element={<AutoLoginPage />} />
         <Route path="/upload/:token" element={<MobileUploadPage />} />
-        <Route path="/use-cases/insurance" element={<InsurancePage />} />
-        <Route path="/use-cases/accounting-finance" element={<AccountingFinancePage />} />
-        <Route path="/use-cases/other" element={<OtherUseCasesPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/resources" element={<Suspense fallback={<ResourcesLoader />}><ResourcesHub /></Suspense>} />

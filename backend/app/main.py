@@ -16,6 +16,7 @@ from app.routes import pipelines
 from app.routes import form_filling
 from app.routes import ingest as ingest_routes
 from app.routes import webhooks
+from app.routes import proposals
 from app.workers.pipeline_poller import start_pipeline_poller
 from app.workers.ingest_cleanup import start_ingest_cleanup
 from app.workers.gmail_poller import start_gmail_poller
@@ -147,6 +148,7 @@ app.include_router(pipelines.router, prefix="/api")
 app.include_router(form_filling.router, prefix="/api")
 app.include_router(ingest_routes.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(proposals.router, prefix="/api")
 
 
 @app.get("/api/health")

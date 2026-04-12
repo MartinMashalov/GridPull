@@ -5,13 +5,12 @@ import { PublicClientApplication } from '@azure/msal-browser'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileSpreadsheet, ArrowRight,
-  Building2, GitBranch, Lock, Mail,
-  Receipt, FileText,
-  CheckCircle2, ChevronDown, Clipboard,
-  Upload, MousePointerClick, Download, Eye,
-  ShieldCheck, Trash2, ServerCrash, KeyRound,
-  HelpCircle, Star, Brain, Cpu, Target, FlaskConical,
+  Lock, Mail,
+  CheckCircle2, ChevronDown,
+  Upload, Cpu, Download,
+  HelpCircle,
   X,
+  FileEdit, Table2, FileBarChart, Inbox, Workflow,
 } from 'lucide-react'
 import { trackEvent } from '@/lib/analytics'
 import api from '@/lib/api'
@@ -36,70 +35,95 @@ const msalRedirectResult = msalInstance.initialize()
     return result
   })
 
-/* ─── Feature cards (Purpose-built AI) ──────────────────────────────────────── */
-const FEATURES = [
+/* ─── Tool sections ────────────────────────────────────────────────────────── */
+const TOOLS = [
   {
-    icon: Brain,
-    title: 'Purpose-Built Extraction Models',
-    desc: 'Unlike generic AI wrappers, our models are specifically trained for structured data extraction from financial documents, invoices, and forms. This isn\'t ChatGPT with a PDF plugin — it\'s a dedicated extraction engine.',
+    icon: FileEdit,
+    title: 'Form Filling',
+    desc: 'Fill carrier intake forms and supplemental apps in seconds. Upload your agency\'s intake form and source documents — AI fills every field on the carrier\'s form automatically. Works with ACORD forms, carrier-specific applications, and any fillable PDF. No more retyping the same data across multiple carriers.',
+    bullets: [
+      'ACORD forms, carrier apps, and any fillable PDF',
+      'Pulls data from your intake forms and source docs automatically',
+      'Fill the same submission across multiple carriers in minutes',
+      'Handles supplemental applications and endorsement forms',
+    ],
   },
   {
-    icon: Target,
-    title: '99%+ Accuracy on Real Documents',
-    desc: 'Tested across thousands of real-world invoices, SEC filings, insurance forms, and scanned receipts — not just clean samples. Our models are fine-tuned on messy, inconsistent, real-world data.',
+    icon: Table2,
+    title: 'Schedules',
+    desc: 'Build schedules of values, vehicles, drivers, and more. Create the supplemental spreadsheets required for commercial submissions — locations, equipment, vehicles, drivers, employees — from your existing documents. Upload last year\'s schedule and update it with new information automatically.',
+    bullets: [
+      'Locations, equipment, vehicles, drivers, and employee schedules',
+      'Upload last year\'s schedule as a baseline and update it',
+      'Extracts data from loss runs, certificates, and other source docs',
+      'Clean Excel output ready to attach to your submission',
+    ],
   },
   {
-    icon: FlaskConical,
-    title: 'Trained on Document Structure',
-    desc: 'Our AI understands table boundaries, multi-page layouts, merged cells, headers vs. data rows, and footnotes. It doesn\'t just OCR text — it comprehends document architecture.',
+    icon: FileBarChart,
+    title: 'Proposals',
+    desc: 'Generate professional client-facing proposals. Upload carrier quotes and get a polished, branded proposal with coverage analysis, quote comparison tables, and recommendations. Choose from 28 lines of business and templates sized for small businesses or enterprise clients.',
+    bullets: [
+      'Upload carrier quotes and get a branded PDF proposal',
+      'Coverage comparison tables across multiple carriers',
+      '28 lines of business supported',
+      'Templates for small commercial through large enterprise',
+    ],
+  },
+  {
+    icon: Inbox,
+    title: 'Document Inbox',
+    desc: 'Consolidate files from email into one workspace. Forward emails with attachments to your GridPull inbox. Files are organized by sender and ready to use in Form Filling, Schedules, or any other tool — no more digging through email threads.',
+    bullets: [
+      'Forward emails with attachments to your dedicated inbox',
+      'Files organized by sender automatically',
+      'Use received files directly in any GridPull tool',
+      'Stop digging through email threads for attachments',
+    ],
+  },
+  {
+    icon: Workflow,
+    title: 'Pipelines',
+    desc: 'Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive. When new files appear, GridPull extracts the data you need and accumulates results in a spreadsheet — perfect for recurring invoice processing or certificate tracking.',
+    bullets: [
+      'Connect Outlook, Box, Dropbox, or Google Drive folders',
+      'New files processed automatically when they arrive',
+      'Results accumulate in a single spreadsheet over time',
+      'Ideal for recurring invoices, certificates, and loss runs',
+    ],
+  },
+]
+
+/* ─── How it works steps ───────────────────────────────────────────────────── */
+const HOW_IT_WORKS = [
+  {
+    icon: Upload,
+    step: '1',
+    title: 'Upload your documents',
+    desc: 'Drag and drop PDFs, images, scanned docs, or spreadsheets. Forward emails with attachments to your inbox. Or connect a cloud folder for automatic processing.',
   },
   {
     icon: Cpu,
-    title: 'Enterprise-Grade Pipeline',
-    desc: 'Multi-stage processing: intelligent OCR → layout analysis → field extraction → validation. Each stage is purpose-built, not a single generic prompt sent to a chatbot.',
+    step: '2',
+    title: 'AI processes everything',
+    desc: 'GridPull reads your documents, understands the content, and extracts exactly the data you need — filling forms, building schedules, or generating proposals.',
+  },
+  {
+    icon: Download,
+    step: '3',
+    title: 'Download your results',
+    desc: 'Get filled PDFs, clean spreadsheets, or polished proposals in seconds. Ready to submit to carriers, share with clients, or import into your management system.',
   },
 ]
 
-/* ─── Testimonials ─────────────────────────────────────────────────────────── */
-const TESTIMONIALS = [
-  {
-    name: 'Sarah Chen',
-    role: 'Financial Analyst',
-    company: 'Meridian Capital',
-    text: 'We were manually pulling data from 200+ SEC filings per quarter. Now we upload the batch, pick our fields, and get a clean spreadsheet in minutes. It paid for itself on day one.',
-    stars: 5,
-  },
-  {
-    name: 'James Okafor',
-    role: 'AP Manager',
-    company: 'Atlas Logistics',
-    text: 'Our invoices come in every format imaginable — scanned, emailed PDFs, photos from the warehouse. This tool handles all of them. We\'ve cut our invoice processing time by 80%.',
-    stars: 5,
-  },
-  {
-    name: 'Maria Rodriguez',
-    role: 'Insurance Operations Lead',
-    company: 'Pacific Health Partners',
-    text: 'We process thousands of EOBs monthly from different insurers. The extraction accuracy is remarkable — even on scanned forms with poor print quality. Game changer for our reconciliation workflow.',
-    stars: 5,
-  },
-  {
-    name: 'David Park',
-    role: 'Contracts Administrator',
-    company: 'Westfield Legal Group',
-    text: 'I extract key terms from 50-100 contracts per week. Used to take two full days of manual work. Now I upload the batch, pick my fields, and have a complete comparison spreadsheet in 10 minutes.',
-    stars: 5,
-  },
-]
-
-/* ─── Pricing tiers ───────────────────────────────────────────────────────── */
+/* ─── Pricing tiers ────────────────────────────────────────────────────────── */
 const PRICING_TIERS = [
   {
     name: 'Free',
     price: '$0',
     period: '',
     desc: 'Try it out — no card required',
-    features: ['500 pages / month', 'Excel & CSV export', 'OCR for scanned docs', '5 MB max file size'],
+    features: ['500 pages / month', 'All 5 tools included', 'Excel & CSV export', 'OCR for scanned docs'],
     cta: 'Start free',
     highlight: false,
   },
@@ -108,7 +132,7 @@ const PRICING_TIERS = [
     price: '$49',
     period: '/mo',
     desc: 'For solo agents & small agencies',
-    features: ['7,500 pages / month', '$0.012 per page overage', 'Priority processing', '5 MB max file size'],
+    features: ['7,500 pages / month', '$0.012 per page overage', 'Priority processing', 'Document Inbox'],
     cta: 'Get started',
     highlight: false,
   },
@@ -117,7 +141,7 @@ const PRICING_TIERS = [
     price: '$199',
     period: '/mo',
     desc: 'For growing agencies & teams',
-    features: ['25,000 pages / month', '$0.01 per page overage', 'Automated pipelines', '5 MB max file size'],
+    features: ['25,000 pages / month', '$0.01 per page overage', 'Automated pipelines', 'All integrations'],
     cta: 'Go Pro',
     highlight: true,
   },
@@ -126,182 +150,37 @@ const PRICING_TIERS = [
     price: '$699',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
-    features: ['100,000 pages / month', '$0.006 per page overage', 'Automated pipelines', '5 MB max file size'],
+    features: ['100,000 pages / month', '$0.006 per page overage', 'Automated pipelines', 'Dedicated support'],
     cta: 'Contact us',
     highlight: false,
   },
 ]
 
-/* ─── Live demo samples ────────────────────────────────────────────────────── */
-const DEMO_SAMPLES = [
-  {
-    id: 'scanned',
-    label: 'Scanned Receipts (OCR)',
-    desc: 'Low-quality scanned receipts and invoices — handwritten notes, poor scan quality, foreign languages.',
-    tag: 'Scanned / OCR',
-    files: ['/samples/sample_scanned_receipt.pdf', '/samples/sample_scanned_invoice.pdf', '/samples/sample_scanned_receipt_2.pdf'],
-    fields: ['Vendor', 'Company #', 'Doc #', 'Date', 'Cashier', 'Address', 'Subtotal', 'Tax', 'Total', 'Currency'],
-    rows: [
-      ['Morganfield\'s', '1174703-K', '000039121', '2018-03-23', 'Mizan Genting', 'Lot 50, Floor T2, Sky Avenue Genting Highlands', 'RM 559.53', 'RM 33.57', 'RM 593.10', 'MYR'],
-      ['Gin Kee Trading', '001188498-D', 'CS00011955', '2017-12-02', 'CASHIER4', '15, Jalan Desa Bakti, Taman Desa', 'RM 7.00', 'RM 0.42', 'RM 7.42', 'MYR'],
-      ['Book Talk Sdn Bhd', '659437-H', 'TD01167104', '2018-12-25', 'Pn. Yati', 'No. 12, Jalan SS 2/64, Petaling Jaya', 'RM 9.00', 'RM 0.00', 'RM 9.00', 'MYR'],
-    ],
-  },
-  {
-    id: 'invoices',
-    label: 'Invoice Batch (5 invoices)',
-    desc: 'Mixed digital invoices — different vendors, formats, and line items extracted into one spreadsheet.',
-    tag: 'Digital PDFs',
-    files: ['/samples/sample_invoice.pdf', '/samples/sample_invoice_2.pdf', '/samples/sample_invoice_3.pdf'],
-    fields: ['Invoice #', 'Date', 'Bill To', 'Ship To', 'Region', 'Items', 'Subtotal', 'Discount', 'Shipping', 'Total'],
-    rows: [
-      ['36258', 'Mar 06 2012', 'Aaron Bergman', '6 Elm St, New York', 'East', '3', '$45.62', '$9.74', '$14.22', '$50.10'],
-      ['36651', 'May 12 2012', 'Aaron Hawkins', '820 Oak Ave, Seattle', 'West', '7', '$1,512.43', '$335.35', '$176.00', '$1,353.08'],
-      ['15978', 'Mar 31 2012', 'Aaron Smayling', '44 Pine Rd, Houston', 'Central', '5', '$2,890.15', '$1,191.80', '$212.00', '$1,910.35'],
-    ],
-  },
-  {
-    id: 'annual-report',
-    label: 'Berkshire Hathaway Annual Report',
-    desc: '100+ page SEC annual report — complex multi-page financial tables, dense layouts, footnotes.',
-    tag: '100+ pages',
-    files: [],
-    fields: ['Metric', '2023', '2022', '2021', '2020', '2019'],
-    rows: [
-      ['Total Revenues', '$364,482M', '$302,089M', '$276,094M', '$245,510M', '$254,616M'],
-      ['Net Earnings', '$96,223M', '$(22,819)M', '$89,795M', '$42,521M', '$81,417M'],
-      ['Operating Expenses', '$268,259M', '$280,908M', '$243,299M', '$232,989M', '$231,199M'],
-      ['Total Assets', '$1,069,846M', '$948,452M', '$958,784M', '$873,729M', '$817,729M'],
-      ['Shareholders\' Equity', '$561,199M', '$472,381M', '$500,140M', '$443,164M', '$424,791M'],
-      ['Book Value / Share', '$393,194', '$328,078', '$343,890', '$287,237', '$261,417'],
-    ],
-  },
-]
-
-/* ─── How it works steps ────────────────────────────────────────────────────── */
-const HOW_IT_WORKS = [
-  {
-    icon: Upload,
-    step: '1',
-    title: 'Upload PDFs or Images',
-    desc: 'Drag and drop PDF, PNG, or JPEG files. Works with scanned documents, digital PDFs, and photos of documents.',
-  },
-  {
-    icon: MousePointerClick,
-    step: '2',
-    title: 'Choose What to Extract',
-    desc: 'Pick from common fields like "Invoice Number," "Total Amount," or "Date" — or type in any custom field you need. Add descriptions to guide the AI for tricky fields.',
-  },
-  {
-    icon: Download,
-    step: '3',
-    title: 'Get Your Spreadsheet',
-    desc: 'In seconds, your data is extracted and delivered as a clean Excel or CSV file. One row per document, one column per field. Download it instantly.',
-  },
-]
-
-/* ─── Stats ──────────────────────────────────────────────────────────────────── */
-const STATS = [
-  { value: '99%+', label: 'Field extraction accuracy' },
-  { value: '$0/mo', label: 'Free to start' },
-  { value: '< 10s', label: 'Average processing time' },
-  { value: 'Any PDF', label: 'Scanned, digital, or photo' },
-]
-
-/* ─── Security features ──────────────────────────────────────────────────────── */
-const SECURITY_FEATURES = [
-  {
-    icon: Lock,
-    title: 'Encrypted in Transit',
-    desc: 'All file uploads and downloads are protected with TLS/HTTPS encryption. Your documents are never transmitted in plain text.',
-  },
-  {
-    icon: Trash2,
-    title: 'Files Deleted After Processing',
-    desc: 'Your documents are processed in memory and permanently deleted as soon as extraction is complete. We do not store your files on our servers.',
-  },
-  {
-    icon: Eye,
-    title: 'No Human Access',
-    desc: 'Your documents are processed entirely by AI. No person ever views, reads, or accesses your uploaded files.',
-  },
-  {
-    icon: ServerCrash,
-    title: 'Not Used to Train AI',
-    desc: 'Your documents and extracted data are never used to train, fine-tune, or improve any AI model. Your data stays yours.',
-  },
-  {
-    icon: KeyRound,
-    title: 'No Third-Party Sharing',
-    desc: 'We never sell, share, or provide your documents or data to any third party. Period.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'You Control Your Data',
-    desc: 'Request complete deletion of your account and all associated data at any time. We process deletion requests within 30 days.',
-  },
-]
-
-/* ─── Enterprise cards ───────────────────────────────────────────────────────── */
-const DEPLOYMENTS = [
-  {
-    icon: Building2,
-    title: 'Private Infrastructure',
-    desc: 'Run entirely within your VPC or on-premise environment. No data ever leaves your network.',
-  },
-  {
-    icon: GitBranch,
-    title: 'Custom Extraction Pipelines',
-    desc: 'Extraction rules tailored to your specific document types, field definitions, and validation requirements.',
-  },
-  {
-    icon: Lock,
-    title: 'Compliance Ready',
-    desc: 'Meet your organization\'s security and compliance requirements with dedicated infrastructure and data isolation.',
-  },
-]
-
-/* ─── FAQ ─────────────────────────────────────────────────────────────────────── */
+/* ─── FAQ ──────────────────────────────────────────────────────────────────── */
 const FAQ_ITEMS = [
   {
-    q: 'What types of PDFs does this work on?',
-    a: 'It works on virtually any PDF — invoices, financial reports, insurance forms, contracts, purchase orders, annual reports, and more. It handles both digital PDFs (text-based) and scanned documents (image-based) using built-in OCR. Even photos of documents (PNG, JPEG) are supported.',
-  },
-  {
-    q: 'What if my PDFs are messy, scanned, or inconsistently formatted?',
-    a: 'That\'s exactly what this tool is built for. Unlike simple PDF converters that break on irregular layouts, our AI reads and understands the content of your documents — even when tables are misaligned, fonts vary, or the scan quality is poor. You\'ll still get structured, usable output.',
-  },
-  {
-    q: 'What does the output look like?',
-    a: 'You get a clean Excel (.xlsx) or CSV file. Each row represents one document. Each column represents one of the fields you chose to extract (like "Invoice Number" or "Total Amount"). It\'s ready to use — no reformatting needed.',
-  },
-  {
-    q: 'Can I extract any field I want, or only preset ones?',
-    a: 'Both. We offer common presets (Invoice Number, Date, Total Amount, etc.) and you can type in any custom field. You can also add a description to guide the AI — for example, "Net Income ÷ Revenue × 100" for a profit margin calculation.',
-  },
-  {
-    q: 'How accurate is the extraction?',
-    a: 'We achieve 99%+ field accuracy across thousands of real-world documents. Accuracy depends on document quality — clear, high-resolution PDFs produce the best results. For scanned or low-quality documents, results are still strong but we recommend reviewing the output.',
-  },
-  {
     q: 'How much does it cost?',
-    a: 'It\'s free to get started — just sign up and start extracting with 500 pages per month at no cost. Each page of your uploaded document counts as one page. When you\'re ready, plans start at $49/mo for 7,500 pages. Need more? Every paid plan includes on-demand overage so you\'re never blocked.',
+    a: 'GridPull is free to start with 500 pages per month — no credit card required. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
-    q: 'Are my files secure? Who can see my documents?',
-    a: 'Your files are encrypted during upload, processed in memory by AI only (no human ever sees them), and permanently deleted as soon as extraction is complete. We do not store your documents, and they are never used to train AI models or shared with anyone.',
+    q: 'Are my files secure?',
+    a: 'Yes. Your files are encrypted during upload, processed by AI only (no human ever sees them), and permanently deleted after processing. Your documents are never stored on our servers and are never used to train AI models. We do not share your data with any third party.',
   },
   {
-    q: 'Is this safe for sensitive documents like invoices, contracts, or financial statements?',
-    a: 'Yes. Documents are encrypted in transit, processed in isolated memory, and deleted immediately after extraction. No human accesses your files, and your data is never stored, shared, or used for AI training. For organizations with strict compliance needs, we offer private deployments.',
+    q: 'What file types are supported?',
+    a: 'GridPull works with PDFs (digital and scanned), images (PNG, JPEG), spreadsheets (Excel, CSV), and email files (.eml, .msg). Scanned documents and photos of documents are processed with built-in OCR. If your file contains readable content, GridPull can handle it.',
   },
   {
-    q: 'How is this different from a regular PDF-to-Excel converter?',
-    a: 'Regular converters just try to replicate the visual layout of a PDF in a spreadsheet — you get messy tables, merged cells, and broken formatting. This tool actually reads and understands your documents. You tell it what data you need, and it extracts exactly those fields into a clean, structured spreadsheet.',
+    q: 'Can I update last year\'s schedule?',
+    a: 'Yes. Upload your existing schedule as a baseline, then add new source documents with updated information. GridPull will merge the new data into your existing schedule — updating values, adding new rows, and keeping everything organized.',
   },
   {
-    q: 'Can I process multiple documents at once?',
-    a: 'Yes. Upload as many files as you need in a single batch. Each document becomes one row in your output spreadsheet, with all your chosen fields filled in. This is ideal for processing stacks of invoices, reports, or forms.',
+    q: 'How does the proposal tool work?',
+    a: 'Upload one or more carrier quotes, select the line of business and template size, and GridPull generates a professional, branded PDF proposal. It includes coverage analysis, quote comparison tables across carriers, and customizable recommendations. 28 lines of business are supported.',
+  },
+  {
+    q: 'What forms can be filled?',
+    a: 'Any fillable PDF — including ACORD forms, carrier-specific intake forms, supplemental applications, and endorsement forms. Upload the blank form along with your source documents (your agency\'s intake form, prior policies, loss runs, etc.) and GridPull fills every field automatically.',
   },
 ]
 
@@ -312,8 +191,6 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
-  const [activeSample, setActiveSample] = useState(0)
-  const [activePdfFile, setActivePdfFile] = useState(0)
   const [showProviderDialog, setShowProviderDialog] = useState(false)
 
   useEffect(() => {
@@ -387,7 +264,6 @@ export default function LandingPage() {
     } catch (err: any) {
       console.error('Microsoft login error:', err)
       if (err.errorCode === 'interaction_in_progress') {
-        // Clear stale MSAL state and retry
         sessionStorage.clear()
         window.location.reload()
         return
@@ -451,29 +327,20 @@ export default function LandingPage() {
             <span className="font-semibold text-sm tracking-tight">GridPull</span>
           </div>
           <div className="flex items-center gap-4">
+            <a href="#tools" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
+              Tools
+            </a>
             <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               How It Works
             </a>
-            <a href="#use-cases" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Use Cases
-            </a>
-            <a href="#demo" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Demo
-            </a>
-            <a href="#pipelines" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Automation
-            </a>
             <a href="#pricing" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Pricing
-            </a>
-            <a href="#security" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              Security
             </a>
             <a href="#faq" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               FAQ
             </a>
             <a href="mailto:bigvisionsystems@gmail.com" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden md:block">
-              Enterprise
+              Contact
             </a>
             <Button
               variant="outline"
@@ -484,7 +351,7 @@ export default function LandingPage() {
               {loading ? (
                 <span className="flex items-center gap-2">
                   <div className="w-3.5 h-3.5 border-2 border-border border-t-foreground rounded-full animate-spin" />
-                  Signing in…
+                  Signing in...
                 </span>
               ) : (
                 <>Try for free <ArrowRight size={13} /></>
@@ -509,30 +376,29 @@ export default function LandingPage() {
           </Badge>
 
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
-            Extract data from any PDF{' '}
+            The AI-powered platform for{' '}
             <br className="hidden sm:block" />
-            <span className="text-primary">into a clean spreadsheet</span>
+            <span className="text-primary">insurance brokers and agencies</span>
           </h1>
 
           <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
-            Upload your PDFs or image files (PNG, JPEG), tell it what data you need, and get a structured Excel file in seconds.
-            Works on invoices, financial reports, insurance forms, contracts, and more —
-            even messy, scanned, or inconsistently formatted documents.
+            Stop retyping data across carrier forms, building schedules by hand, and formatting proposals from scratch.
+            GridPull gives your agency five AI-powered tools that turn hours of manual work into seconds.
           </p>
 
           <p className="text-muted-foreground text-sm mb-6 sm:mb-10 max-w-xl mx-auto">
-            No templates. No manual reformatting. Just the fields you need, organized in rows and columns.
+            Form Filling, Schedules, Proposals, Document Inbox, and Pipelines — everything you need to move submissions faster.
           </p>
 
           <div className="flex flex-col items-center gap-3">
-            <SignInButton label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton label="Start free — no card required" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             {loginError && (
               <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
                 {loginError}
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Free to start · No setup required · Files deleted after processing
+              500 free pages/month -- No setup required -- Files deleted after processing
             </p>
           </div>
         </div>
@@ -541,27 +407,87 @@ export default function LandingPage() {
       {/* ── Stats strip ───────────────────────────────────────────────────── */}
       <section className="border-y border-border/50 bg-card/50 py-6 sm:py-8 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-6">
-          {STATS.map((s) => (
-            <div key={s.label} className="text-center">
-              <div className="text-2xl font-bold text-primary mb-1">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </div>
-          ))}
+          <div className="text-center">
+            <div className="text-2xl font-bold text-primary mb-1">5 Tools</div>
+            <div className="text-xs text-muted-foreground">Built for insurance workflows</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-primary mb-1">Seconds</div>
+            <div className="text-xs text-muted-foreground">Not hours of manual data entry</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-primary mb-1">$0/mo</div>
+            <div className="text-xs text-muted-foreground">Free to start, 500 pages</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-primary mb-1">Any PDF</div>
+            <div className="text-xs text-muted-foreground">ACORD, carrier apps, scanned docs</div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Tools ─────────────────────────────────────────────────────────── */}
+      <section id="tools" className="py-12 sm:py-20 px-4 sm:px-6 scroll-mt-16">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+            Five tools, one platform
+          </p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
+            Everything your agency needs to move faster
+          </h2>
+          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
+            Each tool is purpose-built for insurance workflows. Upload your documents and let AI handle the repetitive work.
+          </p>
+
+          <div className="space-y-6">
+            {TOOLS.map((tool, i) => (
+              <div
+                key={tool.title}
+                className={`bg-card border border-border rounded-xl p-6 sm:p-8 hover:border-primary/30 hover:shadow-sm transition-all ${
+                  i % 2 === 0 ? '' : ''
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row gap-6">
+                  <div className="flex-shrink-0">
+                    <div className="w-11 h-11 bg-primary/10 rounded-lg flex items-center justify-center">
+                      <tool.icon size={20} className="text-primary" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg mb-2">{tool.title}</h3>
+                    <p className="text-muted-foreground text-sm leading-relaxed mb-4">{tool.desc}</p>
+                    <ul className="grid sm:grid-cols-2 gap-2">
+                      {tool.bullets.map((bullet) => (
+                        <li key={bullet} className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                          {bullet}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-10">
+            <SignInButton size="xl" label="Try all 5 tools free" className="min-w-0 sm:min-w-[260px] w-full sm:w-auto" />
+          </div>
         </div>
       </section>
 
       {/* ── How It Works ──────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-12 sm:py-20 px-4 sm:px-6 scroll-mt-16">
+      <section id="how-it-works" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            From document to data
+            How it works
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
             Three steps. No learning curve.
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
             You don't need to configure anything, create templates, or learn new software.
-            Just upload, pick your fields, and download.
+            Upload your documents, let AI do the work, and download the results.
           </p>
 
           <div className="grid sm:grid-cols-3 gap-6">
@@ -583,326 +509,28 @@ export default function LandingPage() {
           </div>
 
           <div className="text-center mt-10">
-            <SignInButton size="xl" label="Try it free — upload your first PDF" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Try it free — upload your first document" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
 
-      {/* ── Pipeline Automation ────────────────────────────────────────── */}
-      <section id="pipelines" className="py-14 sm:py-24 px-4 sm:px-6 border-t border-primary/20 scroll-mt-16 relative overflow-hidden">
-        {/* Subtle background glow */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-primary/5 rounded-full blur-3xl" />
-        </div>
-
-        <div className="max-w-5xl mx-auto relative">
-          <div className="text-center mb-12">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-              Automation
-            </p>
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
-              Set it once, extract forever
-            </h2>
-            <p className="text-muted-foreground text-sm sm:text-base mb-3 max-w-2xl mx-auto leading-relaxed">
-              Most tools make you upload files one by one. Our pipelines connect to your cloud storage
-              and <span className="text-foreground font-medium">automatically process new documents</span> the moment they arrive — around the clock.
-            </p>
-            <p className="text-muted-foreground text-xs max-w-lg mx-auto">
-              Works with Google Drive, SharePoint, and Outlook. New integrations added regularly.
-            </p>
-          </div>
-
-          {/* Pipeline flow: numbered steps with connectors */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
-              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">1</div>
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
-                <GitBranch size={17} className="text-primary" />
-              </div>
-              <h3 className="font-semibold text-sm mb-1.5">Connect a source folder</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Link a folder in Google Drive, SharePoint, or Outlook where invoices, reports, or forms land.</p>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
-              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">2</div>
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
-                <Clipboard size={17} className="text-primary" />
-              </div>
-              <h3 className="font-semibold text-sm mb-1.5">Define your extraction fields</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Tell the system exactly what data to pull — vendor name, invoice number, line items, totals, dates, or any custom field.</p>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
-              <div className="absolute -top-2.5 left-5 bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full">3</div>
-              <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4 mt-1">
-                <Cpu size={17} className="text-primary" />
-              </div>
-              <h3 className="font-semibold text-sm mb-1.5">Auto-processing kicks in</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Every new file that lands in your folder is automatically detected, read, and extracted — no manual upload needed.</p>
-            </div>
-            <div className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-md transition-all relative">
-              <div className="absolute -top-2.5 left-5 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">4</div>
-              <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4 mt-1">
-                <Download size={17} className="text-emerald-600" />
-              </div>
-              <h3 className="font-semibold text-sm mb-1.5">Spreadsheet delivered</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed">Clean, structured Excel or CSV output is saved to your destination folder — ready for your team or accounting system.</p>
-            </div>
-          </div>
-
-          {/* Benefit highlights */}
-          <div className="bg-card/60 border border-border/60 rounded-xl p-5 sm:p-6 mb-10">
-            <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 text-center">
-              <div>
-                <p className="text-2xl font-bold text-foreground">Automatic</p>
-                <p className="text-xs text-muted-foreground mt-0.5">new files processed the moment they arrive</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">Always on</p>
-                <p className="text-xs text-muted-foreground mt-0.5">monitoring your folders around the clock</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">Any volume</p>
-                <p className="text-xs text-muted-foreground mt-0.5">5 files or 5,000 — same accuracy every time</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <SignInButton size="lg" label="Set up your first pipeline" className="shadow-none" />
-          </div>
-        </div>
-      </section>
-
-      {/* ── Use Case Categories ─────────────────────────────────────────── */}
-      <section id="use-cases" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Use cases
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Built for the documents you actually work with
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            Whether you work in insurance, accounting, or any industry with document-heavy workflows — GridPull extracts exactly the fields you need.
-          </p>
-
-          <div className="grid sm:grid-cols-3 gap-6">
-            {/* Insurance Card */}
-            <a href="/use-cases/insurance" onClick={() => trackEvent('use_case_category_click', { category: 'insurance' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
-              <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center mb-4">
-                <ShieldCheck size={20} className="text-blue-600" />
-              </div>
-              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Insurance</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
-                Commercial submissions, carrier intake forms, schedules, supplemental applications, loss runs, and EOBs — built for agencies, brokerages, and MGAs.
-              </p>
-              <ul className="space-y-1.5 mb-4">
-                {['Commercial submissions', 'Carrier intake forms', 'Supplemental applications', 'Schedules & SOVs', 'Loss runs & EOBs'].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
-                View insurance use cases <ArrowRight size={12} />
-              </span>
-            </a>
-
-            {/* Accounting & Finance Card */}
-            <a href="/use-cases/accounting-finance" onClick={() => trackEvent('use_case_category_click', { category: 'accounting' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
-              <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4">
-                <Receipt size={20} className="text-emerald-600" />
-              </div>
-              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Accounting & Finance</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
-                Invoices, bank statements, tax documents, expense reports, financial statements, and audit workpapers — built for CPAs, AP/AR teams, and finance professionals.
-              </p>
-              <ul className="space-y-1.5 mb-4">
-                {['AP invoice processing', 'Bank statements to Excel', 'Tax documents & 1099s', 'Expense reports & receipts', 'Financial reports & SEC filings'].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
-                View accounting use cases <ArrowRight size={12} />
-              </span>
-            </a>
-
-            {/* Other Use Cases Card */}
-            <a href="/use-cases/other" onClick={() => trackEvent('use_case_category_click', { category: 'other' })} className="group bg-card border border-border rounded-xl p-6 hover:border-primary/40 hover:shadow-md transition-all text-left">
-              <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center mb-4">
-                <FileText size={20} className="text-violet-600" />
-              </div>
-              <h3 className="font-semibold text-base mb-2 group-hover:text-primary transition-colors">Other Industries</h3>
-              <p className="text-muted-foreground text-xs leading-relaxed mb-4">
-                Purchase orders, contracts, medical forms, real estate documents, government filings — if it's a PDF, GridPull can extract the data you need.
-              </p>
-              <ul className="space-y-1.5 mb-4">
-                {['Purchase orders', 'Contracts & legal docs', 'Medical & healthcare forms', 'Real estate documents', 'Government & compliance'].map((item) => (
-                  <li key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <span className="text-xs font-medium text-primary flex items-center gap-1 group-hover:gap-2 transition-all">
-                View more use cases <ArrowRight size={12} />
-              </span>
-            </a>
-          </div>
-        </div>
-      </section>
-
-
-      {/* ── See It In Action — Demo ─────────────────────────────────────── */}
-      <section id="demo" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
-        <div className="max-w-6xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">See it in action</p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">Real documents. Real results.</h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            These aren't mock-ups — this is actual output from our extraction engine. Scanned receipts, digital invoices, 100-page SEC filings. Same tool, same accuracy.
-          </p>
-
-          <div className="flex flex-wrap justify-center gap-2 mb-8">
-            {DEMO_SAMPLES.map((s, i) => (
-              <button
-                key={s.id}
-                onClick={() => { setActiveSample(i); setActivePdfFile(0); trackEvent('demo_sample_select', { sample: s.id }) }}
-                className={`px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
-                  activeSample === i
-                    ? 'bg-primary text-primary-foreground border-primary shadow-sm'
-                    : 'bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground'
-                }`}
-              >
-                {s.label}
-                <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${activeSample === i ? 'bg-white/20' : 'bg-secondary'}`}>{s.tag}</span>
-              </button>
-            ))}
-          </div>
-
-          {(() => {
-            const sample = DEMO_SAMPLES[activeSample]
-            return (
-              <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-lg">
-                <div className="bg-muted/30 border-b border-border/50 px-5 py-4">
-                  <h3 className="font-semibold text-sm">{sample.label}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{sample.desc}</p>
-                </div>
-                <div className="flex flex-col">
-                  {sample.files.length > 0 && (
-                    <div className="border-b border-border/50 flex flex-col">
-                      <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
-                        <FileText size={13} className="text-muted-foreground" />
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Source PDF</span>
-                        {sample.files.length > 1 && (
-                          <div className="flex items-center gap-1 ml-auto">
-                            {sample.files.map((_file: string, fi: number) => (
-                              <button key={fi} onClick={() => setActivePdfFile(fi)} className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${activePdfFile === fi ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground hover:text-foreground'}`}>
-                                Doc {fi + 1}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="h-[300px] sm:h-[400px]">
-                        <iframe key={`${sample.id}-${activePdfFile}`} src={sample.files[activePdfFile]} title={`Source PDF ${activePdfFile + 1}: ${sample.label}`} className="w-full h-full bg-white" />
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex flex-col">
-                    <div className="px-4 py-2 bg-muted/20 border-b border-border/50 flex items-center gap-2">
-                      <ArrowRight size={13} className="text-emerald-500" />
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Extracted Data</span>
-                      <CheckCircle2 size={12} className="text-emerald-500 ml-auto" />
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-[11px] min-w-[600px]">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/10">
-                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground w-6">#</th>
-                            {sample.fields.map((f: string) => (
-                              <th key={f} className="px-2 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">{f}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sample.rows.map((row: string[], ri: number) => (
-                            <tr key={ri} className="border-b border-border/50 hover:bg-muted/10 transition-colors">
-                              <td className="px-2 py-2 text-muted-foreground font-mono">{ri + 1}</td>
-                              {row.map((cell: string, ci: number) => (
-                                <td key={ci} className="px-2 py-2 whitespace-nowrap" title={cell}>{cell}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <div className="px-5 py-3 bg-muted/10 border-t border-border/50 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    <CheckCircle2 size={12} className="text-emerald-500 inline mr-1" />
-                    Extracted in &lt;10 seconds · Fields chosen by you · Download as .xlsx or .csv
-                  </p>
-                  <SignInButton size="sm" label="Try free with your own PDFs" className="shadow-none" />
-                </div>
-              </div>
-            )
-          })()}
-        </div>
-      </section>
-
-      {/* ── Why This Tool / Purpose-Built AI ─────────────────────────────── */}
-      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Why we're different
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            This isn't another generic AI tool
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            Most "AI PDF extractors" just send your document to a chatbot and hope for the best.
-            We built a dedicated extraction engine — purpose-trained models that understand document
-            structure, not just text. That's why we hit 99%+ accuracy where others fall apart.
-          </p>
-          <div className="grid sm:grid-cols-2 gap-5">
-            {FEATURES.map((f) => (
-              <div
-                key={f.title}
-                className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all"
-              >
-                <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                  <f.icon size={17} className="text-primary" />
-                </div>
-                <h3 className="font-semibold text-sm mb-1.5">{f.title}</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Pricing Transparency ───────────────────────────────────────── */}
-      <section id="pricing" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
+      {/* ── Pricing ───────────────────────────────────────────────────────── */}
+      <section id="pricing" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
         <div className="max-w-4xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Simple pricing
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Plans that scale with your agency.
+            Plans that scale with your agency
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free with 500 pages/month. A card is required on file, but you are not charged on the free plan.
-            From solo agents to large brokerages, pay only for what you need.
+            Start free with 500 pages/month. No credit card required.
+            From solo agents to large brokerages, pay only for what you use.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
-            Process thousands of documents for a fraction of manual cost.
+            Process thousands of pages for a fraction of the cost of manual data entry.
           </p>
 
-          {/* Pricing tier cards */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
             {PRICING_TIERS.map((tier) => (
               <div key={tier.name} className={`bg-card border rounded-xl p-5 text-center transition-all hover:shadow-sm ${tier.highlight ? 'border-primary shadow-md ring-1 ring-primary/20' : 'border-border hover:border-primary/30'}`}>
@@ -928,92 +556,21 @@ export default function LandingPage() {
 
           <div className="text-center">
             <p className="text-xs text-muted-foreground mb-5">
-              Each page of your document counts toward your monthly limit. Form fills cost 5 pages. 5 MB max file size. All plans include 99%+ accuracy, OCR, and Excel/CSV export. No contracts — cancel anytime.
+              Each page of your document counts toward your monthly limit. Form fills cost 5 pages. All plans include all 5 tools, OCR, and Excel/CSV export. No contracts — cancel anytime.
             </p>
-            <SignInButton size="xl" label="Start extracting — it's free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
-          </div>
-        </div>
-      </section>
-
-      {/* ── Testimonials ───────────────────────────────────────────────── */}
-      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Trusted by teams
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-12">
-            What our users say
-          </h2>
-
-          <div className="grid sm:grid-cols-2 gap-5">
-            {TESTIMONIALS.map((t) => (
-              <div
-                key={t.name}
-                className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all"
-              >
-                <div className="flex items-center gap-0.5 mb-3">
-                  {Array.from({ length: t.stars }).map((_, i) => (
-                    <Star key={i} size={13} className="text-amber-400 fill-amber-400" />
-                  ))}
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-4 italic">
-                  "{t.text}"
-                </p>
-                <div className="border-t border-border/50 pt-3">
-                  <p className="text-sm font-semibold">{t.name}</p>
-                  <p className="text-xs text-muted-foreground">{t.role} · {t.company}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Security & Privacy ────────────────────────────────────────────── */}
-      <section id="security" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Security & Privacy
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Your documents are private and protected
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            We know you're uploading sensitive documents. That's why we built this platform with
-            privacy-first principles — your files are encrypted, processed in isolation, and permanently deleted after extraction.
-          </p>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {SECURITY_FEATURES.map((f) => (
-              <div
-                key={f.title}
-                className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all"
-              >
-                <div className="w-9 h-9 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-4">
-                  <f.icon size={17} className="text-emerald-600" />
-                </div>
-                <h3 className="font-semibold text-sm mb-1.5">{f.title}</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-10 text-center">
-            <a href="/privacy" className="text-xs text-primary hover:underline">
-              Read our full Privacy Policy →
-            </a>
+            <SignInButton size="xl" label="Start free — 500 pages/month" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
         </div>
       </section>
 
       {/* ── FAQ ───────────────────────────────────────────────────────────── */}
-      <section id="faq" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
+      <section id="faq" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
         <div className="max-w-3xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Frequently asked questions
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-12">
-            Everything you need to know
+            Common questions from brokers and agencies
           </h2>
 
           <div className="space-y-2">
@@ -1050,52 +607,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Enterprise Deployments ────────────────────────────────────────── */}
-      <section className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30">
-        <div className="max-w-4xl mx-auto text-center">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            Enterprise
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
-            Need a private deployment?
-          </h2>
-          <p className="text-muted-foreground text-sm mb-12 max-w-lg mx-auto leading-relaxed">
-            For teams with strict compliance, security, or volume requirements — we build
-            dedicated extraction pipelines on your own infrastructure. Your data never leaves your network.
-          </p>
-
-          <div className="grid sm:grid-cols-3 gap-5 mb-10">
-            {DEPLOYMENTS.map((d) => (
-              <div
-                key={d.title}
-                className="bg-card border border-border rounded-xl p-5 hover:border-primary/30 hover:shadow-sm transition-all text-left"
-              >
-                <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                  <d.icon size={17} className="text-primary" />
-                </div>
-                <h3 className="font-semibold text-sm mb-1.5">{d.title}</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed">{d.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <Button variant="outline" size="sm" className="gap-2" asChild>
-            <a href="mailto:bigvisionsystems@gmail.com">
-              <Mail size={14} />
-              Contact us for enterprise pricing
-            </a>
-          </Button>
-        </div>
-      </section>
-
       {/* ── CTA banner ────────────────────────────────────────────────────── */}
       <section className="py-12 sm:py-16 px-4 sm:px-6 border-t border-border/50 bg-primary/5">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl font-bold tracking-tight mb-3">
-            Stop copying data from PDFs by hand
+            Stop retyping data across carrier forms
           </h2>
           <p className="text-muted-foreground text-sm mb-3">
-            Upload your first PDF and see structured results in seconds. Free to start — no setup, no commitment.
+            Upload your first document and see results in seconds. Free to start — no credit card, no setup, no commitment.
           </p>
           <p className="text-muted-foreground text-xs mb-8 flex items-center justify-center gap-1.5">
             <Lock size={10} />
@@ -1117,11 +636,11 @@ export default function LandingPage() {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
             <a href="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</a>
-            <a href="#security" className="hover:text-foreground transition-colors">Security</a>
+            <a href="/resources" className="hover:text-foreground transition-colors">Resources</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
             <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
-          <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
+          <span>&copy; 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>
       </footer>
 

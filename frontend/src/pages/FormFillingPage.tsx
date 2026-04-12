@@ -160,9 +160,9 @@ export default function FormFillingPage() {
       {/* ── Header ───────────────────────────────────────────────── */}
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Fill PDF Forms</h1>
+          <h1 className="text-xl font-semibold text-foreground">Form Filling</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Upload a blank PDF form and source documents — AI fills every field automatically. 5 pages per fill.
+            Fill carrier intake forms and supplemental applications automatically. Upload a blank form and your source documents — AI fills every field. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
           </p>
         </div>
       </div>

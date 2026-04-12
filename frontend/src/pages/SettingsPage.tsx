@@ -275,7 +275,6 @@ export default function SettingsPage() {
           <TabsTrigger value="subscription"><Crown size={13} />Subscription</TabsTrigger>
           <TabsTrigger value="usage" onClick={() => { if (!historyLoaded) fetchHistory() }}><BarChart3 size={13} />Usage</TabsTrigger>
           <TabsTrigger value="payment"><CreditCard size={13} />Payment</TabsTrigger>
-          <TabsTrigger value="defaults"><Zap size={13} />Presets</TabsTrigger>
           <TabsTrigger value="profile"><User size={13} />Profile</TabsTrigger>
         </TabsList>
 
