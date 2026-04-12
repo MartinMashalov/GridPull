@@ -161,8 +161,10 @@ export default function FormFillingPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Form Filling</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Fill carrier intake forms and supplemental applications automatically. Upload a blank form and your source documents — AI fills every field. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
+          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+            Fill carrier intake forms and supplemental applications automatically.
+            Upload a blank PDF form on the left, then add your source documents (intake forms, prior policies, loss runs) on the right.
+            AI reads your source docs and fills every field on the carrier's form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
           </p>
         </div>
       </div>

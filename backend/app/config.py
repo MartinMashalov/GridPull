@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     form_fill_model: str = "gpt-5.4-mini"
     form_fill_fallback_model: str = "gpt-5.4-nano"  # Use if rate limited
 
+    # Anthropic (Claude — used for complex form fills with 75+ fields)
+    anthropic_api_key: str = ""
+
     # Cerebras (fast inference, optional SOV reasoning mode)
     cerebras_api_key: str = ""
     cerebras_api_key2: str = ""

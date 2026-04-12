@@ -346,8 +346,10 @@ export default function InboxPage() {
               <h1 className="text-2xl font-semibold text-foreground">Document Inbox</h1>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Forward emails with attachments to your ingest address below. Your files appear here and can be used directly in Form Filling, Schedules, or other tools.
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
+            Forward emails with attachments to your dedicated ingest address below and your files will appear here, organized by sender.
+            Select documents and use them directly in Form Filling or Schedules — no more downloading attachments and re-uploading them.
+            You can also drag and drop files or scan documents with your phone using the QR code.
           </p>
         </div>
 

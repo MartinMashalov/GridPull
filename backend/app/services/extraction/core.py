@@ -43,6 +43,8 @@ _MODEL_PRICING: Dict[str, tuple[float, float, float]] = {
     "gpt-4o": (2.50e-6, 0.625e-6, 10.00e-6),        # Legacy
     # Cerebras (no caching — cached price = full price)
     "gpt-oss-120b": (0.35e-6, 0.35e-6, 0.75e-6),    # Cerebras OpenAI GPT OSS 120B
+    # Anthropic Claude (prompt caching gives 90% discount on cached tokens)
+    "claude-haiku-4-5": (0.80e-6, 0.08e-6, 4.00e-6),    # Claude Haiku 4.5
 }
 
 

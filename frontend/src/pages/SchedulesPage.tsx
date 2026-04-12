@@ -600,7 +600,11 @@ export default function SchedulesPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Schedules</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Create schedules of values, vehicles, drivers, equipment, and more for commercial submissions. Upload source documents and we'll extract the data into a spreadsheet.</p>
+          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+            Build schedules of values, vehicles, drivers, locations, equipment, and employees for commercial submissions.
+            Upload your source documents below, choose the fields to extract, and download a clean spreadsheet.
+            You can also upload last year's schedule as a baseline to update it with new information automatically.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {usageWarning && (

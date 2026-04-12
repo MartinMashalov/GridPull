@@ -407,10 +407,23 @@ Respond with ONLY the JSON object. No markdown, no explanation."""
 
 
 _FORM_FILL_MODEL = "gpt-4.1-mini"
+_FORM_FILL_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+_HAIKU_FIELD_THRESHOLD = 100  # use Haiku 4.5 when form has >= 100 fields
+
+# Lazy-initialised Anthropic client
+_anthropic_client = None
 
 
-async def _call_llm(prompt: str) -> tuple[dict, float, str]:
-    """Call GPT-4.1-mini with json_object response format. Returns (values_dict, cost, model)."""
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        import anthropic
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _anthropic_client
+
+
+async def _call_llm_openai(prompt: str) -> tuple[dict, float, str]:
+    """Call GPT-4.1-mini via OpenAI. Returns (values_dict, cost, model)."""
     response = await routed_acompletion(
         route_profile="form_fill",
         fallback_model=_FORM_FILL_MODEL,
@@ -439,10 +452,59 @@ async def _call_llm(prompt: str) -> tuple[dict, float, str]:
     try:
         values = json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.error("[FORM-FILL] JSON parse error: %s — raw: %s", e, raw[:200])
+        logger.error("[FORM-FILL] JSON parse error (OpenAI): %s — raw: %s", e, raw[:200])
         values = {}
 
     return values, cost, used_model
+
+
+async def _call_llm_haiku(prompt: str) -> tuple[dict, float, str]:
+    """Call Claude Haiku 4.5 via Anthropic. Returns (values_dict, cost, model)."""
+    from app.services.extraction.core import _estimate_cost, _MARKUP
+
+    client = _get_anthropic_client()
+    response = await client.messages.create(
+        model=_FORM_FILL_HAIKU_MODEL,
+        max_tokens=16384,
+        temperature=0,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    used_model = response.model or _FORM_FILL_HAIKU_MODEL
+    cost = 0.0
+    if response.usage:
+        input_tokens = response.usage.input_tokens or 0
+        output_tokens = response.usage.output_tokens or 0
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        cost = _estimate_cost(used_model, input_tokens, output_tokens, cache_read) * _MARKUP
+
+    raw = response.content[0].text if response.content else "{}"
+    # Strip markdown fences if present
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0].strip()
+
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error("[FORM-FILL] JSON parse error (Haiku): %s — raw: %s", e, raw[:200])
+        values = {}
+
+    return values, cost, used_model
+
+
+async def _call_llm(prompt: str, n_fields: int = 0) -> tuple[dict, float, str]:
+    """Route to Haiku 4.5 for large forms (100+ fields), else GPT-4.1-mini."""
+    use_haiku = (
+        n_fields >= _HAIKU_FIELD_THRESHOLD
+        and settings.anthropic_api_key
+    )
+    if use_haiku:
+        logger.info("[FORM-FILL] Using Haiku 4.5 (%d fields >= %d threshold)",
+                     n_fields, _HAIKU_FIELD_THRESHOLD)
+        return await _call_llm_haiku(prompt)
+    return await _call_llm_openai(prompt)
 
 
 def _is_blank(val) -> bool:
@@ -549,7 +611,8 @@ class PDFPopulator:
                 prior_values={k: v for k, v in filled.items() if not _is_blank(v)} if pass_num > 1 else None,
             )
 
-            values, cost, model = await _call_llm(prompt)
+            n_fields_this_pass = len(focus) if focus else len(schema)
+            values, cost, model = await _call_llm(prompt, n_fields=n_fields_this_pass)
             total_cost += cost
             used_model = model
             logger.info("[FORM-FILL] Pass %d complete — model=%s cost=$%.6f", pass_num, model, cost)

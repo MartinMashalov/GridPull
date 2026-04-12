@@ -366,7 +366,9 @@ export default function PipelinesPage() {
       <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Automate extraction from your cloud folders</p>
+          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+            Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive, define the fields to extract, and new files are processed automatically into a spreadsheet.
+          </p>
         </div>
         {pipelines.length > 0 && (
           <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>

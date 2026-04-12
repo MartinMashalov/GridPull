@@ -146,9 +146,9 @@ export default function ProposalsPage() {
           <h1 className="text-xl font-semibold text-foreground">Proposals</h1>
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Beta</Badge>
         </div>
-        <p className="text-muted-foreground text-sm mt-0.5 max-w-2xl">
-          Generate professional client-facing proposals with coverage analysis, quote comparison, and recommendations.
-          Upload quote documents, select a line of business, and we'll create a detailed proposal.
+        <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+          Generate professional client-facing proposals with coverage analysis, quote comparison tables, and recommendations.
+          Upload carrier quote PDFs, select a line of business and client size (small business or enterprise), customize your brand colors, then generate a polished PDF proposal ready to send to your client.
         </p>
       </div>
 
