@@ -44,30 +44,30 @@ test.describe('Landing Page — Hero', () => {
 })
 
 test.describe('Landing Page — Stats Strip', () => {
-  test('shows 28 LOBs stat', async ({ page }) => {
+  test('shows 28 lines of business stat', async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('28 LOBs')).toBeVisible()
+    await expect(page.getByText('Lines of business', { exact: true })).toBeVisible()
   })
 
-  test('shows 90%+ Faster stat', async ({ page }) => {
+  test('shows 5 Tools stat', async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('90%+ Faster')).toBeVisible()
-  })
-
-  test('shows Free to Start stat', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
-    const stat = page.getByText('Free to Start').first()
-    await stat.scrollIntoViewIfNeeded()
-    await expect(stat).toBeVisible()
+    await expect(page.getByText('5 Tools', { exact: true })).toBeVisible()
   })
 
   test('shows Any File stat', async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
     await expect(page.getByText('Any File')).toBeVisible()
+  })
+
+  test('shows Seconds stat', async ({ page }) => {
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    const stat = page.getByText('Not hours of data entry')
+    await stat.scrollIntoViewIfNeeded()
+    await expect(stat).toBeVisible()
   })
 })
 
