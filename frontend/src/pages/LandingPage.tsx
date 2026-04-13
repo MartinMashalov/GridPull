@@ -406,22 +406,45 @@ export default function LandingPage() {
 
       {/* ── Stats strip ───────────────────────────────────────────────────── */}
       <section className="border-y border-border/50 bg-card/50 py-6 sm:py-8 px-4 sm:px-6">
-        <div className="max-w-4xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-6">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-8">
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">28 LOBs</div>
-            <div className="text-xs text-muted-foreground">Lines of business supported</div>
+            <div className="text-2xl sm:text-3xl font-bold text-primary mb-1">28</div>
+            <div className="text-xs text-muted-foreground">Lines of business</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">90%+ Faster</div>
-            <div className="text-xs text-muted-foreground">Than manual data entry</div>
+            <div className="text-2xl sm:text-3xl font-bold text-primary mb-1">5 Tools</div>
+            <div className="text-xs text-muted-foreground">One platform for submissions</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">Free to Start</div>
-            <div className="text-xs text-muted-foreground">500 pages/month, no card</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-primary mb-1">Any File</div>
+            <div className="text-2xl sm:text-3xl font-bold text-primary mb-1">Any File</div>
             <div className="text-xs text-muted-foreground">PDFs, scans, images, emails</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl sm:text-3xl font-bold text-primary mb-1">Seconds</div>
+            <div className="text-xs text-muted-foreground">Not hours of data entry</div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Use cases strip ──────────────────────────────────────────────── */}
+      <section className="py-8 sm:py-10 px-4 sm:px-6 bg-primary/[0.02]">
+        <div className="max-w-4xl mx-auto">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-5">
+            Built for the way agencies actually work
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
+              <p className="text-sm font-medium text-foreground mb-0.5">New business submissions</p>
+              <p className="text-xs text-muted-foreground">Fill carrier forms and build schedules from your intake data</p>
+            </div>
+            <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
+              <p className="text-sm font-medium text-foreground mb-0.5">Renewal processing</p>
+              <p className="text-xs text-muted-foreground">Update last year's schedules and re-fill applications automatically</p>
+            </div>
+            <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
+              <p className="text-sm font-medium text-foreground mb-0.5">Client presentations</p>
+              <p className="text-xs text-muted-foreground">Generate branded proposals with coverage analysis and comparisons</p>
+            </div>
           </div>
         </div>
       </section>

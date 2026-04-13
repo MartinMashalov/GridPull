@@ -176,6 +176,42 @@ export default function FormFillingPage() {
         <span className="flex items-center gap-1.5"><Eye size={11} className="text-emerald-500" /> No human access to your documents</span>
       </div>
 
+      {/* ── How it works ────────────────────────────────────────── */}
+      {!hasProcessing && !targetForm && sourceFiles.length === 0 && (
+        <div className="mb-6 hidden sm:block">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How it works</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FilePlus2 size={14} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">1. Upload a blank form</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">ACORD, carrier app, or any fillable PDF</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <FileText size={14} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">2. Add your source documents</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Intake forms, prior policies, loss runs, certificates</p>
+              </div>
+            </div>
+            <div className="flex flex-col items-center text-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Sparkles size={14} className="text-primary" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-foreground">3. Download your filled form</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">AI fills every field automatically in seconds</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Card required banner ─────────────────────────────────── */}
       {user && !user.has_card && (
         <div className="relative mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3">
