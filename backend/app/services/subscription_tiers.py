@@ -23,6 +23,7 @@ class TierConfig:
     pages_per_month: int
     overage_rate_cents_per_page: Optional[float]  # cents per page, None = blocked
     has_pipeline: bool
+    has_proposals: bool = False
 
 
 TIERS: dict[str, TierConfig] = {
@@ -33,6 +34,7 @@ TIERS: dict[str, TierConfig] = {
         pages_per_month=500,
         overage_rate_cents_per_page=None,
         has_pipeline=False,
+        has_proposals=False,
     ),
     "starter": TierConfig(
         name="starter",
@@ -41,6 +43,7 @@ TIERS: dict[str, TierConfig] = {
         pages_per_month=7500,
         overage_rate_cents_per_page=1.2,
         has_pipeline=False,
+        has_proposals=False,
     ),
     "pro": TierConfig(
         name="pro",
@@ -49,6 +52,7 @@ TIERS: dict[str, TierConfig] = {
         pages_per_month=25000,
         overage_rate_cents_per_page=1.0,
         has_pipeline=True,
+        has_proposals=True,
     ),
     "business": TierConfig(
         name="business",
@@ -57,6 +61,7 @@ TIERS: dict[str, TierConfig] = {
         pages_per_month=100000,
         overage_rate_cents_per_page=0.6,
         has_pipeline=True,
+        has_proposals=True,
     ),
 }
 
@@ -80,4 +85,5 @@ def tier_info_dict(tier: TierConfig) -> dict:
         "max_file_size_mb": MAX_FILE_SIZE_MB,
         "overage_rate_cents_per_page": tier.overage_rate_cents_per_page,
         "has_pipeline": tier.has_pipeline,
+        "has_proposals": tier.has_proposals,
     }

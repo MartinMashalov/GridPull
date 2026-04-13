@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import {
-  FileText, Upload, Loader2, Download, X, Sparkles,
+  FileText, Upload, Loader2, Download, X, Sparkles, Lock, Crown, ArrowRight,
 } from 'lucide-react'
 import api from '@/lib/api'
+import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
@@ -48,7 +50,14 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+const PRO_TIERS = new Set(['pro', 'business'])
+
 export default function ProposalsPage() {
+  const { user } = useAuthStore()
+  const navigate = useNavigate()
+  const userTier = user?.subscription_tier || 'free'
+  const hasAccess = PRO_TIERS.has(userTier)
+
   const [lob, setLob] = useState(LOB_OPTIONS[0].value)
   const [clientSize, setClientSize] = useState<'small_business' | 'enterprise'>('small_business')
   const [agencyInfo, setAgencyInfo] = useState('')
@@ -152,8 +161,29 @@ export default function ProposalsPage() {
         </p>
       </div>
 
+      {/* Upgrade gate */}
+      {!hasAccess && (
+        <div className="relative rounded-xl border border-primary/30 bg-primary/5 p-8 mb-6 text-center">
+          <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
+            <Lock size={22} className="text-primary" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground mb-2">Proposals require a Pro plan</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-1">
+            Generate professional, branded proposals with coverage analysis and quote comparison tables across multiple carriers.
+          </p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+            Upgrade to Pro to access Proposals along with 25,000 pages/month and automated pipelines.
+          </p>
+          <Button size="lg" onClick={() => navigate('/settings')} className="gap-2">
+            <Crown size={15} />
+            Upgrade to Pro — $199/mo
+            <ArrowRight size={14} />
+          </Button>
+        </div>
+      )}
+
       {/* Split layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-6", !hasAccess && "opacity-40 pointer-events-none select-none")}>
 
         {/* ── Left panel: Configuration ──────────────────────────── */}
         <div className="space-y-5">

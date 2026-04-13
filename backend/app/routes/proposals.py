@@ -26,6 +26,13 @@ async def generate_proposal(
     current_user: User = Depends(get_current_user),
 ):
     """Proxy proposal generation to Papyra API."""
+    from app.services.subscription_tiers import get_tier
+    tier = get_tier(current_user.subscription_tier or "free")
+    if not tier.has_proposals:
+        raise HTTPException(
+            status_code=403,
+            detail={"type": "upgrade_required", "message": "Proposals require a Pro plan or higher. Upgrade in Settings.", "required_tier": "pro"},
+        )
     files = []
     for doc in documents:
         content = await doc.read()
