@@ -34,6 +34,7 @@ _ALLOWED_SOURCE_EXTS = {
 async def fill_form(
     target_form: UploadFile = File(...),
     source_files: List[UploadFile] = File(...),
+    force_claude: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -109,7 +110,10 @@ async def fill_form(
 
     try:
         populator = PDFPopulator()
-        filled_pdf, cost, model_breakdown = await populator.populate_async(source_data, target_bytes)
+        use_claude = force_claude and force_claude.lower() in ("1", "true", "yes")
+        filled_pdf, cost, model_breakdown = await populator.populate_async(
+            source_data, target_bytes, force_claude=use_claude,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -146,6 +150,7 @@ async def fill_form_service(
     target_form: UploadFile = File(...),
     source_files: List[UploadFile] = File(...),
     service_token: Optional[str] = Form(None),
+    force_claude: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     """Same as /fill but auth via X-GridPull-Service-Token header or service_token form field.
@@ -189,7 +194,10 @@ async def fill_form_service(
 
     try:
         populator = PDFPopulator()
-        filled_pdf, cost, model_breakdown = await populator.populate_async(source_data, target_bytes)
+        use_claude = force_claude and force_claude.lower() in ("1", "true", "yes")
+        filled_pdf, cost, model_breakdown = await populator.populate_async(
+            source_data, target_bytes, force_claude=use_claude,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

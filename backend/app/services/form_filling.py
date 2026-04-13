@@ -494,15 +494,15 @@ async def _call_llm_haiku(prompt: str) -> tuple[dict, float, str]:
     return values, cost, used_model
 
 
-async def _call_llm(prompt: str, n_fields: int = 0) -> tuple[dict, float, str]:
-    """Route to Haiku 4.5 for large forms (100+ fields), else GPT-4.1-mini."""
+async def _call_llm(prompt: str, n_fields: int = 0, force_claude: bool = False) -> tuple[dict, float, str]:
+    """Route to Haiku 4.5 for large forms (100+ fields) or when forced, else GPT-4.1-mini."""
     use_haiku = (
-        n_fields >= _HAIKU_FIELD_THRESHOLD
+        (force_claude or n_fields >= _HAIKU_FIELD_THRESHOLD)
         and settings.anthropic_api_key
     )
     if use_haiku:
-        logger.info("[FORM-FILL] Using Haiku 4.5 (%d fields >= %d threshold)",
-                     n_fields, _HAIKU_FIELD_THRESHOLD)
+        logger.info("[FORM-FILL] Using Haiku 4.5 (fields=%d, forced=%s, threshold=%d)",
+                     n_fields, force_claude, _HAIKU_FIELD_THRESHOLD)
         return await _call_llm_haiku(prompt)
     return await _call_llm_openai(prompt)
 
@@ -569,6 +569,7 @@ class PDFPopulator:
         self,
         source_files_bytes: list[tuple[str, bytes]],
         target_pdf_bytes: bytes,
+        force_claude: bool = False,
     ) -> tuple[bytes, float, list]:
         logger.info("[FORM-FILL] Starting — %d source file(s)", len(source_files_bytes))
         total_cost = 0.0
@@ -612,7 +613,7 @@ class PDFPopulator:
             )
 
             n_fields_this_pass = len(focus) if focus else len(schema)
-            values, cost, model = await _call_llm(prompt, n_fields=n_fields_this_pass)
+            values, cost, model = await _call_llm(prompt, n_fields=n_fields_this_pass, force_claude=force_claude)
             total_cost += cost
             used_model = model
             logger.info("[FORM-FILL] Pass %d complete — model=%s cost=$%.6f", pass_num, model, cost)
