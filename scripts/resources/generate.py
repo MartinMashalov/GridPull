@@ -99,7 +99,7 @@ RULES:
 9. Each section item must be specific, not generic
 10. The content must stand on its own as genuinely helpful information
 11. Include at least 2 realistic limitations
-12. Meta title must be under 70 characters
+12. Meta title must be under 80 characters
 13. Meta description must be 50-170 characters
 
 CANONICAL URL: {DEFAULT_CANONICAL_BASE_URL}/resources/{topic['slug']}

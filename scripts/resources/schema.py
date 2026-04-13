@@ -19,7 +19,7 @@ RESOURCE_SCHEMA = {
     "properties": {
         "slug": {"type": "string", "minLength": 3, "maxLength": 80},
         "title": {"type": "string", "minLength": 10, "maxLength": 120},
-        "metaTitle": {"type": "string", "minLength": 10, "maxLength": 70},
+        "metaTitle": {"type": "string", "minLength": 10, "maxLength": 80},
         "metaDescription": {"type": "string", "minLength": 50, "maxLength": 170},
         "h1": {"type": "string", "minLength": 10, "maxLength": 100},
         "primaryKeyword": {"type": "string", "minLength": 3},
