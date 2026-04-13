@@ -4,11 +4,12 @@ import {
   Workflow, Plus, Play, Pause, Trash2, ExternalLink,
   CheckCircle2, XCircle, Loader2, RefreshCw, MoreVertical,
   FolderOpen, Pencil,
-  ArrowRight, FolderInput, Settings2, Zap,
+  ArrowRight, FolderInput, Settings2, Zap, Lock, Crown,
 } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/store/authStore'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import PipelineCreateWizard, { type PipelineData } from '@/components/PipelineCreateWizard'
@@ -241,7 +242,14 @@ function PipelineCard({ pipeline, onEdit, onToggle, onRunNow, onDelete }: Pipeli
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
+const PRO_TIERS = new Set(['pro', 'business'])
+
 export default function PipelinesPage() {
+  const { user } = useAuthStore()
+  const navigate = useNavigate()
+  const userTier = user?.subscription_tier || 'free'
+  const hasAccess = PRO_TIERS.has(userTier)
+
   const [pipelines, setPipelines] = useState<PipelineData[]>([])
   const [loading, setLoading] = useState(true)
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -377,8 +385,30 @@ export default function PipelinesPage() {
         )}
       </div>
 
+      {/* Upgrade gate */}
+      {!hasAccess && (
+        <div className="relative rounded-xl border border-primary/30 bg-primary/5 p-8 mb-6 text-center">
+          <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
+            <Lock size={22} className="text-primary" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground mb-2">Pipelines require a Pro plan</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-1">
+            Automate repetitive document processing by connecting your cloud folders.
+            New files are automatically extracted into spreadsheets — no manual uploads needed.
+          </p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+            Upgrade to Pro to access Pipelines along with 25,000 pages/month and Proposals.
+          </p>
+          <Button size="lg" onClick={() => navigate('/settings')} className="gap-2">
+            <Crown size={15} />
+            Upgrade to Pro — $199/mo
+            <ArrowRight size={14} />
+          </Button>
+        </div>
+      )}
+
       {/* Body */}
-      <div>
+      <div className={cn(!hasAccess && "opacity-40 pointer-events-none select-none")}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
