@@ -1,9 +1,7 @@
 name: Resources SEO Cron
 
 on:
-  schedule:
-    # Run every hour
-    - cron: '0 * * * *'
+  # Scheduled cron disabled. Manual runs only via workflow_dispatch.
   workflow_dispatch:
     inputs:
       mode:
