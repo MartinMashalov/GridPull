@@ -371,18 +371,23 @@ export default function PipelinesPage() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
-      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
-          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-            Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive, define the fields to extract, and new files are processed automatically into a spreadsheet.
-          </p>
+      <div className="relative border-b border-border pb-5 mb-6">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <Workflow size={20} className="text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
+          </div>
+          {pipelines.length > 0 && (
+            <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
+              <Plus size={15} /> New Pipeline
+            </Button>
+          )}
         </div>
-        {pipelines.length > 0 && (
-          <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
-            <Plus size={15} /> New Pipeline
-          </Button>
-        )}
+        <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+          Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive, define the fields to extract, and new files are processed automatically into a spreadsheet.
+        </p>
       </div>
 
       {/* Upgrade gate */}

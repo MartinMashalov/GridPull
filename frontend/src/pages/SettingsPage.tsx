@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import {
-  CreditCard, User, Check, X,
+  CreditCard, User, Check, X, Settings,
   Crown, Rocket, Building2, FileText, AlertTriangle,
   ChevronRight, BarChart3, Clock,
   CheckCircle2, AlertCircle, Loader2,
@@ -233,11 +233,19 @@ export default function SettingsPage() {
   const tierOrder = ['free', 'starter', 'pro', 'business']
 
   return (
-    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
-      <div className="mb-7">
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Manage your subscription, payment method, and account</p>
-        <p className="text-muted-foreground text-xs mt-2">Each page of your uploaded documents counts toward your monthly limit. Form fills cost 5 pages each. Max file size is 5 MB.</p>
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
+
+      <div className="relative border-b border-border pb-5 mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 rounded-xl bg-primary/10">
+            <Settings size={20} className="text-primary" />
+          </div>
+          <h1 className="text-xl font-semibold text-foreground">Settings</h1>
+        </div>
+        <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+          Manage your subscription, payment method, and account. Each page of your uploaded documents counts toward your monthly limit. Form fills cost 5 pages each.
+        </p>
       </div>
 
       <Tabs defaultValue={searchParams.get('tab') || 'subscription'}>

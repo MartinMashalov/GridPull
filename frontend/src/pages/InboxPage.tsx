@@ -313,7 +313,9 @@ export default function InboxPage() {
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="relative max-w-4xl mx-auto p-4 sm:p-8">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
+
         {/* Hidden file inputs */}
         <input
           ref={fileInputRef}
@@ -337,19 +339,16 @@ export default function InboxPage() {
         />
 
         {/* ── Page header ──────────────────────────────────────────────── */}
-        <div className="mb-8">
+        <div className="relative border-b border-border pb-5 mb-6">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-primary/10">
               <Inbox size={20} className="text-primary" />
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground">Document Inbox</h1>
-            </div>
+            <h1 className="text-xl font-semibold text-foreground">Document Inbox</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-            Forward emails with attachments to your dedicated ingest address below and your files will appear here, organized by sender.
-            Select documents and use them directly in Form Filling or Schedules — no more downloading attachments and re-uploading them.
-            You can also drag and drop files or scan documents with your phone using the QR code.
+            Forward emails with attachments to your dedicated ingest address and your files will appear here, organized by sender.
+            Select documents and use them directly in Form Filling or Schedules. You can also drag and drop files or scan documents with your phone using the QR code.
           </p>
         </div>
 

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import {
-  FileText, Upload, Loader2, Download, X, Sparkles, Lock, Crown, ArrowRight,
+  FileText, Upload, Loader2, Download, X, Sparkles, Lock, Crown, ArrowRight, CheckCircle2,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
@@ -146,18 +146,23 @@ export default function ProposalsPage() {
   }
 
   return (
-    <div className="relative p-4 sm:p-8 max-w-7xl mx-auto">
+    <div className="relative p-4 sm:p-8 max-w-4xl mx-auto">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
       <div className="relative border-b border-border pb-5 mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-xl font-semibold text-foreground">Proposals</h1>
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Beta</Badge>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 rounded-xl bg-primary/10">
+            <FileText size={20} className="text-primary" />
+          </div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-foreground">Proposals</h1>
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Beta</Badge>
+          </div>
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
           Generate professional client-facing proposals with coverage analysis, quote comparison tables, and recommendations.
-          Upload carrier quote PDFs, select a line of business and client size (small business or enterprise), customize your brand colors, then generate a polished PDF proposal ready to send to your client.
+          Upload carrier quote PDFs, configure your proposal settings below, then download a polished PDF ready to send to your client.
         </p>
       </div>
 
@@ -182,15 +187,14 @@ export default function ProposalsPage() {
         </div>
       )}
 
-      {/* Split layout */}
-      <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-6", !hasAccess && "opacity-40 pointer-events-none select-none")}>
+      {/* Form */}
+      <div className={cn("space-y-5", !hasAccess && "opacity-40 pointer-events-none select-none")}>
 
-        {/* ── Left panel: Configuration ──────────────────────────── */}
-        <div className="space-y-5">
-
-          {/* Line of Business */}
+        {/* Two-column row: Line of Business + Client Size */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="lob" className="text-sm font-medium">Line of Business</Label>
+            <p className="text-xs text-muted-foreground">The insurance line this proposal covers.</p>
             <select
               id="lob"
               value={lob}
@@ -202,10 +206,9 @@ export default function ProposalsPage() {
               ))}
             </select>
           </div>
-
-          {/* Client Size */}
           <div className="space-y-1.5">
             <Label htmlFor="client-size" className="text-sm font-medium">Client Size</Label>
+            <p className="text-xs text-muted-foreground">Adjusts language and detail level for the audience.</p>
             <select
               id="client-size"
               value={clientSize}
@@ -216,156 +219,149 @@ export default function ProposalsPage() {
               <option value="enterprise">Enterprise</option>
             </select>
           </div>
-
-          {/* Agency Info */}
-          <div className="space-y-1.5">
-            <Label htmlFor="agency-info" className="text-sm font-medium">Agency Info <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <textarea
-              id="agency-info"
-              value={agencyInfo}
-              onChange={e => setAgencyInfo(e.target.value)}
-              placeholder="Agency name, address, phone..."
-              rows={3}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 resize-none"
-            />
-          </div>
-
-          {/* Brand Colors */}
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Brand Colors</Label>
-            <div className="flex gap-4">
-              <div className="flex items-center gap-2 flex-1">
-                <div className="w-6 h-6 rounded border border-input flex-shrink-0" style={{ backgroundColor: brandPrimary }} />
-                <input
-                  type="text"
-                  value={brandPrimary}
-                  onChange={e => setBrandPrimary(e.target.value)}
-                  placeholder="#1A3560"
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                />
-                <span className="text-[11px] text-muted-foreground flex-shrink-0">Primary</span>
-              </div>
-              <div className="flex items-center gap-2 flex-1">
-                <div className="w-6 h-6 rounded border border-input flex-shrink-0" style={{ backgroundColor: brandAccent }} />
-                <input
-                  type="text"
-                  value={brandAccent}
-                  onChange={e => setBrandAccent(e.target.value)}
-                  placeholder="#C9901E"
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-                />
-                <span className="text-[11px] text-muted-foreground flex-shrink-0">Accent</span>
-              </div>
-            </div>
-          </div>
-
-          {/* File Upload Dropzone */}
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Quote Documents <span className="text-muted-foreground font-normal">(1-6 PDFs)</span></Label>
-            <div
-              {...getRootProps()}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white',
-                isDragActive
-                  ? 'border-primary bg-primary/5'
-                  : files.length > 0
-                    ? 'border-border bg-card hover:bg-muted/40'
-                    : 'border-border hover:border-primary/40 hover:bg-accent/30'
-              )}
-            >
-              <input {...getInputProps()} />
-              <div className="flex flex-col items-center gap-3">
-                <div className={cn(
-                  'w-12 h-12 rounded-xl flex items-center justify-center',
-                  isDragActive ? 'bg-primary/20' : 'bg-primary/10'
-                )}>
-                  <Upload size={22} className="text-primary" />
-                </div>
-                {isDragActive ? (
-                  <p className="text-primary font-medium">Drop quote PDFs here</p>
-                ) : (
-                  <div>
-                    <p className="text-foreground font-medium">Drop quote PDFs here</p>
-                    <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* File list */}
-            {files.length > 0 && (
-              <div className="space-y-1.5 mt-2">
-                {files.map((f, i) => (
-                  <div key={`${f.name}-${f.size}-${i}`} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 group">
-                    <FileText size={14} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-sm text-foreground truncate flex-1">{f.name}</span>
-                    <span className="text-[11px] text-muted-foreground flex-shrink-0">{formatBytes(f.size)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeFile(i)}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all flex-shrink-0"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Generate button */}
-          <Button
-            onClick={handleGenerate}
-            disabled={generating || files.length === 0}
-            size="lg"
-            className="w-full shadow-lg shadow-primary/25 gap-2"
-          >
-            {generating ? (
-              <><Loader2 size={15} className="animate-spin" /> Generating...</>
-            ) : (
-              <><Sparkles size={15} /> Generate Proposal</>
-            )}
-          </Button>
         </div>
 
-        {/* ── Right panel: PDF Preview ───────────────────────────── */}
-        <div className="flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <Label className="text-sm font-medium">Preview</Label>
-            {pdfBase64 && (
-              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={handleDownload}>
-                <Download size={12} /> Download PDF
-              </Button>
-            )}
-          </div>
+        {/* Agency Info */}
+        <div className="space-y-1.5">
+          <Label htmlFor="agency-info" className="text-sm font-medium">Agency Info <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <p className="text-xs text-muted-foreground">Your agency details will appear on the proposal cover page.</p>
+          <textarea
+            id="agency-info"
+            value={agencyInfo}
+            onChange={e => setAgencyInfo(e.target.value)}
+            placeholder="Agency name, address, phone..."
+            rows={3}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 resize-none"
+          />
+        </div>
 
-          <div className="flex-1 min-h-[600px] rounded-xl border border-border bg-muted/30 overflow-hidden">
-            {generating ? (
-              <div className="flex flex-col items-center justify-center h-full gap-4">
-                <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Loader2 size={24} className="animate-spin text-primary" />
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-foreground">Generating proposal...</p>
-                  <p className="text-xs text-muted-foreground mt-1">This may take up to 60 seconds</p>
-                </div>
-              </div>
-            ) : pdfBase64 ? (
-              <iframe
-                src={`data:application/pdf;base64,${pdfBase64}`}
-                className="w-full h-full min-h-[600px]"
-                title="Proposal Preview"
+        {/* Brand Colors */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Brand Colors</Label>
+          <p className="text-xs text-muted-foreground">Customize the proposal's color scheme to match your brand.</p>
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2 flex-1">
+              <div className="w-6 h-6 rounded border border-input flex-shrink-0" style={{ backgroundColor: brandPrimary }} />
+              <input
+                type="text"
+                value={brandPrimary}
+                onChange={e => setBrandPrimary(e.target.value)}
+                placeholder="#1A3560"
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
               />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3">
-                <div className="w-14 h-14 rounded-xl bg-muted/60 flex items-center justify-center">
-                  <FileText size={24} className="text-muted-foreground/60" />
-                </div>
-                <p className="text-sm text-muted-foreground">Your proposal will appear here</p>
-              </div>
-            )}
+              <span className="text-[11px] text-muted-foreground flex-shrink-0">Primary</span>
+            </div>
+            <div className="flex items-center gap-2 flex-1">
+              <div className="w-6 h-6 rounded border border-input flex-shrink-0" style={{ backgroundColor: brandAccent }} />
+              <input
+                type="text"
+                value={brandAccent}
+                onChange={e => setBrandAccent(e.target.value)}
+                placeholder="#C9901E"
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              />
+              <span className="text-[11px] text-muted-foreground flex-shrink-0">Accent</span>
+            </div>
           </div>
         </div>
+
+        {/* File Upload Dropzone */}
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium">Quote Documents <span className="text-muted-foreground font-normal">(1-6 PDFs)</span></Label>
+          <p className="text-xs text-muted-foreground">Upload carrier quote PDFs to compare. Each quote will be analyzed and included in the proposal.</p>
+          <div
+            {...getRootProps()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white',
+              isDragActive
+                ? 'border-primary bg-primary/5'
+                : files.length > 0
+                  ? 'border-border bg-card hover:bg-muted/40'
+                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
+            )}
+          >
+            <input {...getInputProps()} />
+            <div className="flex flex-col items-center gap-3">
+              <div className={cn(
+                'w-12 h-12 rounded-xl flex items-center justify-center',
+                isDragActive ? 'bg-primary/20' : 'bg-primary/10'
+              )}>
+                <Upload size={22} className="text-primary" />
+              </div>
+              {isDragActive ? (
+                <p className="text-primary font-medium">Drop quote PDFs here</p>
+              ) : (
+                <div>
+                  <p className="text-foreground font-medium">Drop quote PDFs here</p>
+                  <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* File list */}
+          {files.length > 0 && (
+            <div className="space-y-1.5 mt-2">
+              {files.map((f, i) => (
+                <div key={`${f.name}-${f.size}-${i}`} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 group">
+                  <FileText size={14} className="text-muted-foreground flex-shrink-0" />
+                  <span className="text-sm text-foreground truncate flex-1">{f.name}</span>
+                  <span className="text-[11px] text-muted-foreground flex-shrink-0">{formatBytes(f.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all flex-shrink-0"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Generate button */}
+        <Button
+          onClick={handleGenerate}
+          disabled={generating || files.length === 0}
+          size="lg"
+          className="w-full shadow-lg shadow-primary/25 gap-2"
+        >
+          {generating ? (
+            <><Loader2 size={15} className="animate-spin" /> Generating...</>
+          ) : (
+            <><Sparkles size={15} /> Generate Proposal</>
+          )}
+        </Button>
+
+        {/* Generation progress */}
+        {generating && (
+          <div className="rounded-xl border border-border bg-card p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Loader2 size={20} className="animate-spin text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Generating your proposal...</p>
+              <p className="text-xs text-muted-foreground mt-0.5">This may take up to 60 seconds. Analyzing quotes and building the PDF.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Result card */}
+        {pdfBase64 && !generating && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+              <CheckCircle2 size={20} className="text-emerald-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">Proposal ready</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{proposalFilename}</p>
+            </div>
+            <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={handleDownload}>
+              <Download size={14} /> Download PDF
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

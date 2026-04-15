@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail, Table2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -597,28 +597,33 @@ export default function SchedulesPage() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* Header */}
-      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Schedules</h1>
-          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-            Build schedules of values, vehicles, drivers, locations, equipment, and employees for commercial submissions.
-            Upload your source documents below, choose the fields to extract, and download a clean spreadsheet.
-            You can also upload last year's schedule as a baseline to update it with new information automatically.
-          </p>
+      <div className="relative border-b border-border pb-5 mb-6">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <Table2 size={20} className="text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">Schedules</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            {usageWarning && (
+              <>
+                <span className="text-xs text-muted-foreground">{usageWarning.pages_used.toLocaleString()}/{usageWarning.pages_limit.toLocaleString()} pages</span>
+                <Badge
+                  variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
+                  className="font-mono text-[11px]"
+                >
+                  {(usageWarning.tier || user?.subscription_tier || 'free').charAt(0).toUpperCase() + (usageWarning.tier || user?.subscription_tier || 'free').slice(1)}
+                </Badge>
+              </>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {usageWarning && (
-            <>
-              <span className="text-xs text-muted-foreground">{usageWarning.pages_used.toLocaleString()}/{usageWarning.pages_limit.toLocaleString()} pages</span>
-              <Badge
-                variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
-                className="font-mono text-[11px]"
-              >
-                {(usageWarning.tier || user?.subscription_tier || 'free').charAt(0).toUpperCase() + (usageWarning.tier || user?.subscription_tier || 'free').slice(1)}
-              </Badge>
-            </>
-          )}
-        </div>
+        <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+          Build schedules of values, vehicles, drivers, locations, equipment, and employees for commercial submissions.
+          Upload your source documents below, choose the fields to extract, and download a clean spreadsheet.
+          You can also upload last year's schedule as a baseline to update it with new information automatically.
+        </p>
       </div>
 
       {/* Usage warning banner */}

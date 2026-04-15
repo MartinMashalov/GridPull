@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import {
   Upload, Loader2, CheckCircle2, AlertCircle, X, FileText,
   Download, ArrowRight, Lock, Trash2, Eye, CreditCard,
-  Sparkles, FilePlus2,
+  Sparkles, FilePlus2, Clipboard,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useFormJobStore } from '@/store/formJobStore'
@@ -158,15 +158,18 @@ export default function FormFillingPage() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-primary/[0.03] to-transparent rounded-t-xl" />
 
       {/* ── Header ───────────────────────────────────────────────── */}
-      <div className="relative border-b border-border pb-5 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-        <div>
+      <div className="relative border-b border-border pb-5 mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 rounded-xl bg-primary/10">
+            <Clipboard size={20} className="text-primary" />
+          </div>
           <h1 className="text-xl font-semibold text-foreground">Form Filling</h1>
-          <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-            Fill carrier intake forms and supplemental applications automatically.
-            Upload a blank PDF form on the left, then add your source documents (intake forms, prior policies, loss runs) on the right.
-            AI reads your source docs and fills every field on the carrier's form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
-          </p>
         </div>
+        <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
+          Fill carrier intake forms and supplemental applications automatically.
+          Upload a blank PDF form on the left, then add your source documents on the right.
+          AI reads your source docs and fills every field on the carrier's form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
+        </p>
       </div>
 
       {/* ── Security strip ───────────────────────────────────────── */}
