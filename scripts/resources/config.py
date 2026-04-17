@@ -18,7 +18,7 @@ for d in [PUBLISHED_DIR, DRAFTS_DIR, REJECTED_DIR, LOGS_DIR, FRONTEND_PUBLIC]:
 
 # Environment-based configuration
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
-CRON_ENABLED = os.getenv("RESOURCES_CRON_ENABLED", "true").lower() == "true"
+CRON_ENABLED = os.getenv("RESOURCES_CRON_ENABLED", "false").lower() == "true"
 
 MAX_CANDIDATES_PER_RUN = int(os.getenv("RESOURCES_MAX_CANDIDATES_PER_RUN", "10"))
 MAX_PUBLISHES_PER_RUN = int(os.getenv("RESOURCES_MAX_PUBLISHES_PER_RUN", "5"))
