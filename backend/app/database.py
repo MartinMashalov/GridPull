@@ -122,9 +122,12 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMP",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS pages_used_this_period INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS overage_pages_this_period INTEGER NOT NULL DEFAULT 0",
-            # Migrate old credit columns to page columns (credits × 50 = pages)
+            # One-time migration: copy legacy credit counters to page counters, then zero out the
+            # legacy cols so this doesn't re-apply after a billing-cycle reset. (credits × 50 = pages)
             "UPDATE users SET pages_used_this_period = COALESCE(credits_used_this_period, 0) * 50 WHERE pages_used_this_period = 0 AND credits_used_this_period > 0",
             "UPDATE users SET overage_pages_this_period = COALESCE(overage_credits_this_period, 0) * 50 WHERE overage_pages_this_period = 0 AND overage_credits_this_period > 0",
+            "UPDATE users SET credits_used_this_period = 0 WHERE credits_used_this_period IS NOT NULL AND credits_used_this_period > 0",
+            "UPDATE users SET overage_credits_this_period = 0 WHERE overage_credits_this_period IS NOT NULL AND overage_credits_this_period > 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS usage_reset_at TIMESTAMP",
             # Email ingest
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS ingest_address_key VARCHAR",

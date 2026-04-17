@@ -151,6 +151,12 @@ class Settings(BaseSettings):
         "gpt-4.1-mini",
     ]
 
+    # Papyra service account (used by the proposals proxy to call
+    # POST /api/proposals/external/{generate,revise} on api.papyra.org)
+    papyra_api_base_url: str = "https://api.papyra.org"
+    papyra_user_email: str = ""
+    papyra_user_password: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

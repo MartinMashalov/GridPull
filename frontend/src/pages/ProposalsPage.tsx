@@ -7,8 +7,15 @@ import {
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
+import UsagePill from '@/components/UsagePill'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -50,13 +57,13 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-const PRO_TIERS = new Set(['pro', 'business'])
+const PROPOSAL_TIERS = new Set(['free', 'pro', 'business'])
 
 export default function ProposalsPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const userTier = user?.subscription_tier || 'free'
-  const hasAccess = PRO_TIERS.has(userTier)
+  const hasAccess = PROPOSAL_TIERS.has(userTier)
 
   const [lob, setLob] = useState(LOB_OPTIONS[0].value)
   const [clientSize, setClientSize] = useState<'small_business' | 'enterprise'>('small_business')
@@ -151,14 +158,14 @@ export default function ProposalsPage() {
 
       {/* Header */}
       <div className="relative border-b border-border pb-5 mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2 rounded-xl bg-primary/10">
-            <FileText size={20} className="text-primary" />
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <FileText size={20} className="text-primary" />
+            </div>
             <h1 className="text-xl font-semibold text-foreground">Proposals</h1>
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Beta</Badge>
           </div>
+          <UsagePill />
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
           Generate professional client-facing proposals with coverage analysis, quote comparison tables, and recommendations.
@@ -172,12 +179,12 @@ export default function ProposalsPage() {
           <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
             <Lock size={22} className="text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Proposals require a Pro plan</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-2">Upgrade to access Proposals</h2>
           <p className="text-sm text-muted-foreground max-w-md mx-auto mb-1">
             Generate professional, branded proposals with coverage analysis and quote comparison tables across multiple carriers.
           </p>
           <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-            Upgrade to Pro to access Proposals along with 25,000 pages/month and automated pipelines.
+            Proposals are included on the Free, Pro, and Business plans. Upgrade from Starter to unlock them.
           </p>
           <Button size="lg" onClick={() => navigate('/settings')} className="gap-2">
             <Crown size={15} />
@@ -195,29 +202,29 @@ export default function ProposalsPage() {
           <div className="space-y-1.5">
             <Label htmlFor="lob" className="text-sm font-medium">Line of Business</Label>
             <p className="text-xs text-muted-foreground">The insurance line this proposal covers.</p>
-            <select
-              id="lob"
-              value={lob}
-              onChange={e => setLob(e.target.value)}
-              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            >
-              {LOB_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            <Select value={lob} onValueChange={setLob}>
+              <SelectTrigger id="lob">
+                <SelectValue placeholder="Select a line of business" />
+              </SelectTrigger>
+              <SelectContent>
+                {LOB_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="client-size" className="text-sm font-medium">Client Size</Label>
             <p className="text-xs text-muted-foreground">Adjusts language and detail level for the audience.</p>
-            <select
-              id="client-size"
-              value={clientSize}
-              onChange={e => setClientSize(e.target.value as 'small_business' | 'enterprise')}
-              className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-            >
-              <option value="small_business">Small Business</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
+            <Select value={clientSize} onValueChange={(v) => setClientSize(v as 'small_business' | 'enterprise')}>
+              <SelectTrigger id="client-size">
+                <SelectValue placeholder="Select client size" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="small_business">Small Business</SelectItem>
+                <SelectItem value="enterprise">Enterprise</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

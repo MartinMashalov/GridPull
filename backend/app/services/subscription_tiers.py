@@ -33,8 +33,8 @@ TIERS: dict[str, TierConfig] = {
         price_monthly=0,
         pages_per_month=500,
         overage_rate_cents_per_page=None,
-        has_pipeline=False,
-        has_proposals=False,
+        has_pipeline=True,
+        has_proposals=True,
     ),
     "starter": TierConfig(
         name="starter",

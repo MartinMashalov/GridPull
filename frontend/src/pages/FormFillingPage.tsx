@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import UsagePill from '@/components/UsagePill'
 import { cn } from '@/lib/utils'
 
 
@@ -159,15 +160,18 @@ export default function FormFillingPage() {
 
       {/* ── Header ───────────────────────────────────────────────── */}
       <div className="relative border-b border-border pb-5 mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2 rounded-xl bg-primary/10">
-            <Clipboard size={20} className="text-primary" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <Clipboard size={20} className="text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">Fill Applications</h1>
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Form Filling</h1>
+          <UsagePill />
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
           Fill carrier intake forms and supplemental applications automatically.
-          Upload a blank PDF form on the left, then add your source documents on the right.
+          Upload your source documents on the left, then add the blank PDF form you want filled on the right.
           AI reads your source docs and fills every field on the carrier's form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
         </p>
       </div>
@@ -186,20 +190,20 @@ export default function FormFillingPage() {
           <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col items-center text-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <FilePlus2 size={14} className="text-primary" />
+                <FileText size={14} className="text-primary" />
               </div>
               <div>
-                <p className="text-xs font-medium text-foreground">1. Upload a blank form</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">ACORD, carrier app, or any fillable PDF</p>
+                <p className="text-xs font-medium text-foreground">1. Add your source documents</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Intake forms, prior policies, loss runs, client documents</p>
               </div>
             </div>
             <div className="flex flex-col items-center text-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <FileText size={14} className="text-primary" />
+                <FilePlus2 size={14} className="text-primary" />
               </div>
               <div>
-                <p className="text-xs font-medium text-foreground">2. Add your source documents</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Intake forms, prior policies, loss runs, certificates</p>
+                <p className="text-xs font-medium text-foreground">2. Upload a blank form</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">ACORD, carrier app, or any fillable PDF</p>
               </div>
             </div>
             <div className="flex flex-col items-center text-center gap-2">
@@ -207,8 +211,8 @@ export default function FormFillingPage() {
                 <Sparkles size={14} className="text-primary" />
               </div>
               <div>
-                <p className="text-xs font-medium text-foreground">3. Download your filled form</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">AI fills every field automatically in seconds</p>
+                <p className="text-xs font-medium text-foreground">3. Get your filled form</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">AI fills every field in seconds and downloads it automatically</p>
               </div>
             </div>
           </div>
@@ -236,60 +240,7 @@ export default function FormFillingPage() {
       {/* ── Drop zones ───────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
 
-        {/* Left — Target form */}
-        <div>
-          <p className="text-xs text-muted-foreground mb-2">Target form (PDF)</p>
-          <div
-            {...targetDropzone.getRootProps()}
-            className={cn(
-              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
-              targetDropzone.isDragActive
-                ? 'border-primary bg-primary/5'
-                : targetForm
-                  ? 'border-border bg-card hover:bg-muted/40'
-                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
-            )}
-          >
-            <input {...targetDropzone.getInputProps()} />
-            {targetForm ? (
-              <div className="flex flex-col items-center gap-3 w-full">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <FileText size={22} className="text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground truncate max-w-[200px]">{targetForm.name}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{formatBytes(targetForm.size)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); setTargetForm(null) }}
-                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1 mt-1"
-                >
-                  <X size={12} /> Remove
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3">
-                <div className={cn(
-                  'w-12 h-12 rounded-xl flex items-center justify-center',
-                  targetDropzone.isDragActive ? 'bg-primary/20' : 'bg-primary/10'
-                )}>
-                  <FilePlus2 size={22} className="text-primary" />
-                </div>
-                {targetDropzone.isDragActive ? (
-                  <p className="text-primary font-medium">Drop your form here</p>
-                ) : (
-                  <div>
-                    <p className="text-foreground font-medium">Drop a PDF form here</p>
-                    <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right — Source documents */}
+        {/* Left — Source documents */}
         <div>
           <p className="text-xs text-muted-foreground mb-2">Source documents</p>
           <div
@@ -342,6 +293,59 @@ export default function FormFillingPage() {
                   <div>
                     <p className="text-foreground font-medium">Drop source files here</p>
                     <p className="text-muted-foreground text-sm mt-1">PDFs, images, TXT, or Markdown</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right — Target form */}
+        <div>
+          <p className="text-xs text-muted-foreground mb-2">Target form (PDF)</p>
+          <div
+            {...targetDropzone.getRootProps()}
+            className={cn(
+              'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors bg-white h-[200px] flex items-center justify-center',
+              targetDropzone.isDragActive
+                ? 'border-primary bg-primary/5'
+                : targetForm
+                  ? 'border-border bg-card hover:bg-muted/40'
+                  : 'border-border hover:border-primary/40 hover:bg-accent/30'
+            )}
+          >
+            <input {...targetDropzone.getInputProps()} />
+            {targetForm ? (
+              <div className="flex flex-col items-center gap-3 w-full">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <FileText size={22} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground truncate max-w-[200px]">{targetForm.name}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{formatBytes(targetForm.size)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); setTargetForm(null) }}
+                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors flex items-center gap-1 mt-1"
+                >
+                  <X size={12} /> Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <div className={cn(
+                  'w-12 h-12 rounded-xl flex items-center justify-center',
+                  targetDropzone.isDragActive ? 'bg-primary/20' : 'bg-primary/10'
+                )}>
+                  <FilePlus2 size={22} className="text-primary" />
+                </div>
+                {targetDropzone.isDragActive ? (
+                  <p className="text-primary font-medium">Drop your form here</p>
+                ) : (
+                  <div>
+                    <p className="text-foreground font-medium">Drop a PDF form here</p>
+                    <p className="text-muted-foreground text-sm mt-1">or click to browse</p>
                   </div>
                 )}
               </div>

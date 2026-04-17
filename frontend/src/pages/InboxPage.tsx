@@ -9,6 +9,7 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import UsagePill from '@/components/UsagePill'
 import { cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -304,9 +305,6 @@ export default function InboxPage() {
 
   // ── Render ───────────────────────────────────────────────────────────
 
-  const allDocs = inbox?.groups.flatMap(g => g.documents) ?? []
-  const allSelected = allDocs.length > 0 && allDocs.every(d => selected.has(d.id))
-
   return (
     <div
       className="flex-1 overflow-y-auto"
@@ -340,15 +338,17 @@ export default function InboxPage() {
 
         {/* ── Page header ──────────────────────────────────────────────── */}
         <div className="relative border-b border-border pb-5 mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 rounded-xl bg-primary/10">
-              <Inbox size={20} className="text-primary" />
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-xl bg-primary/10">
+                <Inbox size={20} className="text-primary" />
+              </div>
+              <h1 className="text-xl font-semibold text-foreground">Document Inbox</h1>
             </div>
-            <h1 className="text-xl font-semibold text-foreground">Document Inbox</h1>
+            <UsagePill />
           </div>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-            Forward emails with attachments to your dedicated ingest address and your files will appear here, organized by sender.
-            Select documents and use them directly in Form Filling or Schedules. You can also drag and drop files or scan documents with your phone using the QR code.
+            Your own private mailbox for documents. Send emails with attachments to your personal address below, and the files show up here — sorted by who sent them. You can also drag files in from your computer or scan paper documents with your phone.
           </p>
         </div>
 
@@ -428,7 +428,7 @@ export default function InboxPage() {
               </Button>
               <Button size="sm" variant="outline" onClick={useInFormFilling}>
                 <Clipboard size={14} />
-                Use in Form Filling
+                Use in Fill Applications
               </Button>
               <Button
                 size="sm"
@@ -462,25 +462,6 @@ export default function InboxPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {/* Select all */}
-            <div className="flex items-center gap-3 px-1">
-              <div onClick={e => e.stopPropagation()}>
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={() => {
-                    if (allSelected) {
-                      setSelected(new Set())
-                    } else {
-                      setSelected(new Set(allDocs.map(d => d.id)))
-                    }
-                  }}
-                />
-              </div>
-              <span className="text-xs text-muted-foreground">
-                {allSelected ? 'Deselect all' : 'Select all'}
-              </span>
-            </div>
-
             {/* Groups */}
             {inbox.groups.map(group => {
               const isExpanded = expandedGroups.has(group.key)
@@ -597,7 +578,7 @@ export default function InboxPage() {
                         <div
                           key={doc.id}
                           className={cn(
-                            'flex items-center gap-3 px-4 py-2.5 pl-12 hover:bg-muted/20 transition-colors',
+                            'flex items-center gap-3 px-4 py-2.5 pl-12 h-12 hover:bg-muted/20 transition-colors',
                             selected.has(doc.id) && 'bg-primary/5'
                           )}
                         >
@@ -609,21 +590,16 @@ export default function InboxPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-foreground truncate">{doc.filename}</p>
-                            {doc.subject && (
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">{doc.subject}</p>
-                            )}
                           </div>
-                          <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                          <Badge variant="outline" className="text-[10px] flex-shrink-0 w-20 justify-center">
                             {contentTypeLabel(doc.content_type)}
                           </Badge>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0 w-16 text-right">
                             {formatBytes(doc.file_size)}
                           </span>
-                          {doc.created_at && (
-                            <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
-                              {formatDate(doc.created_at)}
-                            </span>
-                          )}
+                          <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0 w-20 text-right">
+                            {doc.created_at ? formatDate(doc.created_at) : ''}
+                          </span>
                           <button
                             onClick={e => { e.stopPropagation(); deleteDoc(doc.id) }}
                             className="p-1 rounded hover:bg-red-50 hover:text-red-500 transition-colors flex-shrink-0"

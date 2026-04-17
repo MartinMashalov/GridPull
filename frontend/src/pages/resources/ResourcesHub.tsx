@@ -215,7 +215,7 @@ export default function ResourcesHub() {
               <Link to="/resources" className="hover:text-foreground transition-colors">Resources</Link>
               <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
               <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
-              <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
+              <a href="mailto:info@gridpull.com" className="hover:text-foreground transition-colors">Contact</a>
             </div>
             <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
           </div>

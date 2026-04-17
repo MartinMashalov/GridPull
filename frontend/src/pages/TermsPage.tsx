@@ -123,8 +123,8 @@ export default function TermsPage() {
                   <strong>Refunds:</strong> Account balances are non-refundable except where required by law or
                   in cases of Service malfunction that resulted in incorrect charges. To request a refund,
                   contact us at{' '}
-                  <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
-                    bigvisionsystems@gmail.com
+                  <a href="mailto:info@gridpull.com" className="text-primary underline">
+                    info@gridpull.com
                   </a>.
                 </p>
                 <p>
@@ -283,8 +283,8 @@ export default function TermsPage() {
               </h2>
               <p className="text-muted-foreground">
                 For questions about these Terms, contact us at{' '}
-                <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
-                  bigvisionsystems@gmail.com
+                <a href="mailto:info@gridpull.com" className="text-primary underline">
+                  info@gridpull.com
                 </a>.
               </p>
             </section>
@@ -304,7 +304,7 @@ export default function TermsPage() {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
             <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
-            <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:info@gridpull.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
           <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>

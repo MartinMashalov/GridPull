@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import UsagePill from '@/components/UsagePill'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/lib/api'
@@ -242,13 +243,13 @@ function PipelineCard({ pipeline, onEdit, onToggle, onRunNow, onDelete }: Pipeli
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
-const PRO_TIERS = new Set(['pro', 'business'])
+const PIPELINE_TIERS = new Set(['free', 'pro', 'business'])
 
 export default function PipelinesPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const userTier = user?.subscription_tier || 'free'
-  const hasAccess = PRO_TIERS.has(userTier)
+  const hasAccess = PIPELINE_TIERS.has(userTier)
 
   const [pipelines, setPipelines] = useState<PipelineData[]>([])
   const [loading, setLoading] = useState(true)
@@ -379,14 +380,17 @@ export default function PipelinesPage() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Pipelines</h1>
           </div>
-          {pipelines.length > 0 && (
-            <Button size="sm" className="gap-1.5 flex-shrink-0" onClick={openCreate}>
-              <Plus size={15} /> New Pipeline
-            </Button>
-          )}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <UsagePill />
+            {pipelines.length > 0 && (
+              <Button size="sm" className="gap-1.5" onClick={openCreate}>
+                <Plus size={15} /> New Pipeline
+              </Button>
+            )}
+          </div>
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-          Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive, define the fields to extract, and new files are processed automatically into a spreadsheet.
+          Automate repetitive document processing. Connect a folder in Outlook, Box, or Dropbox, define the fields to extract, and new files are processed automatically into a spreadsheet.
         </p>
       </div>
 
@@ -396,13 +400,13 @@ export default function PipelinesPage() {
           <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
             <Lock size={22} className="text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Pipelines require a Pro plan</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-2">Upgrade to access Pipelines</h2>
           <p className="text-sm text-muted-foreground max-w-md mx-auto mb-1">
             Automate repetitive document processing by connecting your cloud folders.
             New files are automatically extracted into spreadsheets — no manual uploads needed.
           </p>
           <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-            Upgrade to Pro to access Pipelines along with 25,000 pages/month and Proposals.
+            Pipelines are included on the Free, Pro, and Business plans. Upgrade from Starter to unlock them.
           </p>
           <Button size="lg" onClick={() => navigate('/settings')} className="gap-2">
             <Crown size={15} />
@@ -427,7 +431,7 @@ export default function PipelinesPage() {
               </div>
               <h2 className="font-semibold text-lg mb-1">Automate your document processing</h2>
               <p className="text-sm text-muted-foreground max-w-sm">
-                Pipelines watch a folder in Google Drive, SharePoint, Dropbox, or Box. When new PDFs or images appear, they're automatically extracted into a spreadsheet.
+                Pipelines watch a folder in SharePoint, Dropbox, Box, or Outlook. When new PDFs or images appear, they're automatically extracted into a spreadsheet.
               </p>
             </div>
 
@@ -440,7 +444,7 @@ export default function PipelinesPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">1. Connect a source folder</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Google Drive, SharePoint, Dropbox, Box, or Outlook — wherever your PDFs or images arrive.</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">SharePoint, Dropbox, Box, or Outlook — wherever your PDFs or images arrive.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">

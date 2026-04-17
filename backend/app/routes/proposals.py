@@ -1,18 +1,15 @@
 """Proposals route — proxies to Papyra proposals API."""
-import base64
 import logging
-from typing import List, Optional
+from typing import List
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from app.config import settings
 from app.middleware.auth_middleware import get_current_user
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/proposals", tags=["proposals"])
-
-PAPYRA_API = "https://api.papyra.org"
-PAPYRA_PASSWORD = "martin1234!"
 
 
 @router.post("/generate")
@@ -25,7 +22,7 @@ async def generate_proposal(
     brand_accent: str = Form(default="#C9901E"),
     current_user: User = Depends(get_current_user),
 ):
-    """Proxy proposal generation to Papyra API."""
+    """Proxy proposal generation to Papyra's /api/proposals/external/generate."""
     from app.services.subscription_tiers import get_tier
     tier = get_tier(current_user.subscription_tier or "free")
     if not tier.has_proposals:
@@ -33,13 +30,19 @@ async def generate_proposal(
             status_code=403,
             detail={"type": "upgrade_required", "message": "Proposals require a Pro plan or higher. Upgrade in Settings.", "required_tier": "pro"},
         )
+
+    if not settings.papyra_user_email or not settings.papyra_user_password:
+        logger.error("PAPYRA_USER_EMAIL / PAPYRA_USER_PASSWORD not configured")
+        raise HTTPException(status_code=503, detail="Proposal service not configured")
+
     files = []
     for doc in documents:
         content = await doc.read()
         files.append(("documents", (doc.filename or "document.pdf", content, "application/pdf")))
 
     data = {
-        "password": PAPYRA_PASSWORD,
+        "user_email": settings.papyra_user_email,
+        "user_password": settings.papyra_user_password,
         "lob": lob,
         "agency_info": agency_info,
         "user_context": user_context,
@@ -50,7 +53,7 @@ async def generate_proposal(
     try:
         async with httpx.AsyncClient(timeout=600) as client:
             resp = await client.post(
-                f"{PAPYRA_API}/api/proposals/external/generate",
+                f"{settings.papyra_api_base_url}/api/proposals/external/generate",
                 data=data,
                 files=files,
             )

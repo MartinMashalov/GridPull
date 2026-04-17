@@ -5,9 +5,8 @@ import { PublicClientApplication } from '@azure/msal-browser'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   FileSpreadsheet, ArrowRight,
-  Lock, Mail,
-  CheckCircle2, ChevronDown,
-  Upload, Cpu, Download,
+  Lock,
+  CheckCircle2,
   HelpCircle,
   X,
   FileEdit, Table2, FileBarChart, Inbox, Workflow,
@@ -17,6 +16,7 @@ import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
 
 const msalInstance = new PublicClientApplication({
   auth: {
@@ -39,7 +39,7 @@ const msalRedirectResult = msalInstance.initialize()
 const TOOLS = [
   {
     icon: FileEdit,
-    title: 'Form Filling',
+    title: 'Fill Applications',
     desc: 'Fill carrier intake forms and supplemental apps in seconds. Upload your agency\'s intake form and source documents — AI fills every field on the carrier\'s form automatically. Works with ACORD forms, carrier-specific applications, and any fillable PDF. No more retyping the same data across multiple carriers.',
     bullets: [
       'ACORD forms, carrier apps, and any fillable PDF',
@@ -51,68 +51,46 @@ const TOOLS = [
   {
     icon: Table2,
     title: 'Schedules',
-    desc: 'Build schedules of values, vehicles, drivers, and more. Create the supplemental spreadsheets required for commercial submissions — locations, equipment, vehicles, drivers, employees — from your existing documents. Upload last year\'s schedule and update it with new information automatically.',
+    desc: 'Build every supplemental schedule a commercial submission needs — locations, equipment, vehicles, drivers, employees, and more — directly from your source documents. Upload last year\'s schedule as a baseline and GridPull updates it with new information automatically.',
     bullets: [
-      'Locations, equipment, vehicles, drivers, and employee schedules',
+      'Locations, equipment, vehicles, drivers, employee schedules, and more',
       'Upload last year\'s schedule as a baseline and update it',
-      'Extracts data from loss runs, certificates, and other source docs',
+      'Extracts data from loss runs, emails, and client documents',
       'Clean Excel output ready to attach to your submission',
     ],
   },
   {
     icon: FileBarChart,
     title: 'Proposals',
-    desc: 'Generate professional client-facing proposals. Upload carrier quotes and get a polished, branded proposal with coverage analysis, quote comparison tables, and recommendations. Choose from 28 lines of business and templates sized for small businesses or enterprise clients.',
+    desc: 'Win more renewals with polished, client-ready proposals. Upload carrier quotes and GridPull assembles a branded PDF — complete with coverage analysis, quote comparison tables, and plain-English recommendations — in your agency\'s own colors and logo, ready to send to your insured.',
     bullets: [
-      'Upload carrier quotes and get a branded PDF proposal',
-      'Coverage comparison tables across multiple carriers',
-      '28 lines of business supported',
-      'Templates for small commercial through large enterprise',
+      'Upload your logo and brand colors so every proposal looks like it came from your agency',
+      'Side-by-side carrier comparisons that make renewal conversations easy',
+      'Coverage analysis and recommendations pre-written for your client',
+      'Templates sized from small commercial all the way to enterprise accounts',
     ],
   },
   {
     icon: Inbox,
     title: 'Document Inbox',
-    desc: 'Consolidate files from email into one workspace. Forward emails with attachments to your GridPull inbox. Files are organized by sender and ready to use in Form Filling, Schedules, or any other tool — no more digging through email threads.',
+    desc: 'One private inbox for your whole agency to consolidate the files scattered across your email. Every organization gets its own secure @gridpull.com address — forward any client email or carrier attachment and GridPull automatically organizes the documents by sender, ready to pull into Fill Applications, Schedules, or Proposals in one click. Your inbox is visible only to your team — never to any other GridPull user.',
     bullets: [
-      'Forward emails with attachments to your dedicated inbox',
-      'Files organized by sender automatically',
-      'Use received files directly in any GridPull tool',
-      'Stop digging through email threads for attachments',
+      'Your own private inbox address — never shared with another customer',
+      'Forward emails from anywhere and attachments land organized by sender',
+      'Every teammate in your organization shares the same inbox — clients only have to email one address',
+      'Use any file directly inside Fill Applications, Schedules, Proposals, or Pipelines',
     ],
   },
   {
     icon: Workflow,
     title: 'Pipelines',
-    desc: 'Automate repetitive document processing. Connect a folder in Outlook, Box, Dropbox, or Google Drive. When new files appear, GridPull extracts the data you need and accumulates results in a spreadsheet — perfect for recurring invoice processing or certificate tracking.',
+    desc: 'Automate the recurring document work that eats your week. Connect a folder in Outlook, Box, or Dropbox and GridPull extracts the data from every new file — carrier invoices, loss runs, and claims documents — straight into an Excel file that keeps updating itself.',
     bullets: [
-      'Connect Outlook, Box, Dropbox, or Google Drive folders',
-      'New files processed automatically when they arrive',
-      'Results accumulate in a single spreadsheet over time',
-      'Ideal for recurring invoices, certificates, and loss runs',
+      'Connect any Outlook, Box, or Dropbox folder you already use',
+      'New files are processed automatically the moment they arrive',
+      'Results accumulate in a single live spreadsheet — no re-uploading',
+      'Built for recurring carrier invoices, loss runs, and claims intake',
     ],
-  },
-]
-
-/* ─── How it works steps ───────────────────────────────────────────────────── */
-const HOW_IT_WORKS = [
-  {
-    icon: Upload,
-    step: '1',
-    title: 'Upload your documents',
-    desc: 'Drag and drop PDFs, images, scanned docs, or spreadsheets. Forward emails with attachments to your inbox. Or connect a cloud folder for automatic processing.',
-  },
-  {
-    icon: Cpu,
-    step: '2',
-    title: 'AI processes everything',
-    desc: 'GridPull reads your documents, understands the content, and extracts exactly the data you need — filling forms, building schedules, or generating proposals.',
-  },
-  {
-    icon: Download,
-    step: '3',
-    title: 'Download your results',
-    desc: 'Get filled PDFs, clean spreadsheets, or polished proposals in seconds. Ready to submit to carriers, share with clients, or import into your management system.',
   },
 ]
 
@@ -122,8 +100,13 @@ const PRICING_TIERS = [
     name: 'Free',
     price: '$0',
     period: '',
-    desc: 'Try it out — no card required',
-    features: ['500 pages / month', 'All 5 tools included', 'Excel & CSV export', 'OCR for scanned docs'],
+    desc: 'Try every tool at no cost',
+    features: [
+      'Start free with 500 pages/month',
+      'All 5 tools: Fill Applications, Schedules, Proposals, Document Inbox, Pipelines',
+      'Excel & CSV export',
+      'OCR for scanned documents',
+    ],
     cta: 'Start free',
     highlight: false,
   },
@@ -132,7 +115,12 @@ const PRICING_TIERS = [
     price: '$49',
     period: '/mo',
     desc: 'For solo agents & small agencies',
-    features: ['7,500 pages / month', '$0.012 per page overage', 'Priority processing', 'Document Inbox'],
+    features: [
+      '7,500 pages / month',
+      '$0.012 per page overage',
+      'Fill Applications, Schedules, Document Inbox',
+      'Excel & CSV export',
+    ],
     cta: 'Get started',
     highlight: false,
   },
@@ -141,7 +129,12 @@ const PRICING_TIERS = [
     price: '$199',
     period: '/mo',
     desc: 'For growing agencies & teams',
-    features: ['25,000 pages / month', '$0.01 per page overage', 'Automated pipelines', 'All integrations'],
+    features: [
+      '25,000 pages / month',
+      '$0.01 per page overage',
+      'All 5 tools including Proposals & Pipelines',
+      'Automated Pipelines for Outlook, Box, Dropbox',
+    ],
     cta: 'Go Pro',
     highlight: true,
   },
@@ -150,7 +143,12 @@ const PRICING_TIERS = [
     price: '$699',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
-    features: ['100,000 pages / month', '$0.006 per page overage', 'Automated pipelines', 'Dedicated support'],
+    features: [
+      '100,000 pages / month',
+      '$0.006 per page overage',
+      'All 5 tools including Proposals & Pipelines',
+      'Scale with your entire brokerage',
+    ],
     cta: 'Contact us',
     highlight: false,
   },
@@ -160,7 +158,7 @@ const PRICING_TIERS = [
 const FAQ_ITEMS = [
   {
     q: 'How much does it cost?',
-    a: 'GridPull is free to start with 500 pages per month — no credit card required. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
+    a: 'GridPull is free to start with 500 pages per month. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
     q: 'Are my files secure?',
@@ -171,12 +169,24 @@ const FAQ_ITEMS = [
     a: 'GridPull works with PDFs (digital and scanned), images (PNG, JPEG), spreadsheets (Excel, CSV), and email files (.eml, .msg). Scanned documents and photos of documents are processed with built-in OCR. If your file contains readable content, GridPull can handle it.',
   },
   {
+    q: 'Which types of schedules can GridPull build?',
+    a: 'All of them. Schedules of values (locations and buildings), equipment and contractors\' equipment, vehicles, drivers, employees and payroll, property, watercraft, aircraft, leased premises, scheduled personal property — if a carrier asks for it as a supplemental spreadsheet, GridPull can extract it from your source documents and build it.',
+  },
+  {
     q: 'Can I update last year\'s schedule?',
     a: 'Yes. Upload your existing schedule as a baseline, then add new source documents with updated information. GridPull will merge the new data into your existing schedule — updating values, adding new rows, and keeping everything organized.',
   },
   {
+    q: 'My documents are scattered across email threads — how does GridPull help me organize them?',
+    a: 'That\'s exactly what the Document Inbox is for. Your organization gets its own private @gridpull.com address — only you and your teammates can see anything that lands there, never any other GridPull user. Forward client emails, carrier attachments, or loss runs to that address and GridPull automatically groups every file by sender so you can pull them straight into Fill Applications, Schedules, Proposals, or Pipelines without digging through Outlook.',
+  },
+  {
+    q: 'How do Pipelines work and how do I set one up?',
+    a: 'Pipelines automate repeating document work. Step 1: connect a source folder in Outlook, Box, or Dropbox — the folder where new files (like carrier invoices, loss runs, or claims documents) show up. Step 2: tell GridPull which fields to extract. Step 3: pick a destination folder where GridPull will create or update an Excel file. From then on, whenever a new file lands in the source folder, GridPull extracts the data and appends a row to the Excel file automatically — no uploads, no manual work.',
+  },
+  {
     q: 'How does the proposal tool work?',
-    a: 'Upload one or more carrier quotes, select the line of business and template size, and GridPull generates a professional, branded PDF proposal. It includes coverage analysis, quote comparison tables across carriers, and customizable recommendations. 28 lines of business are supported.',
+    a: 'Upload one or more carrier quotes, select the line of business and template size, upload your agency\'s logo and brand colors, and GridPull generates a professional, branded PDF proposal. It includes coverage analysis, quote comparison tables across carriers, and customizable recommendations.',
   },
   {
     q: 'What forms can be filled?',
@@ -190,7 +200,6 @@ export default function LandingPage() {
   const { setUser, user } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [showProviderDialog, setShowProviderDialog] = useState(false)
 
   useEffect(() => {
@@ -330,16 +339,13 @@ export default function LandingPage() {
             <a href="#tools" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Tools
             </a>
-            <a href="#how-it-works" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
-              How It Works
-            </a>
             <a href="#pricing" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               Pricing
             </a>
             <a href="#faq" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden sm:block">
               FAQ
             </a>
-            <a href="mailto:bigvisionsystems@gmail.com" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden md:block">
+            <a href="mailto:info@gridpull.com" className="text-xs text-muted-foreground hover:text-foreground transition-colors hidden md:block">
               Contact
             </a>
             <Button
@@ -371,14 +377,13 @@ export default function LandingPage() {
 
         <div className="relative max-w-3xl mx-auto">
           <Badge variant="outline" className="mb-4 sm:mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
-            <Lock size={10} />
-            Your files are encrypted and deleted after processing
+            Built for every agency and brokerage
           </Badge>
 
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
-            The AI-powered platform for{' '}
+            Everything your agency and brokerage needs to{' '}
             <br className="hidden sm:block" />
-            <span className="text-primary">insurance brokers and agencies</span>
+            <span className="text-primary">move submissions and renewals faster</span>
           </h1>
 
           <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
@@ -387,18 +392,22 @@ export default function LandingPage() {
           </p>
 
           <p className="text-muted-foreground text-sm mb-6 sm:mb-10 max-w-xl mx-auto">
-            Form Filling, Schedules, Proposals, Document Inbox, and Pipelines — everything you need to move submissions faster.
+            Doc Extraction and Automated Pipelines for Fill Applications, Schedules, Proposals, and a Document Inbox — everything your agency or brokerage needs to move submissions and renewals faster.
           </p>
 
           <div className="flex flex-col items-center gap-3">
-            <SignInButton label="Start free — no card required" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton label="Start free" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             {loginError && (
               <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-2 max-w-sm text-center">
                 {loginError}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              500 free pages/month -- No setup required -- Files deleted after processing
+            <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
+              500 free pages/month  ·  Nothing to install  ·  No setup, no configuration, no learning curve — sign in and start uploading in seconds.
+            </p>
+            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
+              <Lock size={10} />
+              Your files are encrypted and deleted after processing
             </p>
           </div>
         </div>
@@ -456,7 +465,7 @@ export default function LandingPage() {
             Five tools, one platform
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Everything your agency needs to move faster
+            Everything your agency and brokerage needs to move faster
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
             Each tool is purpose-built for insurance workflows. Upload your documents and let AI handle the repetitive work.
@@ -499,47 +508,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── How It Works ──────────────────────────────────────────────────── */}
-      <section id="how-it-works" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 bg-card/30 scroll-mt-16">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-            How it works
-          </p>
-          <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-4">
-            Three steps. No learning curve.
-          </h2>
-          <p className="text-center text-muted-foreground text-sm mb-12 max-w-lg mx-auto">
-            You don't need to configure anything, create templates, or learn new software.
-            Upload your documents, let AI do the work, and download the results.
-          </p>
-
-          <div className="grid sm:grid-cols-3 gap-6">
-            {HOW_IT_WORKS.map((step) => (
-              <div
-                key={step.step}
-                className="bg-card border border-border rounded-xl p-6 hover:border-primary/30 hover:shadow-sm transition-all relative"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center">
-                    <step.icon size={17} className="text-primary" />
-                  </div>
-                  <span className="text-xs font-bold text-primary/60 uppercase tracking-wider">Step {step.step}</span>
-                </div>
-                <h3 className="font-semibold text-sm mb-2">{step.title}</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed">{step.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-10">
-            <SignInButton size="xl" label="Try it free — upload your first document" className="min-w-0 sm:min-w-[300px] w-full sm:w-auto" />
-          </div>
-        </div>
-      </section>
-
       {/* ── Pricing ───────────────────────────────────────────────────────── */}
       <section id="pricing" className="py-12 sm:py-20 px-4 sm:px-6 border-t border-border/50 scroll-mt-16">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">
             Simple pricing
           </p>
@@ -547,39 +518,54 @@ export default function LandingPage() {
             Plans that scale with your agency
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free with 500 pages/month. No credit card required.
-            From solo agents to large brokerages, pay only for what you use.
+            Start free with 500 pages/month. From solo agents to large brokerages, scale with your business.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-12">
             Process thousands of pages for a fraction of the cost of manual data entry.
           </p>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10 items-stretch">
             {PRICING_TIERS.map((tier) => (
-              <div key={tier.name} className={`bg-card border rounded-xl p-5 text-center transition-all hover:shadow-sm ${tier.highlight ? 'border-primary shadow-md ring-1 ring-primary/20' : 'border-border hover:border-primary/30'}`}>
-                {tier.highlight && (
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary mb-2">Most popular</p>
-                )}
-                <p className="text-sm font-semibold mb-1">{tier.name}</p>
-                <p className="text-3xl font-bold text-primary mb-0.5">
-                  {tier.price}<span className="text-sm font-normal text-muted-foreground">{tier.period}</span>
-                </p>
-                <p className="text-xs text-muted-foreground mb-4">{tier.desc}</p>
-                <div className="border-t border-border/50 pt-3 space-y-2 text-left">
-                  {tier.features.map((f) => (
-                    <div key={f} className="flex items-start gap-2 text-xs">
-                      <CheckCircle2 size={13} className="text-primary mt-0.5 flex-shrink-0" />
-                      <span>{f}</span>
-                    </div>
-                  ))}
+              <div key={tier.name} className="flex flex-col">
+                <div className="h-6 mb-1 flex items-center justify-center">
+                  {tier.highlight && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 border border-primary/30 rounded-full px-2.5 py-0.5">
+                      Most popular
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`flex-1 bg-card border rounded-xl p-5 text-center transition-all hover:shadow-sm flex flex-col ${
+                    tier.highlight
+                      ? 'border-primary shadow-md ring-1 ring-primary/20'
+                      : 'border-border hover:border-primary/30'
+                  }`}
+                >
+                  <p className="text-sm font-semibold mb-1">{tier.name}</p>
+                  <p className="text-3xl font-bold text-primary mb-0.5">
+                    {tier.price}
+                    <span className="text-sm font-normal text-muted-foreground">{tier.period}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-4">{tier.desc}</p>
+                  <div className="border-t border-border/50 pt-3 space-y-2 text-left flex-1">
+                    {tier.features.map((f) => (
+                      <div key={f} className="flex items-start gap-2 text-xs">
+                        <CheckCircle2 size={13} className="text-primary mt-0.5 flex-shrink-0" />
+                        <span>{f}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
 
           <div className="text-center">
+            <p className="text-xs text-muted-foreground mb-2">
+              Each page of your document counts toward your monthly limit. Each Form fill and proposal costs 5 pages.
+            </p>
             <p className="text-xs text-muted-foreground mb-5">
-              Each page of your document counts toward your monthly limit. Form fills cost 5 pages. All plans include all 5 tools, OCR, and Excel/CSV export. No contracts — cancel anytime.
+              Every plan is purpose-built for insurance workflows — ACORD forms, commercial schedules, loss runs, carrier quotes, and claims documents, all in one platform. No contracts — cancel anytime.
             </p>
             <SignInButton size="xl" label="Start free — 500 pages/month" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
           </div>
@@ -593,57 +579,40 @@ export default function LandingPage() {
             Frequently asked questions
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold text-center tracking-tight mb-12">
-            Common questions from brokers and agencies
+            Common questions from agencies and brokers
           </h2>
 
-          <div className="space-y-2">
+          <Accordion
+            type="single"
+            collapsible
+            className="space-y-2"
+            onValueChange={(value) => {
+              if (!value) return
+              const idx = Number(value.replace('faq-', ''))
+              const item = FAQ_ITEMS[idx]
+              if (item) trackEvent('faq_expand', { question: item.q })
+            }}
+          >
             {FAQ_ITEMS.map((item, i) => (
-              <div
-                key={i}
-                className="border border-border rounded-xl overflow-hidden bg-card"
-              >
-                <button
-                  onClick={() => { const next = openFaq === i ? null : i; setOpenFaq(next); if (next !== null) trackEvent('faq_expand', { question: item.q }) }}
-                  className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <span className="text-sm font-medium pr-4 flex items-center gap-2.5">
+              <AccordionItem key={i} value={`faq-${i}`}>
+                <AccordionTrigger>
+                  <span className="flex items-center gap-2.5 pr-4">
                     <HelpCircle size={14} className="text-primary flex-shrink-0" />
                     {item.q}
                   </span>
-                  <ChevronDown
-                    size={14}
-                    className={`text-muted-foreground flex-shrink-0 transition-transform ${
-                      openFaq === i ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-                {openFaq === i && (
-                  <div className="px-4 pb-4 pt-0">
-                    <p className="text-sm text-muted-foreground leading-relaxed pl-[26px]">
-                      {item.a}
-                    </p>
-                  </div>
-                )}
-              </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <p className="text-sm text-muted-foreground leading-relaxed pl-[26px]">
+                    {item.a}
+                  </p>
+                </AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
-        </div>
-      </section>
+          </Accordion>
 
-      {/* ── CTA banner ────────────────────────────────────────────────────── */}
-      <section className="py-12 sm:py-16 px-4 sm:px-6 border-t border-border/50 bg-primary/5">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl font-bold tracking-tight mb-3">
-            Stop retyping data across carrier forms
-          </h2>
-          <p className="text-muted-foreground text-sm mb-3">
-            Upload your first document and see results in seconds. Free to start — no credit card, no setup, no commitment.
-          </p>
-          <p className="text-muted-foreground text-xs mb-8 flex items-center justify-center gap-1.5">
-            <Lock size={10} />
-            Your files are encrypted and deleted after processing
-          </p>
-          <SignInButton label="Get started for free" className="min-w-0 sm:min-w-[220px] w-full sm:w-auto" />
+          <div className="text-center mt-10">
+            <SignInButton size="xl" label="Get started for free" className="min-w-0 sm:min-w-[240px] w-full sm:w-auto" />
+          </div>
         </div>
       </section>
 
@@ -661,7 +630,7 @@ export default function LandingPage() {
             <a href="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</a>
             <a href="/resources" className="hover:text-foreground transition-colors">Resources</a>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
-            <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:info@gridpull.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
           <span>&copy; 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>

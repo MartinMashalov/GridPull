@@ -10,10 +10,17 @@ import SpreadsheetViewer from '@/components/SpreadsheetViewer'
 import api from '@/lib/api'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import UsagePill from '@/components/UsagePill'
 import { cn } from '@/lib/utils'
 import InboxModal from '@/components/InboxModal'
 
@@ -190,6 +197,7 @@ export default function SchedulesPage() {
   const [baselineHeaders, setBaselineHeaders] = useState<string[] | null>(null)
   const [allowEditPastValues, setAllowEditPastValues] = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [scheduleMode, setScheduleMode] = useState<'new' | 'existing'>('new')
   const documentType: DocumentType = 'sov'
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
@@ -605,19 +613,7 @@ export default function SchedulesPage() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Schedules</h1>
           </div>
-          <div className="flex items-center gap-2">
-            {usageWarning && (
-              <>
-                <span className="text-xs text-muted-foreground">{usageWarning.pages_used.toLocaleString()}/{usageWarning.pages_limit.toLocaleString()} pages</span>
-                <Badge
-                  variant={usageWarning.usage_percent >= 80 ? 'destructive' : 'blue'}
-                  className="font-mono text-[11px]"
-                >
-                  {(usageWarning.tier || user?.subscription_tier || 'free').charAt(0).toUpperCase() + (usageWarning.tier || user?.subscription_tier || 'free').slice(1)}
-                </Badge>
-              </>
-            )}
-          </div>
+          <UsagePill />
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
           Build schedules of values, vehicles, drivers, locations, equipment, and employees for commercial submissions.
@@ -732,11 +728,47 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      {/* Drop zones */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      {/* Schedule mode selector */}
+      {!job && (
+        <div className="mb-4">
+          <Label className="text-xs text-muted-foreground mb-2 block">Schedule</Label>
+          <Select
+            value={scheduleMode}
+            onValueChange={(v) => {
+              const mode = v as 'new' | 'existing'
+              setScheduleMode(mode)
+              if (mode === 'new') {
+                setBaselineSpreadsheet(null)
+                setBaselineHeaders(null)
+                setAllowEditPastValues(false)
+              }
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-[320px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="new">Build a new schedule</SelectItem>
+              <SelectItem value="existing">Update an existing schedule</SelectItem>
+            </SelectContent>
+          </Select>
+          {scheduleMode === 'existing' && (
+            <p className="text-xs text-muted-foreground mt-2 max-w-2xl leading-relaxed">
+              Upload last year's schedule as a baseline and your new source documents.
+              GridPull reads the column headers from your baseline and uses them as the fields to extract — no manual setup needed.
+            </p>
+          )}
+        </div>
+      )}
 
-        {/* Baseline spreadsheet — always in DOM, hidden for non-SOV tabs */}
-        <div className={cn(false && 'hidden')}>
+      {/* Drop zones */}
+      <div className={cn(
+        'grid gap-4 mb-4',
+        scheduleMode === 'existing' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'
+      )}>
+
+        {/* Baseline spreadsheet — only visible in "existing" mode */}
+        <div className={cn(scheduleMode !== 'existing' && 'hidden')}>
           <p className="text-xs text-muted-foreground mb-2">Existing spreadsheet</p>
           <div
             {...getBaselineRootProps()}
@@ -770,7 +802,7 @@ export default function SchedulesPage() {
         </div>
 
         {/* Source documents — always mounted; full-width when baseline is hidden */}
-        <div className={cn(false && 'sm:col-span-2')}>
+        <div>
           <p className="text-xs text-muted-foreground mb-2">
             {documentType === 'sov' ? 'Source documents' : 'Documents to extract from'}
           </p>

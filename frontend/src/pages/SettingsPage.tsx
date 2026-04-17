@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import {
-  CreditCard, User, Check, X, Settings,
+  CreditCard, Check, X, Settings,
   Crown, Rocket, Building2, FileText, AlertTriangle,
   ChevronRight, BarChart3, Clock,
   CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
-import { getInitials } from '@/lib/utils'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { useSearchParams } from 'react-router-dom'
@@ -244,7 +243,7 @@ export default function SettingsPage() {
           <h1 className="text-xl font-semibold text-foreground">Settings</h1>
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-          Manage your subscription, payment method, and account. Each page of your uploaded documents counts toward your monthly limit. Form fills cost 5 pages each.
+          Start free with 500 pages/month. From solo agents to large brokerages, scale with your business. Process thousands of pages for a fraction of the cost of manual data entry.
         </p>
       </div>
 
@@ -253,7 +252,6 @@ export default function SettingsPage() {
           <TabsTrigger value="subscription"><Crown size={13} />Subscription</TabsTrigger>
           <TabsTrigger value="usage" onClick={() => { if (!historyLoaded) fetchHistory() }}><BarChart3 size={13} />Usage</TabsTrigger>
           <TabsTrigger value="payment"><CreditCard size={13} />Payment</TabsTrigger>
-          <TabsTrigger value="profile"><User size={13} />Profile</TabsTrigger>
         </TabsList>
 
         {/* ── Subscription ───────────────────────────────────────────── */}
@@ -782,35 +780,6 @@ export default function SettingsPage() {
               ) : (
                 <p className="text-xs text-muted-foreground">Loading...</p>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-
-        {/* ── Profile ──────────────────────────────────────────────── */}
-        <TabsContent value="profile" className="mt-0">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full overflow-hidden ring-1 ring-border flex-shrink-0">
-                  {user?.picture ? (
-                    <img src={user.picture} alt={user.name} className="w-14 h-14 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-14 h-14 bg-primary/20 flex items-center justify-center">
-                      <span className="text-primary text-lg font-semibold">{user ? getInitials(user.name) : 'U'}</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <p className="font-semibold">{user?.name}</p>
-                  <p className="text-sm text-muted-foreground">{user?.email}</p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <Badge variant="outline" className="text-[10px]">
-                      {user?.subscription_tier === 'free' ? 'Free Plan' : `${(sub?.tier.display_name || user?.subscription_tier || 'Free')} Plan`}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>

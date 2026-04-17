@@ -202,8 +202,8 @@ export default function PrivacyPage() {
                 <p>
                   <strong>Deletion requests:</strong> You may request complete deletion of your account and all
                   associated data at any time by emailing{' '}
-                  <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
-                    bigvisionsystems@gmail.com
+                  <a href="mailto:info@gridpull.com" className="text-primary underline">
+                    info@gridpull.com
                   </a>
                   . We will process deletion requests within 30 days.
                 </p>
@@ -237,8 +237,8 @@ export default function PrivacyPage() {
                 <p>
                   If your organization requires additional security measures, compliance documentation, or
                   a private deployment where no data leaves your network, please contact us at{' '}
-                  <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
-                    bigvisionsystems@gmail.com
+                  <a href="mailto:info@gridpull.com" className="text-primary underline">
+                    info@gridpull.com
                   </a>
                   .
                 </p>
@@ -256,8 +256,8 @@ export default function PrivacyPage() {
               </h2>
               <p className="text-muted-foreground">
                 For privacy-related questions, data deletion requests, or security inquiries, contact us at{' '}
-                <a href="mailto:bigvisionsystems@gmail.com" className="text-primary underline">
-                  bigvisionsystems@gmail.com
+                <a href="mailto:info@gridpull.com" className="text-primary underline">
+                  info@gridpull.com
                 </a>
                 .
               </p>
@@ -278,7 +278,7 @@ export default function PrivacyPage() {
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
             <Link to="/terms" className="hover:text-foreground transition-colors">Terms &amp; Conditions</Link>
-            <a href="mailto:bigvisionsystems@gmail.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:info@gridpull.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
           <span>© 2026 Big Vision Systems LLC. All rights reserved.</span>
         </div>
