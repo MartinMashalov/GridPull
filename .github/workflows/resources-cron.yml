@@ -1,22 +1,8 @@
-name: Resources SEO Cron
+name: Resources SEO Cron (disabled)
 
 on:
-  # Scheduled cron disabled. Manual runs only via workflow_dispatch.
+  # Workflow disabled. No scheduled or manual triggers.
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Cron mode'
-        required: false
-        default: ''
-        type: choice
-        options:
-          - ''
-          - '--discover'
-          - '--generate'
-          - '--publish'
-          - '--sitemap'
-          - '--prerender'
-          - '--seed'
 
 permissions:
   contents: write
@@ -25,11 +11,11 @@ jobs:
   resources-cron:
     name: Generate & Publish Resources
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: false
 
     env:
       CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-      RESOURCES_CRON_ENABLED: 'true'
+      RESOURCES_CRON_ENABLED: 'false'
       RESOURCES_MAX_CANDIDATES_PER_RUN: '10'
       RESOURCES_MAX_PUBLISHES_PER_RUN: '5'
       RESOURCES_MAX_INDEXABLE_PUBLISHES_PER_RUN: '3'
