@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import {
   FileText, Upload, Loader2, Download, X, Sparkles, Lock, Crown, ArrowRight, CheckCircle2,
+  Image as ImageIcon, Save,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
@@ -74,6 +75,66 @@ export default function ProposalsPage() {
   const [generating, setGenerating] = useState(false)
   const [pdfBase64, setPdfBase64] = useState<string | null>(null)
   const [proposalFilename, setProposalFilename] = useState('proposal.pdf')
+
+  // Agency logo state (matches Papyra's picker UX)
+  const logoInputRef = useRef<HTMLInputElement>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [savedLogoFilename, setSavedLogoFilename] = useState<string | null>(null)
+  const [agencyLoading, setAgencyLoading] = useState(false)
+  const [agencySaving, setAgencySaving] = useState(false)
+
+  useEffect(() => {
+    if (!hasAccess) return
+    let cancelled = false
+    ;(async () => {
+      setAgencyLoading(true)
+      try {
+        const res = await api.get('/proposals/agency-info')
+        if (cancelled) return
+        const data = res.data || {}
+        if (typeof data.content === 'string') setAgencyInfo(data.content)
+        if (data.logo_filename) setSavedLogoFilename(data.logo_filename)
+      } catch {
+        // first-time users or transient errors shouldn't block the form
+      } finally {
+        if (!cancelled) setAgencyLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [hasAccess])
+
+  const handlePickLogo = (file: File | null) => {
+    if (!file) return
+    if (!/^image\/(png|jpe?g)$/.test(file.type)) {
+      toast.error('Logo must be PNG or JPG')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Logo must be under 2 MB')
+      return
+    }
+    setLogoFile(file)
+  }
+
+  const handleSaveAgency = async () => {
+    setAgencySaving(true)
+    try {
+      const fd = new FormData()
+      fd.append('content', agencyInfo)
+      if (logoFile) fd.append('logo', logoFile)
+      await api.put('/proposals/agency-info', fd)
+      if (logoFile) {
+        setSavedLogoFilename(logoFile.name)
+        setLogoFile(null)
+      }
+      toast.success('Agency info saved')
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string }; status?: number } }
+      toast.error(e.response?.data?.detail || 'Failed to save agency info')
+    } finally {
+      setAgencySaving(false)
+    }
+  }
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles(prev => {
@@ -228,18 +289,85 @@ export default function ProposalsPage() {
           </div>
         </div>
 
-        {/* Agency Info */}
+        {/* Agency Info + Logo */}
         <div className="space-y-1.5">
           <Label htmlFor="agency-info" className="text-sm font-medium">Agency Info <span className="text-muted-foreground font-normal">(optional)</span></Label>
-          <p className="text-xs text-muted-foreground">Your agency details will appear on the proposal cover page.</p>
-          <textarea
-            id="agency-info"
-            value={agencyInfo}
-            onChange={e => setAgencyInfo(e.target.value)}
-            placeholder="Agency name, address, phone..."
-            rows={3}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 resize-none"
+          <p className="text-xs text-muted-foreground">Your agency details and logo will appear on the proposal cover page. Saved to your account and reused on future proposals.</p>
+
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            data-testid="agency-logo-input"
+            style={{ display: 'none' }}
+            onChange={(e) => handlePickLogo(e.target.files?.[0] ?? null)}
           />
+
+          {agencyLoading ? (
+            <div className="flex items-center justify-center py-5 text-muted-foreground">
+              <Loader2 size={18} className="animate-spin" />
+            </div>
+          ) : (
+            <textarea
+              id="agency-info"
+              value={agencyInfo}
+              onChange={e => setAgencyInfo(e.target.value)}
+              placeholder={'e.g. ABC Insurance Agency, LLC\n123 Main Street, Suite 200\nNew York, NY 10001\nLicense #: 12345678\nPhone: (555) 123-4567'}
+              rows={4}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 resize-y"
+            />
+          )}
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              title="Upload agency logo"
+              data-testid="agency-logo-trigger"
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ImageIcon size={16} />
+            </button>
+            <span className="text-xs text-muted-foreground">Click the image icon to upload your agency logo (PNG/JPG, max 2 MB).</span>
+          </div>
+
+          {(logoFile || savedLogoFilename) && (
+            <div
+              className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground"
+              data-testid="agency-logo-pill"
+            >
+              <span className="flex items-center gap-2 min-w-0 truncate">
+                <ImageIcon size={13} className="flex-shrink-0" />
+                <span className="truncate">
+                  {logoFile ? logoFile.name : `Current logo: ${savedLogoFilename}`}
+                </span>
+              </span>
+              {logoFile && (
+                <button
+                  type="button"
+                  onClick={() => setLogoFile(null)}
+                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
+                  title="Remove selected logo"
+                  aria-label="Remove selected logo"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          )}
+
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleSaveAgency}
+            disabled={agencySaving}
+            data-testid="agency-save-btn"
+          >
+            {agencySaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            Save agency info
+          </Button>
         </div>
 
         {/* Brand Colors */}
