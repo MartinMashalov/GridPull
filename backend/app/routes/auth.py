@@ -1,7 +1,9 @@
+import io
+import json
 import logging
 import secrets as _secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -84,6 +86,116 @@ async def dev_set_usage(body: DevSetUsageRequest, db: AsyncSession = Depends(get
         "pages_used_this_period": user.pages_used_this_period,
         "overage_pages_this_period": user.overage_pages_this_period,
     }
+
+
+@router.post("/dev-llm-judge", include_in_schema=False)
+async def dev_llm_judge(
+    secret: str = Form(...),
+    expectation: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Dev-only: extract text from a PDF or xlsx and ask an LLM whether it
+    satisfies ``expectation``. Used by Playwright live tests to replace brittle
+    length-only output validation with semantic correctness checks.
+
+    Returns ``{"verdict": "pass"|"fail", "reasoning": "..."}``. The client is
+    responsible for treating ``verdict != "pass"`` as a test failure.
+    """
+    dev_secret = (settings.dev_login_secret or "").strip()
+    if not dev_secret:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _secrets.compare_digest(secret, dev_secret):
+        raise HTTPException(status_code=401, detail="Invalid secret")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+
+    # ── Extract text from the artifact ─────────────────────────────────────
+    text: str = ""
+    try:
+        if filename.endswith(".pdf") or "pdf" in content_type:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw))
+            pages_text = []
+            for page in reader.pages[:20]:  # cap at 20 pages to keep the prompt small
+                try:
+                    pages_text.append(page.extract_text() or "")
+                except Exception as exc:
+                    logger.warning("pypdf extract failed on a page: %s", exc)
+            text = "\n\n--- PAGE BREAK ---\n\n".join(pages_text)
+        elif filename.endswith(".xlsx") or "sheet" in content_type or "excel" in content_type:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            lines = []
+            for ws in wb.worksheets[:5]:  # cap at 5 sheets
+                lines.append(f"[Sheet: {ws.title}]")
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                    if i >= 200:
+                        lines.append(f"... ({i} rows truncated)")
+                        break
+                    lines.append("\t".join("" if v is None else str(v) for v in row))
+            text = "\n".join(lines)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename} / {content_type}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("llm-judge text extraction failed")
+        raise HTTPException(status_code=400, detail=f"Could not parse file: {exc}")
+
+    if not text.strip():
+        return {
+            "verdict": "fail",
+            "reasoning": "No extractable text found in the artifact (possibly scanned/image-only or corrupted).",
+            "extracted_chars": 0,
+        }
+
+    # ── Ask an LLM to judge ────────────────────────────────────────────────
+    snippet = text[:12000]  # keep prompt bounded
+    system = (
+        "You are a strict QA judge validating test artifacts produced by a document-processing "
+        "pipeline. You will be given the extracted textual content of a PDF or spreadsheet and a "
+        "natural-language expectation. Return STRICT JSON with two keys: "
+        '{"verdict": "pass" | "fail", "reasoning": "<one or two sentences>"}. '
+        "Return 'pass' only if the content clearly satisfies the expectation. "
+        "Return 'fail' if the content is empty, unrelated, garbled, or only partially present. "
+        "Do NOT wrap the JSON in markdown. Output JSON only."
+    )
+    user_prompt = (
+        f"EXPECTATION:\n{expectation}\n\n"
+        f"EXTRACTED CONTENT (first 12k chars):\n{snippet}\n\n"
+        "Return JSON now."
+    )
+    try:
+        from app.services.llm_router import _get_openai_client
+        client = _get_openai_client()
+        resp = await client.chat.completions.create(
+            model=settings.llm_openai_fallback_model or "gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=250,
+            response_format={"type": "json_object"},
+        )
+        raw_out = (resp.choices[0].message.content or "").strip()
+        parsed = json.loads(raw_out)
+        verdict = str(parsed.get("verdict", "fail")).lower()
+        if verdict not in ("pass", "fail"):
+            verdict = "fail"
+        return {
+            "verdict": verdict,
+            "reasoning": str(parsed.get("reasoning", "") or "")[:500],
+            "extracted_chars": len(text),
+        }
+    except Exception as exc:
+        logger.exception("llm-judge OpenAI call failed")
+        raise HTTPException(status_code=502, detail=f"LLM judge failed: {exc}")
 
 
 @router.post("/dev-login")

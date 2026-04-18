@@ -19,7 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import cache_get_user, cache_set_user
+from app.cache import cache_get_user, cache_set_user, get_redis
 from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import verify_token
@@ -29,6 +29,12 @@ security = HTTPBearer()
 
 # ── In-process user cache — fallback when Redis is unavailable ────────────────
 # (user_id → (User, expiry_ts))
+#
+# IMPORTANT: Each uvicorn worker has its OWN copy of this dict. cache_del_user
+# in app.cache only clears Redis, so if we populate this dict unconditionally
+# we create a coherence bug: worker A's in-process entry can survive a
+# "successful" cache invalidation and serve stale data for up to _CACHE_TTL.
+# To avoid that, we ONLY populate this dict when Redis is unreachable.
 _USER_CACHE: dict[str, Tuple[User, float]] = {}
 _CACHE_TTL = 60.0  # seconds
 
@@ -41,7 +47,14 @@ def _local_get(user_id: str) -> Optional[User]:
     return None
 
 
-def _local_set(user: User) -> None:
+async def _local_set(user: User) -> None:
+    # Only populate when Redis is the fallback path. If Redis is up, the
+    # shared Redis cache is authoritative and invalidations reach every
+    # worker; populating here would shadow those invalidations on this worker
+    # until the 60s TTL expires.
+    r = await get_redis()
+    if r is not None:
+        return
     if len(_USER_CACHE) > 5000:
         cutoff = sorted(_USER_CACHE.values(), key=lambda e: e[1])[len(_USER_CACHE) // 5]
         for uid in [k for k, v in _USER_CACHE.items() if v[1] <= cutoff[1]]:
@@ -50,7 +63,7 @@ def _local_set(user: User) -> None:
 
 
 def _cache_invalidate(user_id: str) -> None:
-    """Remove from both in-process dict and Redis (best-effort)."""
+    """Remove the in-process entry (Redis is cleared separately via cache_del_user)."""
     _USER_CACHE.pop(user_id, None)
 
 
@@ -95,7 +108,7 @@ async def _resolve_user(token: str, db: AsyncSession) -> User:
         user.id, user.email, user.balance,
     )
     await cache_set_user(user)
-    _local_set(user)
+    await _local_set(user)
     return user
 
 

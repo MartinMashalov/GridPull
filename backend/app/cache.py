@@ -166,11 +166,27 @@ async def cache_set_user(user) -> None:
 
 
 async def cache_del_user(user_id: str) -> None:
+    """Invalidate both Redis (shared across workers) AND the in-process cache
+    on the current worker. Other workers will see the Redis miss on their next
+    lookup; only this worker has its in-process dict cleared here.
+
+    Note: this is intentionally a partial guarantee — the in-process dict is
+    only populated when Redis is down (see auth_middleware._local_set), so in
+    the common case (Redis up) there is nothing to clear locally and the Redis
+    delete is the real invalidation. This extra clear matters on the
+    Redis-down code path only.
+    """
     r = await get_redis()
-    if r is None:
-        return
+    if r is not None:
+        try:
+            await r.delete(f"gp:user:{user_id}")
+        except Exception:
+            pass
+    # Also clear the in-process cache of the worker running this coroutine.
+    # Imported lazily to avoid a circular import at module load.
     try:
-        await r.delete(f"gp:user:{user_id}")
+        from app.middleware.auth_middleware import _cache_invalidate
+        _cache_invalidate(user_id)
     except Exception:
         pass
 

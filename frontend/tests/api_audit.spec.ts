@@ -8,7 +8,10 @@ async function devLogin(req: APIRequestContext): Promise<string> {
   })
   expect(r.status(), `dev-login HTTP: ${r.status()}`).toBe(200)
   const body = await r.json()
-  expect(body.access_token, 'dev-login missing access_token').toBeTruthy()
+  // JWT = three base64 segments separated by dots → at minimum 20+ chars
+  expect(typeof body.access_token, 'access_token must be a string').toBe('string')
+  expect(body.access_token.length, 'access_token too short to be a JWT').toBeGreaterThan(20)
+  expect(body.access_token.split('.').length, 'access_token must have 3 JWT segments').toBe(3)
   return body.access_token
 }
 
@@ -50,12 +53,12 @@ for (const e of GET_ENDPOINTS) {
   })
 }
 
-// Auth gate: the same endpoints should reject un-authed calls with 401/403.
+// Auth gate: the same endpoints must reject un-authed calls with 403 (FastAPI HTTPBearer default).
 const AUTH_GATED = ['/users/me', '/payments/subscription', '/ingest/address', '/pipelines/']
 for (const p of AUTH_GATED) {
-  test(`GET ${p} without auth -> 401/403`, async ({ request }) => {
+  test(`GET ${p} without auth -> 403`, async ({ request }) => {
     const r = await request.get(`${BASE}${p}`)
-    expect([401, 403]).toContain(r.status())
+    expect(r.status(), `unauth ${p}`).toBe(403)
   })
 }
 
@@ -65,33 +68,43 @@ test('unknown /api route returns 404', async ({ request }) => {
   expect(r.status()).toBe(404)
 })
 
-// Proposals PUT: non-empty content + no logo -> 200 + success
-test('PUT /proposals/agency-info (content only) succeeds', async ({ request }) => {
+// Proposals PUT: non-empty content + no logo -> 200 + success + round-trip readable.
+test('PUT /proposals/agency-info (content only) persists and round-trips', async ({ request }) => {
+  const marker = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const r = await request.put(`${BASE}/proposals/agency-info`, {
     headers: auth(),
-    multipart: { content: `audit-${Date.now()}` },
+    multipart: { content: marker },
   })
   const body = await r.text()
   expect(r.status(), `body=${body.slice(0, 300)}`).toBe(200)
   expect(JSON.parse(body).success).toBe(true)
+
+  // Round-trip: GET must return the content we just wrote. Otherwise the write
+  // silently succeeded on our side but didn't actually hit Papyra.
+  const g = await request.get(`${BASE}/proposals/agency-info`, { headers: auth() })
+  expect(g.status(), 'agency-info GET after PUT').toBe(200)
+  const gb = await g.json()
+  const got = typeof gb.content === 'string' ? gb.content : JSON.stringify(gb)
+  expect(got, `GET body did not contain written marker: ${got.slice(0, 200)}`).toContain(marker)
 })
 
-// Negative: proposals generate without documents should 4xx (not 500)
-test('POST /proposals/generate with no documents -> 4xx (not 5xx)', async ({ request }) => {
+// Negative: proposals generate without documents is a missing-required-param → FastAPI 422
+test('POST /proposals/generate with no documents -> 422', async ({ request }) => {
   const r = await request.post(`${BASE}/proposals/generate`, {
     headers: auth(),
     multipart: { lob: 'commercial_general_liability' },
   })
-  expect(r.status()).toBeLessThan(500)
-  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status()).toBe(422)
 })
 
-// Ingest address must be stable (idempotent): two GETs return the same address
-test('GET /ingest/address is idempotent', async ({ request }) => {
+// Ingest address must be stable (idempotent) AND be a valid email address.
+test('GET /ingest/address is idempotent + valid email', async ({ request }) => {
   const a = await (await request.get(`${BASE}/ingest/address`, { headers: auth() })).json()
   const b = await (await request.get(`${BASE}/ingest/address`, { headers: auth() })).json()
-  expect(a.address).toBeTruthy()
-  expect(a.address).toBe(b.address)
+  expect(typeof a.address, 'address must be a string').toBe('string')
+  expect(a.address.length, 'address must not be empty').toBeGreaterThan(0)
+  expect(a.address, 'address must be a valid email').toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+  expect(a.address, 'address must be stable across calls').toBe(b.address)
 })
 
 // Usage counters must be consistent across the three endpoints that report them.
@@ -148,8 +161,7 @@ test('POST /proposals/generate charges exactly 5 pages on success', async ({ req
 // These must reject malformed inputs BEFORE doing any expensive LLM work,
 // otherwise a user could burn pages on a bad request.
 
-test('POST /form-filling/fill without target_form -> 4xx', async ({ request }) => {
-  // source_files only; FastAPI should 422 (missing required param)
+test('POST /form-filling/fill without target_form -> 422 (missing param)', async ({ request }) => {
   const PDF = Buffer.from('%PDF-1.4\n%EOF\n')
   const r = await request.post(`${BASE}/form-filling/fill`, {
     headers: auth(),
@@ -157,8 +169,7 @@ test('POST /form-filling/fill without target_form -> 4xx', async ({ request }) =
       source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: PDF },
     },
   })
-  expect(r.status(), `status=${r.status()}`).toBeGreaterThanOrEqual(400)
-  expect(r.status()).toBeLessThan(500)
+  expect(r.status()).toBe(422)
 })
 
 test('POST /form-filling/fill with non-PDF target -> 400', async ({ request }) => {
@@ -170,8 +181,8 @@ test('POST /form-filling/fill with non-PDF target -> 400', async ({ request }) =
       source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: PDF },
     },
   })
-  // Card-gate (402) comes before the PDF check, so accept either
-  expect([400, 402, 413]).toContain(r.status())
+  // Pro-tier dev user, has card → no 402 gate. Must reject with 400 for the bad PDF.
+  expect(r.status()).toBe(400)
 })
 
 test('POST /form-filling/fill with empty target -> 400', async ({ request }) => {
@@ -182,13 +193,12 @@ test('POST /form-filling/fill with empty target -> 400', async ({ request }) => 
       source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
     },
   })
-  expect([400, 402]).toContain(r.status())
+  expect(r.status()).toBe(400)
 })
 
 // ── Schedules / extraction validation ────────────────────────────────────────
 
-test('POST /documents/extract with no files -> 4xx', async ({ request }) => {
-  // Use a form body missing the 'files' array → FastAPI 422
+test('POST /documents/extract with no files -> 422 (missing param)', async ({ request }) => {
   const r = await request.post(`${BASE}/documents/extract`, {
     headers: auth(),
     multipart: {
@@ -196,11 +206,10 @@ test('POST /documents/extract with no files -> 4xx', async ({ request }) => {
       format: 'xlsx',
     },
   })
-  expect(r.status()).toBeGreaterThanOrEqual(400)
-  expect(r.status()).toBeLessThan(500)
+  expect(r.status()).toBe(422)
 })
 
-test('POST /documents/extract with no fields -> 400', async ({ request }) => {
+test('POST /documents/extract with empty fields -> 400', async ({ request }) => {
   const PDF = Buffer.from('%PDF-1.4\n%EOF\n')
   const r = await request.post(`${BASE}/documents/extract`, {
     headers: auth(),
@@ -210,7 +219,7 @@ test('POST /documents/extract with no fields -> 400', async ({ request }) => {
       format: 'xlsx',
     },
   })
-  expect([400, 402]).toContain(r.status())
+  expect(r.status()).toBe(400)
 })
 
 test('POST /documents/spreadsheet-headers rejects non-spreadsheet', async ({ request }) => {
@@ -250,7 +259,7 @@ test('POST /ingest/inbox/extract with no documents -> 400', async ({ request }) 
     headers: { ...auth(), 'Content-Type': 'application/json' },
     data: { document_ids: [], fields: [{ name: 'x', description: '' }] },
   })
-  expect([400, 422]).toContain(r.status())
+  expect(r.status()).toBe(400)
 })
 
 test('POST /ingest/inbox/extract with no fields -> 400', async ({ request }) => {
@@ -258,13 +267,7 @@ test('POST /ingest/inbox/extract with no fields -> 400', async ({ request }) => 
     headers: { ...auth(), 'Content-Type': 'application/json' },
     data: { document_ids: ['fake-id'], fields: [] },
   })
-  expect([400, 422]).toContain(r.status())
-})
-
-test('ingest address is a valid email format', async ({ request }) => {
-  const r = await request.get(`${BASE}/ingest/address`, { headers: auth() })
-  const body = await r.json()
-  expect(body.address).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+  expect(r.status()).toBe(400)
 })
 
 // ── Pipelines ────────────────────────────────────────────────────────────────
@@ -285,7 +288,9 @@ test('GET /pipelines/connections returns object shape', async ({ request }) => {
   expect(body).not.toBeNull()
 })
 
-test('POST /pipelines/ with missing name -> 400/403', async ({ request }) => {
+test('POST /pipelines/ with missing required body fields -> 422', async ({ request }) => {
+  // Dev user is pro tier (has_pipeline=true), so the 403 upgrade_required path
+  // cannot fire. Missing source_folder_id/name is a FastAPI Pydantic violation.
   const r = await request.post(`${BASE}/pipelines/`, {
     headers: { ...auth(), 'Content-Type': 'application/json' },
     data: {
@@ -295,11 +300,10 @@ test('POST /pipelines/ with missing name -> 400/403', async ({ request }) => {
       fields: [{ name: 'x', description: '' }],
     },
   })
-  // 403 if tier doesn't include pipelines, 400 if validation fails
-  expect([400, 403, 422]).toContain(r.status())
+  expect(r.status()).toBe(422)
 })
 
-test('POST /pipelines/ with invalid source_type -> 400/403', async ({ request }) => {
+test('POST /pipelines/ with invalid source_type -> 422', async ({ request }) => {
   const r = await request.post(`${BASE}/pipelines/`, {
     headers: { ...auth(), 'Content-Type': 'application/json' },
     data: {
@@ -309,43 +313,41 @@ test('POST /pipelines/ with invalid source_type -> 400/403', async ({ request })
       fields: [{ name: 'x', description: '' }],
     },
   })
-  expect([400, 403, 422]).toContain(r.status())
+  expect(r.status()).toBe(422)
 })
 
 // ── Proposals validation ─────────────────────────────────────────────────────
 
-test('POST /proposals/generate without lob -> 4xx', async ({ request }) => {
+test('POST /proposals/generate without lob -> 422', async ({ request }) => {
   const r = await request.post(`${BASE}/proposals/generate`, {
     headers: auth(),
     multipart: {
       documents: { name: 'x.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
     },
   })
-  expect(r.status()).toBeGreaterThanOrEqual(400)
-  expect(r.status()).toBeLessThan(500)
+  expect(r.status()).toBe(422)
 })
 
-test('PUT /proposals/agency-info without content -> 4xx', async ({ request }) => {
+test('PUT /proposals/agency-info without content -> 422', async ({ request }) => {
   const r = await request.put(`${BASE}/proposals/agency-info`, {
     headers: auth(),
     multipart: {},
   })
-  expect(r.status()).toBeGreaterThanOrEqual(400)
-  expect(r.status()).toBeLessThan(500)
+  expect(r.status()).toBe(422)
 })
 
 // ── Cache vs DB consistency: after a 4xx, usage must not increment ───────────
 
-test('rejected extraction does NOT increment pages_used', async ({ request }) => {
+test('rejected extraction (422 missing files) does NOT increment pages_used', async ({ request }) => {
   const before = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
   const beforePages = before.pages_used
 
-  // Send a request guaranteed to fail validation (no fields, no files)
+  // Missing 'files' param → FastAPI 422, which runs BEFORE any billing hook.
   const r = await request.post(`${BASE}/documents/extract`, {
     headers: auth(),
     multipart: { fields: '[]', format: 'xlsx' },
   })
-  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status(), 'expected 422 — no files param').toBe(422)
 
   // Wait a beat for any async cache invalidation
   await new Promise(res => setTimeout(res, 250))
@@ -353,7 +355,7 @@ test('rejected extraction does NOT increment pages_used', async ({ request }) =>
   expect(after.pages_used - beforePages, `Rejected extraction must not charge — delta=${after.pages_used - beforePages}`).toBe(0)
 })
 
-test('rejected form-fill does NOT increment pages_used', async ({ request }) => {
+test('rejected form-fill (400 non-PDF target) does NOT increment pages_used', async ({ request }) => {
   const before = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
   const beforePages = before.pages_used
 
@@ -364,7 +366,7 @@ test('rejected form-fill does NOT increment pages_used', async ({ request }) => 
       source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
     },
   })
-  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status(), 'expected 400 — non-PDF target').toBe(400)
 
   await new Promise(res => setTimeout(res, 250))
   const after = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
