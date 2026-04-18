@@ -36,18 +36,19 @@ async def generate_proposal(
     from app.services.subscription_tiers import get_tier, PROPOSAL_PAGE_COST
     from app.routes.payments import _maybe_reset_usage
 
-    tier = get_tier(current_user.subscription_tier or "free")
+    # Load a fresh DB-bound user so tier/usage checks see the latest state,
+    # not a 60s-stale Redis/in-process cached copy.
+    result = await db.execute(select(User).where(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    tier = get_tier(user.subscription_tier or "free")
     if not tier.has_proposals:
         raise HTTPException(
             status_code=403,
             detail={"type": "upgrade_required", "message": "Proposals require a Pro plan or higher. Upgrade in Settings.", "required_tier": "pro"},
         )
-
-    # Load a fresh DB-bound user for usage accounting
-    result = await db.execute(select(User).where(User.id == current_user.id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     _maybe_reset_usage(user)
     await db.commit()
