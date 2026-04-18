@@ -69,6 +69,10 @@ class TestTierDefinitions(unittest.TestCase):
         from app.services.subscription_tiers import FORM_FILL_PAGE_COST
         self.assertEqual(FORM_FILL_PAGE_COST, 5)
 
+    def test_proposal_cost(self):
+        from app.services.subscription_tiers import PROPOSAL_PAGE_COST
+        self.assertEqual(PROPOSAL_PAGE_COST, 5)
+
     def test_pipeline_access(self):
         from app.services.subscription_tiers import TIERS
         self.assertFalse(TIERS["free"].has_pipeline)

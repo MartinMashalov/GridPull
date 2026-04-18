@@ -102,6 +102,11 @@ async def fill_form(
     if user.pages_used_this_period > tier.pages_per_month:
         user.overage_pages_this_period = (user.overage_pages_this_period or 0) + form_fill_cost
     await db.commit()
+    try:
+        from app.cache import cache_del_user
+        await cache_del_user(str(user.id))
+    except Exception:
+        pass
 
     logger.info(
         "Form fill request — user_id=%s target=%s sources=%d pages=%d",

@@ -247,6 +247,11 @@ async def _enqueue_extraction_job(
     if overage_count > 0:
         db_user.overage_pages_this_period = (db_user.overage_pages_this_period or 0) + overage_count
     await db.commit()
+    try:
+        from app.cache import cache_del_user
+        await cache_del_user(str(db_user.id))
+    except Exception:
+        pass
 
     logger.info(
         "Job created — job_id=%s user_id=%s pages_used=%d",

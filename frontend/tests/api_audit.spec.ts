@@ -93,3 +93,53 @@ test('GET /ingest/address is idempotent', async ({ request }) => {
   expect(a.address).toBeTruthy()
   expect(a.address).toBe(b.address)
 })
+
+// Usage counters must be consistent across the three endpoints that report them.
+// If they diverge, it means the cache and DB are out of sync — a real bug.
+test('usage counters agree across /users/me, /payments/subscription, /payments/usage-warning', async ({ request }) => {
+  const me = await (await request.get(`${BASE}/users/me`, { headers: auth() })).json()
+  const sub = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  const warn = await (await request.get(`${BASE}/payments/usage-warning`, { headers: auth() })).json()
+  expect(sub.pages_used, `sub.pages_used=${sub.pages_used} me.pages_used_this_period=${me.pages_used_this_period}`).toBe(me.pages_used_this_period)
+  expect(warn.pages_used, `warn.pages_used=${warn.pages_used} sub.pages_used=${sub.pages_used}`).toBe(sub.pages_used)
+  expect(sub.pages_limit, 'pages_limit divergence').toBe(warn.pages_limit)
+  expect(sub.tier?.name, 'tier divergence').toBe(warn.tier)
+})
+
+// A proposal must charge exactly 5 pages on success. We skip if the user has no Papyra link,
+// but the delta must be exactly PROPOSAL_PAGE_COST when a proposal completes.
+test('POST /proposals/generate charges exactly 5 pages on success', async ({ request }) => {
+  const before = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  const beforePages = before.pages_used
+
+  // Minimal 1-page PDF bytes (standard stub)
+  const PDF_STUB = Buffer.from(
+    '255044462d312e340a25e2e3cfd30a312030206f626a0a3c3c2f54797065202f436174616c6f672f5061676573203220302052203e3e0a656e646f626a0a322030206f626a0a3c3c2f54797065202f50616765732f436f756e742031202f4b696473205b33203020525d3e3e0a656e646f626a0a332030206f626a0a3c3c2f54797065202f506167652f506172656e7420322030205220',
+    'hex',
+  )
+
+  const form = new FormData()
+  form.append('lob', 'commercial_general_liability')
+  form.append('documents', new Blob([PDF_STUB], { type: 'application/pdf' }), 'stub.pdf')
+
+  const r = await request.post(`${BASE}/proposals/generate`, {
+    headers: auth(),
+    multipart: {
+      lob: 'commercial_general_liability',
+      documents: { name: 'stub.pdf', mimeType: 'application/pdf', buffer: PDF_STUB },
+    },
+  })
+  const status = r.status()
+  const body = await r.text()
+
+  // If Papyra returns an error (e.g., the stub PDF isn't a valid quote), we still
+  // want to make sure the user was NOT charged. Delta must be 0 on failure, 5 on success.
+  const after = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  const delta = after.pages_used - beforePages
+
+  if (status === 200) {
+    expect(delta, `Successful proposal should charge 5 pages, charged ${delta}. Body: ${body.slice(0, 200)}`).toBe(5)
+  } else {
+    expect(delta, `Failed proposal (status ${status}) should charge 0 pages, charged ${delta}. Body: ${body.slice(0, 200)}`).toBe(0)
+  }
+})

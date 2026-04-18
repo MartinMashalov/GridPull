@@ -12,6 +12,7 @@ from typing import Optional
 
 # ── Global limits ────────────────────────────────────────────────────────────────
 FORM_FILL_PAGE_COST = 5        # 1 form fill = 5 pages
+PROPOSAL_PAGE_COST = 5         # 1 generated proposal = 5 pages
 MAX_FILE_SIZE_MB = 5           # hard cap per uploaded file
 
 
