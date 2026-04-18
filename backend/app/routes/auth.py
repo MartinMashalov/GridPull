@@ -36,6 +36,56 @@ class DevLoginRequest(BaseModel):
     secret: str
 
 
+class DevSetUsageRequest(BaseModel):
+    secret: str
+    subscription_tier: str  # free | starter | pro | business
+    pages_used_this_period: int
+    overage_pages_this_period: int = 0
+
+
+@router.post("/dev-set-usage", include_in_schema=False)
+async def dev_set_usage(body: DevSetUsageRequest, db: AsyncSession = Depends(get_db)):
+    """Dev-only: force the dev-login user's tier + usage for live test scenarios.
+    Gated by DEV_LOGIN_SECRET so it mirrors /dev-login's trust boundary.
+    """
+    dev_secret = (settings.dev_login_secret or "").strip()
+    if not dev_secret:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not _secrets.compare_digest(body.secret, dev_secret):
+        raise HTTPException(status_code=401, detail="Invalid secret")
+    if body.subscription_tier not in ("free", "starter", "pro", "business"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    if body.pages_used_this_period < 0 or body.overage_pages_this_period < 0:
+        raise HTTPException(status_code=400, detail="Negative usage not allowed")
+
+    user_id = (settings.dev_login_user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=503, detail="Dev user not configured")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.subscription_tier = body.subscription_tier
+    user.pages_used_this_period = body.pages_used_this_period
+    user.overage_pages_this_period = body.overage_pages_this_period
+    await db.commit()
+
+    try:
+        from app.cache import cache_del_user
+        await cache_del_user(str(user.id))
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "subscription_tier": user.subscription_tier,
+        "pages_used_this_period": user.pages_used_this_period,
+        "overage_pages_this_period": user.overage_pages_this_period,
+    }
+
+
 @router.post("/dev-login")
 async def dev_login(body: DevLoginRequest, db: AsyncSession = Depends(get_db)):
     """Bypass OAuth for dev/test. Disabled unless DEV_LOGIN_SECRET is set in env."""
