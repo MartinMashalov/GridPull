@@ -143,3 +143,230 @@ test('POST /proposals/generate charges exactly 5 pages on success', async ({ req
     expect(delta, `Failed proposal (status ${status}) should charge 0 pages, charged ${delta}. Body: ${body.slice(0, 200)}`).toBe(0)
   }
 })
+
+// ── Form filling validation gates ────────────────────────────────────────────
+// These must reject malformed inputs BEFORE doing any expensive LLM work,
+// otherwise a user could burn pages on a bad request.
+
+test('POST /form-filling/fill without target_form -> 4xx', async ({ request }) => {
+  // source_files only; FastAPI should 422 (missing required param)
+  const PDF = Buffer.from('%PDF-1.4\n%EOF\n')
+  const r = await request.post(`${BASE}/form-filling/fill`, {
+    headers: auth(),
+    multipart: {
+      source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: PDF },
+    },
+  })
+  expect(r.status(), `status=${r.status()}`).toBeGreaterThanOrEqual(400)
+  expect(r.status()).toBeLessThan(500)
+})
+
+test('POST /form-filling/fill with non-PDF target -> 400', async ({ request }) => {
+  const PDF = Buffer.from('%PDF-1.4\n%EOF\n')
+  const r = await request.post(`${BASE}/form-filling/fill`, {
+    headers: auth(),
+    multipart: {
+      target_form: { name: 'form.txt', mimeType: 'text/plain', buffer: Buffer.from('not a pdf') },
+      source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: PDF },
+    },
+  })
+  // Card-gate (402) comes before the PDF check, so accept either
+  expect([400, 402, 413]).toContain(r.status())
+})
+
+test('POST /form-filling/fill with empty target -> 400', async ({ request }) => {
+  const r = await request.post(`${BASE}/form-filling/fill`, {
+    headers: auth(),
+    multipart: {
+      target_form: { name: 'form.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(0) },
+      source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
+    },
+  })
+  expect([400, 402]).toContain(r.status())
+})
+
+// ── Schedules / extraction validation ────────────────────────────────────────
+
+test('POST /documents/extract with no files -> 4xx', async ({ request }) => {
+  // Use a form body missing the 'files' array → FastAPI 422
+  const r = await request.post(`${BASE}/documents/extract`, {
+    headers: auth(),
+    multipart: {
+      fields: JSON.stringify([{ name: 'foo', description: '' }]),
+      format: 'xlsx',
+    },
+  })
+  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status()).toBeLessThan(500)
+})
+
+test('POST /documents/extract with no fields -> 400', async ({ request }) => {
+  const PDF = Buffer.from('%PDF-1.4\n%EOF\n')
+  const r = await request.post(`${BASE}/documents/extract`, {
+    headers: auth(),
+    multipart: {
+      files: { name: 'x.pdf', mimeType: 'application/pdf', buffer: PDF },
+      fields: '[]',
+      format: 'xlsx',
+    },
+  })
+  expect([400, 402]).toContain(r.status())
+})
+
+test('POST /documents/spreadsheet-headers rejects non-spreadsheet', async ({ request }) => {
+  const r = await request.post(`${BASE}/documents/spreadsheet-headers`, {
+    headers: auth(),
+    multipart: {
+      file: { name: 'x.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
+    },
+  })
+  expect(r.status()).toBe(400)
+})
+
+test('GET /documents/history returns array-shaped payload', async ({ request }) => {
+  const r = await request.get(`${BASE}/documents/history`, { headers: auth() })
+  expect(r.status()).toBeLessThan(400)
+  const body = await r.json()
+  // Must be an object with a jobs (or similar) list, OR directly an array
+  const isArr = Array.isArray(body)
+  const hasList = !isArr && (Array.isArray(body.jobs) || Array.isArray(body.items) || Array.isArray(body.history))
+  expect(isArr || hasList, `history shape: ${JSON.stringify(body).slice(0, 200)}`).toBe(true)
+})
+
+// ── Inbox shape ──────────────────────────────────────────────────────────────
+
+test('GET /ingest/inbox returns {groups, total_documents}', async ({ request }) => {
+  const r = await request.get(`${BASE}/ingest/inbox`, { headers: auth() })
+  expect(r.status()).toBeLessThan(400)
+  const body = await r.json()
+  expect(body).toHaveProperty('groups')
+  expect(Array.isArray(body.groups)).toBe(true)
+  expect(body).toHaveProperty('total_documents')
+  expect(typeof body.total_documents).toBe('number')
+})
+
+test('POST /ingest/inbox/extract with no documents -> 400', async ({ request }) => {
+  const r = await request.post(`${BASE}/ingest/inbox/extract`, {
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    data: { document_ids: [], fields: [{ name: 'x', description: '' }] },
+  })
+  expect([400, 422]).toContain(r.status())
+})
+
+test('POST /ingest/inbox/extract with no fields -> 400', async ({ request }) => {
+  const r = await request.post(`${BASE}/ingest/inbox/extract`, {
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    data: { document_ids: ['fake-id'], fields: [] },
+  })
+  expect([400, 422]).toContain(r.status())
+})
+
+test('ingest address is a valid email format', async ({ request }) => {
+  const r = await request.get(`${BASE}/ingest/address`, { headers: auth() })
+  const body = await r.json()
+  expect(body.address).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+})
+
+// ── Pipelines ────────────────────────────────────────────────────────────────
+
+test('GET /pipelines/ returns {pipelines: [...]}', async ({ request }) => {
+  const r = await request.get(`${BASE}/pipelines/`, { headers: auth() })
+  expect(r.status()).toBeLessThan(400)
+  const body = await r.json()
+  expect(body).toHaveProperty('pipelines')
+  expect(Array.isArray(body.pipelines)).toBe(true)
+})
+
+test('GET /pipelines/connections returns object shape', async ({ request }) => {
+  const r = await request.get(`${BASE}/pipelines/connections`, { headers: auth() })
+  expect(r.status()).toBeLessThan(400)
+  const body = await r.json()
+  expect(typeof body).toBe('object')
+  expect(body).not.toBeNull()
+})
+
+test('POST /pipelines/ with missing name -> 400/403', async ({ request }) => {
+  const r = await request.post(`${BASE}/pipelines/`, {
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    data: {
+      name: '',
+      source_type: 'google_drive',
+      dest_format: 'xlsx',
+      fields: [{ name: 'x', description: '' }],
+    },
+  })
+  // 403 if tier doesn't include pipelines, 400 if validation fails
+  expect([400, 403, 422]).toContain(r.status())
+})
+
+test('POST /pipelines/ with invalid source_type -> 400/403', async ({ request }) => {
+  const r = await request.post(`${BASE}/pipelines/`, {
+    headers: { ...auth(), 'Content-Type': 'application/json' },
+    data: {
+      name: 'Test',
+      source_type: 'bogus_source',
+      dest_format: 'xlsx',
+      fields: [{ name: 'x', description: '' }],
+    },
+  })
+  expect([400, 403, 422]).toContain(r.status())
+})
+
+// ── Proposals validation ─────────────────────────────────────────────────────
+
+test('POST /proposals/generate without lob -> 4xx', async ({ request }) => {
+  const r = await request.post(`${BASE}/proposals/generate`, {
+    headers: auth(),
+    multipart: {
+      documents: { name: 'x.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
+    },
+  })
+  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status()).toBeLessThan(500)
+})
+
+test('PUT /proposals/agency-info without content -> 4xx', async ({ request }) => {
+  const r = await request.put(`${BASE}/proposals/agency-info`, {
+    headers: auth(),
+    multipart: {},
+  })
+  expect(r.status()).toBeGreaterThanOrEqual(400)
+  expect(r.status()).toBeLessThan(500)
+})
+
+// ── Cache vs DB consistency: after a 4xx, usage must not increment ───────────
+
+test('rejected extraction does NOT increment pages_used', async ({ request }) => {
+  const before = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  const beforePages = before.pages_used
+
+  // Send a request guaranteed to fail validation (no fields, no files)
+  const r = await request.post(`${BASE}/documents/extract`, {
+    headers: auth(),
+    multipart: { fields: '[]', format: 'xlsx' },
+  })
+  expect(r.status()).toBeGreaterThanOrEqual(400)
+
+  // Wait a beat for any async cache invalidation
+  await new Promise(res => setTimeout(res, 250))
+  const after = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  expect(after.pages_used - beforePages, `Rejected extraction must not charge — delta=${after.pages_used - beforePages}`).toBe(0)
+})
+
+test('rejected form-fill does NOT increment pages_used', async ({ request }) => {
+  const before = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  const beforePages = before.pages_used
+
+  const r = await request.post(`${BASE}/form-filling/fill`, {
+    headers: auth(),
+    multipart: {
+      target_form: { name: 'x.txt', mimeType: 'text/plain', buffer: Buffer.from('nope') },
+      source_files: { name: 's.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') },
+    },
+  })
+  expect(r.status()).toBeGreaterThanOrEqual(400)
+
+  await new Promise(res => setTimeout(res, 250))
+  const after = await (await request.get(`${BASE}/payments/subscription`, { headers: auth() })).json()
+  expect(after.pages_used - beforePages, `Rejected form-fill must not charge — delta=${after.pages_used - beforePages}`).toBe(0)
+})
