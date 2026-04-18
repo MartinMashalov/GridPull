@@ -139,6 +139,132 @@ class TestCacheBackwardCompat(unittest.TestCase):
         self.assertEqual(u2.overage_pages_this_period, 10)
 
 
+class TestProposalPageCharging(unittest.IsolatedAsyncioTestCase):
+    """The /proposals/generate handler must charge exactly 5 pages on success and 0 on failure."""
+
+    async def test_papyra_success_charges_5_pages(self):
+        """Mock Papyra returning 200 — user must be charged exactly 5 pages."""
+        import types
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.routes.proposals import generate_proposal
+        from app.services.subscription_tiers import PROPOSAL_PAGE_COST
+
+        # Simulate a Pro-tier user just under the limit with an explicit, mutable User object
+        user = types.SimpleNamespace(
+            id="u-proposal-test",
+            subscription_tier="pro",
+            pages_used_this_period=100,
+            overage_pages_this_period=0,
+            usage_reset_at=None,
+            current_period_end=None,
+        )
+
+        db = MagicMock()
+        # db.execute(select).scalar_one_or_none() must return our user
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none = MagicMock(return_value=user)
+        db.execute = AsyncMock(return_value=exec_result)
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+
+        # Fake UploadFile whose .read() returns 4 bytes
+        upload = MagicMock()
+        upload.filename = "quote.pdf"
+        upload.read = AsyncMock(return_value=b"%PDF")
+
+        # Mock httpx.AsyncClient context manager returning a successful response
+        fake_resp = MagicMock()
+        fake_resp.raise_for_status = MagicMock()
+        fake_resp.json = MagicMock(return_value={"proposal_url": "https://papyra/fake.pdf"})
+        fake_client = MagicMock()
+        fake_client.post = AsyncMock(return_value=fake_resp)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("app.routes.proposals.httpx.AsyncClient", return_value=fake_client), \
+             patch("app.routes.proposals.settings") as fake_settings:
+            fake_settings.papyra_user_email = "test@test.com"
+            fake_settings.papyra_user_password = "pw"
+            fake_settings.papyra_api_base_url = "https://papyra.fake"
+
+            payload = await generate_proposal(
+                lob="commercial_general_liability",
+                documents=[upload],
+                agency_info="",
+                user_context="",
+                brand_primary="#1A3560",
+                brand_accent="#C9901E",
+                current_user=user,
+                db=db,
+            )
+
+        self.assertEqual(payload, {"proposal_url": "https://papyra/fake.pdf"})
+        self.assertEqual(user.pages_used_this_period, 100 + PROPOSAL_PAGE_COST)
+        self.assertEqual(user.overage_pages_this_period, 0)
+
+    async def test_papyra_failure_does_not_charge(self):
+        """Mock Papyra returning 500 — user must NOT be charged."""
+        import types
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi import HTTPException
+
+        from app.routes.proposals import generate_proposal
+
+        user = types.SimpleNamespace(
+            id="u-proposal-test",
+            subscription_tier="pro",
+            pages_used_this_period=100,
+            overage_pages_this_period=0,
+            usage_reset_at=None,
+            current_period_end=None,
+        )
+
+        db = MagicMock()
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none = MagicMock(return_value=user)
+        db.execute = AsyncMock(return_value=exec_result)
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+
+        upload = MagicMock()
+        upload.filename = "quote.pdf"
+        upload.read = AsyncMock(return_value=b"%PDF")
+
+        # Build an httpx HTTPStatusError so the handler's first except branch fires
+        err_resp = MagicMock()
+        err_resp.status_code = 500
+        err_resp.text = "Internal Server Error"
+        err_resp.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("500", request=MagicMock(), response=err_resp)
+        )
+        fake_client = MagicMock()
+        fake_client.post = AsyncMock(return_value=err_resp)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("app.routes.proposals.httpx.AsyncClient", return_value=fake_client), \
+             patch("app.routes.proposals.settings") as fake_settings:
+            fake_settings.papyra_user_email = "test@test.com"
+            fake_settings.papyra_user_password = "pw"
+            fake_settings.papyra_api_base_url = "https://papyra.fake"
+
+            with self.assertRaises(HTTPException) as ctx:
+                await generate_proposal(
+                    lob="commercial_general_liability",
+                    documents=[upload],
+                    agency_info="", user_context="",
+                    brand_primary="#1A3560", brand_accent="#C9901E",
+                    current_user=user, db=db,
+                )
+            self.assertEqual(ctx.exception.status_code, 500)
+
+        # Pages must be unchanged after Papyra failure
+        self.assertEqual(user.pages_used_this_period, 100)
+        self.assertEqual(user.overage_pages_this_period, 0)
+
+
 class TestPageCounting(unittest.TestCase):
     """Verify page counting is direct (no credit division)."""
 
