@@ -15,11 +15,15 @@ const PNG_1x1 = Buffer.from(
 
 async function login(page: Page) {
   await page.goto(L)
-  // The auto-login route redirects to /dashboard on success; assert a post-login surface is reachable
-  await page.waitForURL(/\/(dashboard|proposals|$)/, { timeout: 20000 })
-  const cookies = await page.context().cookies()
-  const authed = cookies.some(c => /token|session|auth/i.test(c.name))
-  expect(authed, `Auto-login didn't set an auth cookie. Got: ${cookies.map(c => c.name).join(',')}`).toBeTruthy()
+  // Auto-login redirects off /auto-login once the dev-login POST resolves; wait for any other URL
+  await page.waitForURL((u) => !u.toString().includes('/auto-login'), { timeout: 20000 })
+  // Auth is persisted to localStorage by Zustand (key: gridpull-auth-v5), not cookies
+  const token = await page.evaluate(() => {
+    const raw = localStorage.getItem('gridpull-auth-v5')
+    if (!raw) return null
+    try { return JSON.parse(raw)?.state?.token ?? null } catch { return null }
+  })
+  expect(token, 'Auto-login did not persist an access token to gridpull-auth-v5').toBeTruthy()
 }
 
 async function gotoProposals(page: Page) {
@@ -38,6 +42,12 @@ test.describe('Proposals — agency logo upload', () => {
 
     // Unique filename per run so the after-reload assertion can't pass from prior runs
     const uniqueName = `logo-${Date.now()}.png`
+
+    // Fill agency info so the Papyra content field is a deterministic non-empty value
+    const agencyText = `Test Agency ${Date.now()}`
+    const textarea = page.locator('#agency-info')
+    await expect(textarea).toBeVisible({ timeout: 15000 })
+    await textarea.fill(agencyText)
 
     const logoInput = page.getByTestId('agency-logo-input')
     await logoInput.setInputFiles({
@@ -70,23 +80,26 @@ test.describe('Proposals — agency logo upload', () => {
       ),
       page.getByTestId('agency-save-btn').click(),
     ])
-    expect(resp.status(), `PUT returned non-2xx: ${resp.status()}`).toBe(200)
-    const body = await resp.json().catch(async () => ({ _raw: await resp.text() }))
-    expect(body, `PUT body missing logo_filename: ${JSON.stringify(body)}`).toHaveProperty('logo_filename')
-    expect(body.logo_filename).toBe(uniqueName)
+    const respText = await resp.text()
+    expect(resp.status(), `PUT non-2xx (body=${respText.slice(0, 400)})`).toBe(200)
 
     // UI should reflect a successful save (toast)
     await expect(page.getByText(/Agency info saved/i)).toBeVisible({ timeout: 10000 })
     await page.screenshot({ path: path.join(SS, '03_after_save.png') })
 
-    // Independent verification: GET returns the same filename + non-empty logo bytes before we trust the reload
-    const getResp = await page.request.get('/api/proposals/agency-info')
-    expect(getResp.status(), `GET after save: ${getResp.status()}`).toBe(200)
-    const getBody = await getResp.json()
-    expect(getBody.logo_filename, `GET after save body: ${JSON.stringify(getBody)}`).toBe(uniqueName)
+    // Independent verification: GET returns the same filename + non-empty logo bytes before we trust the reload.
+    // Auth is localStorage-based, so fetch through the page context to pick up the Bearer token via axios.
+    const getBody = await page.evaluate(async () => {
+      const raw = localStorage.getItem('gridpull-auth-v5')
+      const tok = raw ? JSON.parse(raw)?.state?.token : null
+      const r = await fetch('/api/proposals/agency-info', { headers: tok ? { Authorization: `Bearer ${tok}` } : {} })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    })
+    expect(getBody.status, `GET after save: ${getBody.status}`).toBe(200)
+    expect(getBody.body?.logo_filename, `GET body: ${JSON.stringify(getBody.body)}`).toBe(uniqueName)
     expect(
-      typeof getBody.logo_base64 === 'string' && getBody.logo_base64.length > 0,
-      `GET after save missing logo_base64: ${JSON.stringify(getBody).slice(0, 200)}`,
+      typeof getBody.body?.logo_base64 === 'string' && getBody.body.logo_base64.length > 0,
+      `GET after save missing logo_base64: ${JSON.stringify(getBody.body).slice(0, 200)}`,
     ).toBe(true)
 
     // Reload and confirm rehydrated state comes from the server, not stale in-memory state
