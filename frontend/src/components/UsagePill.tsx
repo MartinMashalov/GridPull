@@ -27,8 +27,8 @@ export default function UsagePill() {
   const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1)
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-muted-foreground">
+    <div className="flex items-center gap-2 flex-shrink-0">
+      <span className="hidden sm:inline text-xs text-muted-foreground whitespace-nowrap">
         {usage.pages_used.toLocaleString()}/{usage.pages_limit.toLocaleString()} pages
       </span>
       <Badge
