@@ -79,7 +79,9 @@ export default function ProposalsPage() {
   // Agency logo state (matches Papyra's picker UX)
   const logoInputRef = useRef<HTMLInputElement>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
   const [savedLogoFilename, setSavedLogoFilename] = useState<string | null>(null)
+  const [savedLogoDataUrl, setSavedLogoDataUrl] = useState<string | null>(null)
   const [agencyLoading, setAgencyLoading] = useState(false)
   const [agencySaving, setAgencySaving] = useState(false)
 
@@ -94,6 +96,10 @@ export default function ProposalsPage() {
         const data = res.data || {}
         if (typeof data.content === 'string') setAgencyInfo(data.content)
         if (data.logo_filename) setSavedLogoFilename(data.logo_filename)
+        if (data.logo_base64) {
+          const mime = data.logo_mime || 'image/png'
+          setSavedLogoDataUrl(`data:${mime};base64,${data.logo_base64}`)
+        }
       } catch {
         // first-time users or transient errors shouldn't block the form
       } finally {
@@ -102,6 +108,14 @@ export default function ProposalsPage() {
     })()
     return () => { cancelled = true }
   }, [hasAccess])
+
+  // Object URL for the just-picked file so the preview shows immediately
+  useEffect(() => {
+    if (!logoFile) { setLogoPreviewUrl(null); return }
+    const url = URL.createObjectURL(logoFile)
+    setLogoPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [logoFile])
 
   const handlePickLogo = (file: File | null) => {
     if (!file) return
@@ -122,9 +136,14 @@ export default function ProposalsPage() {
       const fd = new FormData()
       fd.append('content', agencyInfo)
       if (logoFile) fd.append('logo', logoFile)
-      await api.put('/proposals/agency-info', fd)
+      const putRes = await api.put('/proposals/agency-info', fd)
       if (logoFile) {
         setSavedLogoFilename(logoFile.name)
+        const body = putRes?.data || {}
+        if (body.logo_base64) {
+          const mime = body.logo_mime || logoFile.type || 'image/png'
+          setSavedLogoDataUrl(`data:${mime};base64,${body.logo_base64}`)
+        }
         setLogoFile(null)
       }
       toast.success('Agency info saved')
@@ -333,15 +352,25 @@ export default function ProposalsPage() {
 
           {(logoFile || savedLogoFilename) && (
             <div
-              className="flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground"
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground"
               data-testid="agency-logo-pill"
             >
-              <span className="flex items-center gap-2 min-w-0 truncate">
-                <ImageIcon size={13} className="flex-shrink-0" />
-                <span className="truncate">
-                  {logoFile ? logoFile.name : `Current logo: ${savedLogoFilename}`}
+              <div className="flex items-center gap-3 min-w-0">
+                {(logoPreviewUrl || savedLogoDataUrl) && (
+                  <img
+                    src={logoPreviewUrl || savedLogoDataUrl || ''}
+                    alt="Agency logo preview"
+                    data-testid="agency-logo-preview"
+                    className="h-10 w-10 object-contain rounded bg-background border border-border flex-shrink-0"
+                  />
+                )}
+                <span className="flex items-center gap-2 min-w-0 truncate">
+                  <ImageIcon size={13} className="flex-shrink-0" />
+                  <span className="truncate">
+                    {logoFile ? logoFile.name : `Current logo: ${savedLogoFilename}`}
+                  </span>
                 </span>
-              </span>
+              </div>
               {logoFile && (
                 <button
                   type="button"
