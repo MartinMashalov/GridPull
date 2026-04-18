@@ -127,6 +127,21 @@ async def dev_llm_judge(
                 except Exception as exc:
                     logger.warning("pypdf extract failed on a page: %s", exc)
             text = "\n\n--- PAGE BREAK ---\n\n".join(pages_text)
+
+            # AcroForm field VALUES live outside the page content stream, so
+            # extract_text() misses them entirely. Critical for form-fill
+            # judging: a "filled" form may have zero content-stream text and
+            # all its data in field widgets.
+            try:
+                fields = reader.get_form_text_fields() or {}
+                populated = {k: v for k, v in fields.items() if v not in (None, "", "/Off")}
+                if populated:
+                    lines = ["", "--- FORM FIELDS (name = value) ---"]
+                    for k, v in list(populated.items())[:200]:
+                        lines.append(f"{k} = {v}")
+                    text += "\n".join(lines)
+            except Exception as exc:
+                logger.warning("pypdf form-field extract failed: %s", exc)
         elif filename.endswith(".xlsx") or "sheet" in content_type or "excel" in content_type:
             from openpyxl import load_workbook
             wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
