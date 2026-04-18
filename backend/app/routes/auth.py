@@ -173,14 +173,16 @@ async def dev_llm_judge(
     try:
         from app.services.llm_router import _get_openai_client
         client = _get_openai_client()
+        # gpt-5.x rejects `max_tokens` + non-default `temperature`; use
+        # max_completion_tokens and omit temperature so the same code works for
+        # both gpt-4.x and gpt-5.x fallback models.
         resp = await client.chat.completions.create(
             model=settings.llm_openai_fallback_model or "gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.0,
-            max_tokens=250,
+            max_completion_tokens=400,
             response_format={"type": "json_object"},
         )
         raw_out = (resp.choices[0].message.content or "").strip()
