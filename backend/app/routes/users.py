@@ -15,6 +15,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user."""
+    cpe = getattr(current_user, "current_period_end", None)
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -24,7 +25,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "subscription_tier": current_user.subscription_tier or "free",
         "subscription_status": current_user.subscription_status or "active",
         "pages_used_this_period": current_user.pages_used_this_period or 0,
-        "current_period_end": current_user.current_period_end.isoformat() if current_user.current_period_end else None,
+        "current_period_end": cpe.isoformat() if hasattr(cpe, "isoformat") else cpe,
     }
 
 

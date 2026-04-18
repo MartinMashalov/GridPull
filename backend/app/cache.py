@@ -75,6 +75,7 @@ class CachedUser:
     subscription_status: str = "active"
     pages_used_this_period: int = 0
     overage_pages_this_period: int = 0
+    current_period_end: Optional[str] = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -94,6 +95,7 @@ class CachedUser:
                 "subscription_status": self.subscription_status,
                 "pages_used_this_period": self.pages_used_this_period,
                 "overage_pages_this_period": self.overage_pages_this_period,
+                "current_period_end": self.current_period_end,
             }
         )
 
@@ -112,11 +114,13 @@ class CachedUser:
                       d.pop("credits_used_this_period", d.pop("files_used_this_period", 0)))
         d.setdefault("overage_pages_this_period",
                       d.pop("overage_credits_this_period", d.pop("overage_files_this_period", 0)))
+        d.setdefault("current_period_end", None)
         d.pop("first_month_discount_used", None)
         return cls(**d)
 
     @classmethod
     def from_user(cls, user) -> "CachedUser":
+        cpe = getattr(user, "current_period_end", None)
         return cls(
             id=user.id,
             email=user.email,
@@ -133,6 +137,7 @@ class CachedUser:
             subscription_status=getattr(user, "subscription_status", "active") or "active",
             pages_used_this_period=getattr(user, "pages_used_this_period", 0) or 0,
             overage_pages_this_period=getattr(user, "overage_pages_this_period", 0) or 0,
+            current_period_end=cpe.isoformat() if hasattr(cpe, "isoformat") else cpe,
         )
 
 
