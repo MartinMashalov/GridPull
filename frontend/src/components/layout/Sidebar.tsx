@@ -49,7 +49,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <TooltipProvider delayDuration={200}>
       <aside
         className={cn(
-          'relative flex flex-col h-screen bg-white border-r border-border transition-[width] duration-200 ease-in-out flex-shrink-0',
+          'relative flex flex-col h-full bg-white border-r border-border transition-[width] duration-200 ease-in-out flex-shrink-0',
           collapsed ? 'w-16' : 'w-60'
         )}
       >
@@ -85,7 +85,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
 
         {/* ── Nav ───────────────────────────────────────────────── */}
-        <nav className="flex-1 px-2 py-3 space-y-0.5">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5">
           {NAV.map(item => {
             const isActive = location.pathname === item.path
             const locked = item.toolKey ? isToolLocked(user?.subscription_tier, item.toolKey) : false
