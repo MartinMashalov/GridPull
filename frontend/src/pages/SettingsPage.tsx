@@ -121,7 +121,9 @@ export default function SettingsPage() {
           has_card: r.data.has_card ?? false,
         })
       })
-      .catch(() => {})
+      .catch(err => {
+        console.error('Failed to load subscription', err?.response?.status, err?.response?.data || err?.message)
+      })
       .finally(() => setLoadingSub(false))
   }
 
@@ -554,7 +556,20 @@ export default function SettingsPage() {
               })()}
 
             </>
-          ) : null}
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle size={16} className="text-amber-500" />
+                <p className="text-sm font-medium">Couldn't load your subscription</p>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                You're on the <span className="font-medium capitalize">{currentTier}</span> plan. Refresh the page or try again.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => fetchSubscription()}>
+                Retry
+              </Button>
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Usage ──────────────────────────────────────────────────── */}
