@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -130,20 +130,27 @@ def _maybe_reset_usage(user: User) -> bool:
     """Reset pages_used if the billing period has rolled over. Returns True if reset."""
     if not user.usage_reset_at:
         return False
-    now = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
     reset_at = user.usage_reset_at
     if reset_at.tzinfo is None:
         reset_at = reset_at.replace(tzinfo=timezone.utc)
-    if now >= reset_at:
-        user.pages_used_this_period = 0
-        user.overage_pages_this_period = 0
-        if user.current_period_end:
-            pe = user.current_period_end
-            if pe.tzinfo is None:
-                pe = pe.replace(tzinfo=timezone.utc)
-            user.usage_reset_at = pe
-        return True
-    return False
+    if now_utc < reset_at:
+        return False
+
+    user.pages_used_this_period = 0
+    user.overage_pages_this_period = 0
+
+    # usage_reset_at column is TIMESTAMP WITHOUT TIME ZONE — always store naive UTC.
+    # If Stripe hasn't pushed a new current_period_end yet (it's still in the past),
+    # push the reset 30 days out so we don't loop-reset on every request.
+    next_reset = user.current_period_end
+    if next_reset is not None and next_reset.tzinfo is not None:
+        next_reset = next_reset.astimezone(timezone.utc).replace(tzinfo=None)
+    now_naive = now_utc.replace(tzinfo=None)
+    if next_reset is None or next_reset <= now_naive:
+        next_reset = now_naive + timedelta(days=30)
+    user.usage_reset_at = next_reset
+    return True
 
 
 # ── Subscription info ──────────────────────────────────────────────────────────
