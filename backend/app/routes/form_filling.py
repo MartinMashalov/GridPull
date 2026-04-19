@@ -41,12 +41,6 @@ async def fill_form(
     """Upload a target PDF form and source files. Returns the filled PDF."""
     from app.routes.payments import _maybe_reset_usage
 
-    if not current_user.stripe_payment_method_id:
-        raise HTTPException(
-            status_code=402,
-            detail={"type": "card_required", "message": "A credit card is required to use this feature. Add one in Settings."},
-        )
-
     target_name = (target_form.filename or "").lower()
     if not target_name.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Target form must be a PDF file")

@@ -353,12 +353,6 @@ async def start_extraction(
     """Upload PDFs and enqueue an extraction job."""
     client_ip = request.client.host if request.client else "-"
 
-    if not current_user.stripe_payment_method_id:
-        raise HTTPException(
-            status_code=402,
-            detail={"type": "card_required", "message": "A credit card is required to use this feature. Add one in Settings."},
-        )
-
     if not files:
         logger.warning("Extract request with no files — user_id=%s", current_user.id)
         raise HTTPException(status_code=400, detail="No files provided")

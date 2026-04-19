@@ -2,12 +2,10 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Loader2, CheckCircle2, AlertCircle, X, FileText,
-  Download, ArrowRight, Lock, Trash2, Eye, CreditCard,
+  Download, ArrowRight, Lock, Trash2, Eye,
   Sparkles, FilePlus2, Clipboard,
 } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
 import { useFormJobStore } from '@/store/formJobStore'
-import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -45,9 +43,7 @@ function formatBytes(bytes: number) {
 }
 
 export default function FormFillingPage() {
-  const { user } = useAuthStore()
   const { jobs, addJob, updateJob, dismissJob } = useFormJobStore()
-  const navigate = useNavigate()
   const [targetForm, setTargetForm] = useState<File | null>(null)
   const [sourceFiles, setSourceFiles] = useState<File[]>([])
   const [validationMsg, setValidationMsg] = useState<string | null>(null)
@@ -140,7 +136,7 @@ export default function FormFillingPage() {
 
   const hasProcessing = jobs.some(j => j.status === 'processing')
   const isReady = !!(targetForm && sourceFiles.length > 0)
-  const isFormDisabled = !isReady || hasProcessing || !!(user && !user.has_card)
+  const isFormDisabled = !isReady || hasProcessing
 
   const submitRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -216,24 +212,6 @@ export default function FormFillingPage() {
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* ── Card required banner ─────────────────────────────────── */}
-      {user && !user.has_card && (
-        <div className="relative mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
-            <CreditCard size={15} className="text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Credit card required</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Add a credit card to fill forms. You won't be charged on the free plan.
-            </p>
-          </div>
-          <Button size="sm" type="button" onClick={() => navigate('/settings?tab=payment')} className="flex-shrink-0">
-            Add Card <ArrowRight size={12} className="ml-1" />
-          </Button>
         </div>
       )}
 

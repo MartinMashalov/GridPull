@@ -102,7 +102,8 @@ const PRICING_TIERS = [
     period: '',
     desc: 'Try every tool at no cost',
     features: [
-      'Start free with 500 pages/month',
+      'No credit card required',
+      '500 pages/month',
       'All 5 tools: Fill Applications, Schedules, Proposals, Document Inbox, Pipelines',
       'Excel & CSV export',
       'OCR for scanned documents',
@@ -158,7 +159,7 @@ const PRICING_TIERS = [
 const FAQ_ITEMS = [
   {
     q: 'How much does it cost?',
-    a: 'GridPull is free to start with 500 pages per month. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
+    a: 'GridPull is free to start with 500 pages per month — no credit card required. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
     q: 'Are my files secure?',
@@ -403,7 +404,7 @@ export default function LandingPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              500 free pages/month  ·  Nothing to install  ·  Sign in and start uploading in seconds.
+              500 free pages/month  ·  No credit card required  ·  Sign in and start uploading in seconds.
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
               <Lock size={10} />
