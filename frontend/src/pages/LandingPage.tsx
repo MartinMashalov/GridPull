@@ -387,12 +387,12 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
-            Stop retyping data across carrier forms, building schedules by hand, and formatting proposals from scratch.
-            GridPull gives your agency five AI-powered tools that turn hours of manual work into seconds.
+            Stop retyping carrier forms, building schedules by hand, and formatting proposals from scratch.
+            GridPull's five AI-powered tools turn hours of manual work into seconds.
           </p>
 
           <p className="text-muted-foreground text-sm mb-6 sm:mb-10 max-w-xl mx-auto">
-            Doc Extraction and Automated Pipelines for Fill Applications, Schedules, Proposals, and a Document Inbox — everything your agency or brokerage needs to move submissions and renewals faster.
+            Doc Extraction and Automated Pipelines for Fill Applications, Schedules, Proposals, and a Document Inbox.
           </p>
 
           <div className="flex flex-col items-center gap-3">
@@ -403,7 +403,7 @@ export default function LandingPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              500 free pages/month  ·  Nothing to install  ·  No setup, no configuration, no learning curve — sign in and start uploading in seconds.
+              500 free pages/month  ·  Nothing to install  ·  Sign in and start uploading in seconds.
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
               <Lock size={10} />
