@@ -377,16 +377,22 @@ export default function LandingPage() {
 
         <div className="relative max-w-3xl mx-auto">
           <Badge variant="outline" className="mb-4 sm:mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
-            Built for insurance agencies and brokerages
+            Built for every agency and brokerage
           </Badge>
 
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
-            Move submissions and renewals{' '}
-            <span className="text-primary">faster</span>
+            Everything your agency and brokerage needs to{' '}
+            <br className="hidden sm:block" />
+            <span className="text-primary">move submissions and renewals faster</span>
           </h1>
 
-          <p className="text-muted-foreground text-base sm:text-lg mb-6 sm:mb-10 max-w-xl mx-auto leading-relaxed">
-            Five AI-powered tools that turn carrier forms, schedules, and proposals from hours into seconds.
+          <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">
+            Stop retyping data across carrier forms, building schedules by hand, and formatting proposals from scratch.
+            GridPull gives your agency five AI-powered tools that turn hours of manual work into seconds.
+          </p>
+
+          <p className="text-muted-foreground text-sm mb-6 sm:mb-10 max-w-xl mx-auto">
+            Doc Extraction and Automated Pipelines for Fill Applications, Schedules, Proposals, and a Document Inbox — everything your agency or brokerage needs to move submissions and renewals faster.
           </p>
 
           <div className="flex flex-col items-center gap-3">
@@ -396,12 +402,12 @@ export default function LandingPage() {
                 {loginError}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              500 free pages/month · No setup, no install
+            <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
+              500 free pages/month  ·  Nothing to install  ·  No setup, no configuration, no learning curve — sign in and start uploading in seconds.
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
               <Lock size={10} />
-              Files encrypted and deleted after processing
+              Your files are encrypted and deleted after processing
             </p>
           </div>
         </div>
