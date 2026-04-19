@@ -182,27 +182,22 @@ export default function SettingsPage() {
     free: [
       'No credit card required',
       '500 pages/month',
-      'All 5 tools: Fill Applications, Schedules, Proposals, Document Inbox, Pipelines',
-      'Excel & CSV export',
-      'OCR for scanned documents',
+      'All 5 tools unlocked',
     ],
     starter: [
       '7,500 pages/month',
-      '$0.012 per page overage',
-      'Fill Applications, Schedules, Document Inbox',
-      'Excel & CSV export',
+      'Fill Applications, Schedules, and Document Inbox',
+      '$0.012/page overage',
     ],
     pro: [
       '25,000 pages/month',
-      '$0.01 per page overage',
-      'All 5 tools including Proposals & Pipelines',
-      'Automated Pipelines for Outlook, Box, Dropbox',
+      'All 5 tools',
+      '$0.010/page overage',
     ],
     business: [
       '100,000 pages/month',
-      '$0.006 per page overage',
-      'All 5 tools including Proposals & Pipelines',
-      'Scale with your entire brokerage',
+      'All 5 tools for your entire team',
+      '$0.006/page overage',
     ],
   }
 

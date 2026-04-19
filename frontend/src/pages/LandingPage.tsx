@@ -100,13 +100,11 @@ const PRICING_TIERS = [
     name: 'Free',
     price: '$0',
     period: '',
-    desc: 'Try every tool at no cost',
+    desc: 'Try GridPull end-to-end, no commitment',
     features: [
       'No credit card required',
       '500 pages/month',
-      'All 5 tools: Fill Applications, Schedules, Proposals, Document Inbox, Pipelines',
-      'Excel & CSV export',
-      'OCR for scanned documents',
+      'All 5 tools unlocked',
     ],
     cta: 'Start free',
     highlight: false,
@@ -117,10 +115,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For solo agents & small agencies',
     features: [
-      '7,500 pages / month',
-      '$0.012 per page overage',
-      'Fill Applications, Schedules, Document Inbox',
-      'Excel & CSV export',
+      '7,500 pages/month',
+      'Fill Applications, Schedules, and Document Inbox',
+      '$0.012/page overage',
     ],
     cta: 'Get started',
     highlight: false,
@@ -131,10 +128,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For growing agencies & teams',
     features: [
-      '25,000 pages / month',
-      '$0.01 per page overage',
-      'All 5 tools including Proposals & Pipelines',
-      'Automated Pipelines for Outlook, Box, Dropbox',
+      '25,000 pages/month',
+      'All 5 tools',
+      '$0.010/page overage',
     ],
     cta: 'Go Pro',
     highlight: true,
@@ -145,10 +141,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For large brokerages & enterprises',
     features: [
-      '100,000 pages / month',
-      '$0.006 per page overage',
-      'All 5 tools including Proposals & Pipelines',
-      'Scale with your entire brokerage',
+      '100,000 pages/month',
+      'All 5 tools for your entire team',
+      '$0.006/page overage',
     ],
     cta: 'Contact us',
     highlight: false,
@@ -403,8 +398,12 @@ export default function LandingPage() {
                 {loginError}
               </p>
             )}
+            <p className="text-sm font-medium text-foreground flex items-center justify-center gap-1.5">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              No credit card required
+            </p>
             <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              500 free pages/month  ·  No credit card required  ·  Sign in and start uploading in seconds.
+              500 free pages/month  ·  Sign in and start uploading in seconds.
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
               <Lock size={10} />
