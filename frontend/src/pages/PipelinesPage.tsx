@@ -423,7 +423,7 @@ export default function PipelinesPage() {
             <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : pipelines.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10">
+          <div className="flex flex-col items-center">
             <div className="max-w-md w-full">
             <div className="flex flex-col items-center text-center mb-5">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3">

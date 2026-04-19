@@ -377,13 +377,12 @@ export default function LandingPage() {
 
         <div className="relative max-w-3xl mx-auto">
           <Badge variant="outline" className="mb-4 sm:mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
-            Built for every agency and brokerage
+            Built for insurance agencies and brokerages
           </Badge>
 
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
-            Everything your agency and brokerage needs to{' '}
-            <br className="hidden sm:block" />
-            <span className="text-primary">move submissions and renewals faster</span>
+            Move insurance submissions and renewals{' '}
+            <span className="text-primary">faster</span>
           </h1>
 
           <p className="text-muted-foreground text-base sm:text-lg mb-4 max-w-2xl mx-auto leading-relaxed">

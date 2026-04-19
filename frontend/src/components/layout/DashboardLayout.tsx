@@ -44,12 +44,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         {/* Drawer overlay */}
         {mobileOpen && (
-          <div className="fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 z-50 flex h-[100dvh]">
             <div
               className="absolute inset-0 bg-black/40"
               onClick={() => setMobileOpen(false)}
             />
-            <div className="relative z-10 w-60 max-w-[80vw]">
+            <div className="relative z-10 w-60 max-w-[80vw] h-full">
               <Sidebar collapsed={false} onToggle={() => setMobileOpen(false)} />
             </div>
           </div>
