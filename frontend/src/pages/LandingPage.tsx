@@ -502,8 +502,12 @@ export default function LandingPage() {
             ))}
           </div>
 
-          <div className="text-center mt-10">
+          <div className="flex flex-col items-center gap-2 mt-10">
             <SignInButton size="xl" label="Try all 5 tools free" className="min-w-0 sm:min-w-[260px] w-full sm:w-auto" />
+            <p className="text-sm font-medium text-foreground flex items-center justify-center gap-1.5">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              No credit card required
+            </p>
           </div>
         </div>
       </section>
@@ -520,9 +524,15 @@ export default function LandingPage() {
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
             Start free with 500 pages/month. From solo agents to large brokerages, scale with your business.
           </p>
-          <p className="text-center text-primary text-sm font-semibold mb-12">
+          <p className="text-center text-primary text-sm font-semibold mb-4">
             Process thousands of pages for a fraction of the cost of manual data entry.
           </p>
+          <div className="flex items-center justify-center mb-12">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              No credit card required to start
+            </span>
+          </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10 items-stretch">
             {PRICING_TIERS.map((tier) => (
@@ -560,7 +570,7 @@ export default function LandingPage() {
             ))}
           </div>
 
-          <div className="text-center">
+          <div className="flex flex-col items-center text-center">
             <p className="text-xs text-muted-foreground mb-2">
               Each page of your document counts toward your monthly limit. Each Form fill and proposal costs 5 pages.
             </p>
@@ -568,6 +578,10 @@ export default function LandingPage() {
               Every plan is purpose-built for insurance workflows — ACORD forms, commercial schedules, loss runs, carrier quotes, and claims documents, all in one platform. No contracts — cancel anytime.
             </p>
             <SignInButton size="xl" label="Start free — 500 pages/month" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <p className="mt-2 text-sm font-medium text-foreground flex items-center justify-center gap-1.5">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              No credit card required
+            </p>
           </div>
         </div>
       </section>
@@ -610,8 +624,12 @@ export default function LandingPage() {
             ))}
           </Accordion>
 
-          <div className="text-center mt-10">
+          <div className="flex flex-col items-center gap-2 mt-10">
             <SignInButton size="xl" label="Get started for free" className="min-w-0 sm:min-w-[240px] w-full sm:w-auto" />
+            <p className="text-sm font-medium text-foreground flex items-center justify-center gap-1.5">
+              <CheckCircle2 size={14} className="text-emerald-500" />
+              No credit card required
+            </p>
           </div>
         </div>
       </section>
@@ -641,12 +659,16 @@ export default function LandingPage() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-6 shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-2">
               <Dialog.Title className="text-lg font-semibold">Sign in to continue</Dialog.Title>
               <Dialog.Close className="rounded-full p-1 hover:bg-muted transition-colors">
                 <X size={16} />
               </Dialog.Close>
             </div>
+            <p className="mb-5 text-xs font-medium text-foreground flex items-center gap-1.5">
+              <CheckCircle2 size={13} className="text-emerald-500" />
+              No credit card required — 500 free pages/month
+            </p>
 
             <div className="flex flex-col gap-3">
               <button
