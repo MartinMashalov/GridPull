@@ -91,14 +91,30 @@ async def generate_proposal(
                 data=data,
                 files=files,
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                logger.error(
+                    "Papyra /generate returned %s (user_id=%s lob=%s docs=%d): %s",
+                    resp.status_code, current_user.id, lob, len(documents), resp.text[:1000],
+                )
+                # Try to surface a useful message to the user even when Papyra
+                # returns a plain-string body like "Internal Server Error".
+                try:
+                    papyra_body = resp.json()
+                    papyra_detail = papyra_body.get("detail") if isinstance(papyra_body, dict) else papyra_body
+                except Exception:
+                    papyra_detail = (resp.text or "").strip()[:400]
+                if isinstance(papyra_detail, str) and papyra_detail.lower() in ("", "internal server error"):
+                    user_msg = "Proposal generator is temporarily unavailable. Please try again in a few minutes."
+                else:
+                    user_msg = f"Proposal generator error: {papyra_detail}"
+                status_code = resp.status_code if resp.status_code < 500 else 502
+                raise HTTPException(status_code=status_code, detail=user_msg)
             payload = resp.json()
-    except httpx.HTTPStatusError as exc:
-        detail = exc.response.text[:500] if exc.response else str(exc)
-        raise HTTPException(status_code=exc.response.status_code, detail=detail)
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.error("Papyra proxy failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Proposal service unavailable")
+        logger.exception("Papyra proxy failed")
+        raise HTTPException(status_code=502, detail=f"Proposal service unavailable: {exc.__class__.__name__}")
 
     # Charge pages only after Papyra succeeds
     user.pages_used_this_period = used + PROPOSAL_PAGE_COST
