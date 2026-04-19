@@ -82,6 +82,7 @@ export default function ProposalsPage() {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null)
   const [savedLogoFilename, setSavedLogoFilename] = useState<string | null>(null)
   const [savedLogoDataUrl, setSavedLogoDataUrl] = useState<string | null>(null)
+  const [logoImgError, setLogoImgError] = useState(false)
   const [agencyLoading, setAgencyLoading] = useState(false)
   const [agencySaving, setAgencySaving] = useState(false)
 
@@ -96,9 +97,10 @@ export default function ProposalsPage() {
         const data = res.data || {}
         if (typeof data.content === 'string') setAgencyInfo(data.content)
         if (data.logo_filename) setSavedLogoFilename(data.logo_filename)
-        if (data.logo_base64) {
+        if (data.logo_base64 && data.logo_base64.length > 0) {
           const mime = data.logo_mime || 'image/png'
           setSavedLogoDataUrl(`data:${mime};base64,${data.logo_base64}`)
+          setLogoImgError(false)
         }
       } catch {
         // first-time users or transient errors shouldn't block the form
@@ -140,9 +142,10 @@ export default function ProposalsPage() {
       if (logoFile) {
         setSavedLogoFilename(logoFile.name)
         const body = putRes?.data || {}
-        if (body.logo_base64) {
+        if (body.logo_base64 && body.logo_base64.length > 0) {
           const mime = body.logo_mime || logoFile.type || 'image/png'
           setSavedLogoDataUrl(`data:${mime};base64,${body.logo_base64}`)
+          setLogoImgError(false)
         }
         setLogoFile(null)
       }
@@ -356,11 +359,12 @@ export default function ProposalsPage() {
               data-testid="agency-logo-pill"
             >
               <div className="flex items-center gap-3 min-w-0">
-                {(logoPreviewUrl || savedLogoDataUrl) && (
+                {(logoPreviewUrl || (savedLogoDataUrl && !logoImgError)) && (
                   <img
                     src={logoPreviewUrl || savedLogoDataUrl || ''}
                     alt="Agency logo preview"
                     data-testid="agency-logo-preview"
+                    onError={() => { if (!logoPreviewUrl) setLogoImgError(true) }}
                     className="h-10 w-10 object-contain rounded bg-background border border-border flex-shrink-0"
                   />
                 )}

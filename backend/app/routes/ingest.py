@@ -95,17 +95,8 @@ async def get_address(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the user's ingest address."""
-    result = await db.execute(
-        select(IngestAddress).where(IngestAddress.user_id == user.id)
-    )
-    existing = result.scalar_one_or_none()
-    if not existing:
-        raise HTTPException(status_code=404, detail="No ingest address configured")
-    return {
-        "address": settings.ingest_universal_email,
-        "address_key": existing.address_key,
-    }
+    """Get the user's ingest address, auto-creating one on first access."""
+    return await create_or_get_address(user=user, db=db)
 
 
 # ── Inbox ──────────────────────────────────────────────────────────────────────

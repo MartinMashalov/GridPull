@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, CreditCard, Mail } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -672,29 +672,11 @@ export default function DashboardPage() {
               Free limit reached ({usageWarning.pages_limit.toLocaleString()} pages/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 7,500 pages/month starting at $49/mo.
+              Upgrade to Starter for 7,500 pages/month starting at $69/mo.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">
             Upgrade <ArrowRight size={12} className="ml-1" />
-          </Button>
-        </div>
-      )}
-
-      {/* Card required banner */}
-      {user && !user.has_card && (
-        <div className="relative mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
-            <CreditCard size={15} className="text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Credit card required</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Add a credit card to start processing documents. You won't be charged on the free plan.
-            </p>
-          </div>
-          <Button size="sm" onClick={() => navigate('/settings?tab=payment')} className="flex-shrink-0">
-            Add Card <ArrowRight size={12} className="ml-1" />
           </Button>
         </div>
       )}
@@ -936,7 +918,7 @@ export default function DashboardPage() {
         <Button
           ref={submitBtnRef}
           onClick={handleProcess}
-          disabled={isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null) || !!(user && !user.has_card)}
+          disabled={isProcessing || (documentType === 'sov' && baselineSpreadsheet !== null && baselineHeaders === null)}
           size="lg"
           className="mt-4 w-full shadow-lg shadow-primary/25"
         >
