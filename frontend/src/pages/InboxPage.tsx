@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import UsagePill from '@/components/UsagePill'
-import CreditCardBanner from '@/components/CreditCardBanner'
 import { cn } from '@/lib/utils'
 import toast from 'react-hot-toast'
 
@@ -352,8 +351,6 @@ export default function InboxPage() {
             Your own private mailbox for documents. Send emails with attachments to your personal address below, and the files show up here — sorted by who sent them. You can also drag files in from your computer or scan paper documents with your phone.
           </p>
         </div>
-
-        <CreditCardBanner />
 
         {/* ── Ingest email address card ────────────────────────────────── */}
         <div className="bg-white border border-border rounded-xl p-5 mb-6">
