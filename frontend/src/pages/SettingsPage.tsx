@@ -178,6 +178,34 @@ export default function SettingsPage() {
 
   const TIERS_DISPLAY: Record<string, string> = { free: 'Free', starter: 'Starter', pro: 'Pro', business: 'Business' }
 
+  const TIER_FEATURES: Record<string, string[]> = {
+    free: [
+      'No credit card required',
+      '500 pages/month',
+      'All 5 tools: Fill Applications, Schedules, Proposals, Document Inbox, Pipelines',
+      'Excel & CSV export',
+      'OCR for scanned documents',
+    ],
+    starter: [
+      '7,500 pages/month',
+      '$0.012 per page overage',
+      'Fill Applications, Schedules, Document Inbox',
+      'Excel & CSV export',
+    ],
+    pro: [
+      '25,000 pages/month',
+      '$0.01 per page overage',
+      'All 5 tools including Proposals & Pipelines',
+      'Automated Pipelines for Outlook, Box, Dropbox',
+    ],
+    business: [
+      '100,000 pages/month',
+      '$0.006 per page overage',
+      'All 5 tools including Proposals & Pipelines',
+      'Scale with your entire brokerage',
+    ],
+  }
+
   const handleCancel = async () => {
     setCanceling(true)
     try {
@@ -353,83 +381,92 @@ export default function SettingsPage() {
                     const isUp = tierOrder.indexOf(tier.name) > tierOrder.indexOf(currentTier)
 
 
+                    const features = TIER_FEATURES[tier.name] ?? []
+
                     return (
                       <div
                         key={tier.name}
                         className={cn(
-                          'rounded-xl border p-4 flex items-center justify-between transition-all',
+                          'rounded-xl border p-4 transition-all',
                           isCurrent
                             ? cn(TIER_BORDER[tier.name], TIER_BG[tier.name])
                             : 'border-border hover:shadow-sm hover:border-border/80',
                           tier.name === 'pro' && !isCurrent && 'border-amber-500/30 bg-amber-500/[0.03]',
                         )}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={cn('p-2 rounded-lg', TIER_BG[tier.name], TIER_COLORS[tier.name])}>
-                            {TIER_ICONS[tier.name]}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn('p-2 rounded-lg', TIER_BG[tier.name], TIER_COLORS[tier.name])}>
+                              {TIER_ICONS[tier.name]}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold">{tier.display_name}</p>
+                                {isCurrent && (
+                                  <Badge className="text-[10px] bg-primary/15 text-primary border-primary/30">Current</Badge>
+                                )}
+                                {tier.name === 'pro' && !isCurrent && (
+                                  <Badge className="text-[10px] bg-amber-500/20 text-amber-600 border-amber-500/30">Popular</Badge>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold">{tier.display_name}</p>
-                              {isCurrent && (
-                                <Badge className="text-[10px] bg-primary/15 text-primary border-primary/30">Current</Badge>
-                              )}
-                              {tier.name === 'pro' && !isCurrent && (
-                                <Badge className="text-[10px] bg-amber-500/20 text-amber-600 border-amber-500/30">Popular</Badge>
+                          <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                            <div className="text-right">
+                              {tier.price_monthly > 0 ? (
+                                <>
+                                  <p className="text-sm font-bold">${(tier.price_monthly / 100).toFixed(0)}</p>
+                                  <p className="text-[10px] text-muted-foreground">/month</p>
+                                </>
+                              ) : (
+                                <p className="text-sm font-bold">Free</p>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {tier.pages_per_month.toLocaleString()} pages/mo
-                              {tier.has_pipeline && ' · Pipeline access'}
-                              {tier.overage_rate_cents_per_page && ` · $${(tier.overage_rate_cents_per_page / 100).toFixed(3)}/page overage`}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                          <div className="text-right">
-                            {tier.price_monthly > 0 ? (
-                              <>
-                                <p className="text-sm font-bold">${(tier.price_monthly / 100).toFixed(0)}</p>
-                                <p className="text-[10px] text-muted-foreground">/month</p>
-                              </>
+                            {isCurrent ? (
+                              <div className="min-w-[90px] flex justify-center">
+                                <Check size={16} className="text-primary" />
+                              </div>
                             ) : (
-                              <p className="text-sm font-bold">Free</p>
+                              <Button
+                                size="sm"
+                                variant={isUp ? 'default' : 'outline'}
+                                disabled={!!subscribing}
+                                onClick={() => {
+                                  if (tier.name === 'free') {
+                                    setConfirmTier(tier)
+                                  } else if (currentTier === 'free') {
+                                    // Going from free to paid — Stripe Checkout handles card
+                                    confirmAndSubscribe(tier.name)
+                                  } else {
+                                    // Switching between paid plans — show confirmation
+                                    setConfirmTier(tier)
+                                  }
+                                }}
+                                className="min-w-[90px]"
+                              >
+                                {subscribing === tier.name ? (
+                                  <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                                ) : tier.name === 'free' ? (
+                                  'Downgrade'
+                                ) : isUp ? (
+                                  <>Upgrade <ChevronRight size={12} /></>
+                                ) : (
+                                  'Downgrade'
+                                )}
+                              </Button>
                             )}
                           </div>
-                          {isCurrent ? (
-                            <div className="min-w-[90px] flex justify-center">
-                              <Check size={16} className="text-primary" />
-                            </div>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant={isUp ? 'default' : 'outline'}
-                              disabled={!!subscribing}
-                              onClick={() => {
-                                if (tier.name === 'free') {
-                                  setConfirmTier(tier)
-                                } else if (currentTier === 'free') {
-                                  // Going from free to paid — Stripe Checkout handles card
-                                  confirmAndSubscribe(tier.name)
-                                } else {
-                                  // Switching between paid plans — show confirmation
-                                  setConfirmTier(tier)
-                                }
-                              }}
-                              className="min-w-[90px]"
-                            >
-                              {subscribing === tier.name ? (
-                                <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                              ) : tier.name === 'free' ? (
-                                'Downgrade'
-                              ) : isUp ? (
-                                <>Upgrade <ChevronRight size={12} /></>
-                              ) : (
-                                'Downgrade'
-                              )}
-                            </Button>
-                          )}
                         </div>
+                        {features.length > 0 && (
+                          <ul className="mt-3 space-y-1.5">
+                            {features.map(f => (
+                              <li key={f} className="flex items-start gap-2 text-xs text-muted-foreground">
+                                <Check size={12} className="text-primary mt-0.5 flex-shrink-0" />
+                                <span>{f}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )
                   })}
