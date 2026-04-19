@@ -9,6 +9,7 @@ import {
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import UsagePill from '@/components/UsagePill'
+import CreditCardBanner from '@/components/CreditCardBanner'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/lib/api'
@@ -393,6 +394,8 @@ export default function PipelinesPage() {
           Automate repetitive document processing. Connect a folder in Outlook, Box, or Dropbox, define the fields to extract, and new files are processed automatically into a spreadsheet.
         </p>
       </div>
+
+      <CreditCardBanner description="Add a credit card to run pipelines. You won't be charged on the free plan." />
 
       {/* Upgrade gate */}
       {!hasAccess && (

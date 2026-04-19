@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import UsagePill from '@/components/UsagePill'
+import CreditCardBanner from '@/components/CreditCardBanner'
 import {
   Select,
   SelectContent,
@@ -252,6 +253,8 @@ export default function ProposalsPage() {
           Upload carrier quote PDFs, configure your proposal settings below, then download a polished PDF ready to send to your client.
         </p>
       </div>
+
+      <CreditCardBanner description="Add a credit card to generate proposals. You won't be charged on the free plan." />
 
       {/* Upgrade gate */}
       {!hasAccess && (
