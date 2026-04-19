@@ -161,13 +161,15 @@ async def get_subscription(
     await db.commit()
 
     tier = get_tier(user.subscription_tier)
-    usage_pct = (user.pages_used_this_period / tier.pages_per_month * 100) if tier.pages_per_month else 0
+    pages_used = user.pages_used_this_period or 0
+    overage_pages = user.overage_pages_this_period or 0
+    usage_pct = (pages_used / tier.pages_per_month * 100) if tier.pages_per_month else 0
 
     return {
         "tier": tier_info_dict(tier),
-        "status": user.subscription_status,
-        "pages_used": user.pages_used_this_period,
-        "overage_pages": user.overage_pages_this_period,
+        "status": user.subscription_status or "active",
+        "pages_used": pages_used,
+        "overage_pages": overage_pages,
         "pages_limit": tier.pages_per_month,
         "usage_percent": min(usage_pct, 100),
         "current_period_end": user.current_period_end.isoformat() if user.current_period_end else None,

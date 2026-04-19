@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { trackEvent } from '@/lib/analytics'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import JSZip from 'jszip'
-import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, Mail, Table2 } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, X, FileText, ArrowRight, Lock, Trash2, Eye, AlertTriangle, Crown, FileSpreadsheet, Table2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
@@ -457,9 +457,30 @@ export default function SchedulesPage() {
         updateSubscription({ pages_used_this_period: res.data.usage.pages_used })
         api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
       }
-    } catch (err: any) {
-      const detail = err.response?.data?.detail
-      const msg = typeof detail === 'string' ? detail : 'Failed to start extraction'
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: unknown }; status?: number } }
+      const detail = e.response?.data?.detail
+      const status = e.response?.status
+      const paywallDetail =
+        detail && typeof detail === 'object' && detail !== null && 'type' in detail
+          ? (detail as { type?: string; message?: string })
+          : null
+
+      if (status === 402 && (paywallDetail?.type === 'page_limit_reached' || paywallDetail?.type === 'credit_limit_reached')) {
+        setJob((p) => p ? { ...p, status: 'error', message: 'Page limit reached', error: paywallDetail.message } : null)
+        setIsPaywalled(true)
+        api.get('/payments/usage-warning').then(r => setUsageWarning(r.data)).catch(() => {})
+        setInboxDocIds([])
+        return
+      }
+
+      const msg = typeof detail === 'string'
+        ? detail
+        : paywallDetail?.message
+          ? paywallDetail.message
+          : status
+            ? `Upload failed (HTTP ${status})`
+            : 'Upload failed — check your connection'
       setJob((p) => p ? { ...p, status: 'error', message: 'Error', error: msg } : null)
       setInboxDocIds([])
     }
@@ -656,7 +677,7 @@ export default function SchedulesPage() {
               Free limit reached ({usageWarning.pages_limit.toLocaleString()} pages/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 800 pages/month starting at $49/mo.
+              Upgrade to Starter for 800 pages/month starting at $69/mo.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">

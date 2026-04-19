@@ -14,7 +14,6 @@ import MobileUploadPage from '@/pages/MobileUploadPage'
 import { useAuthStore } from '@/store/authStore'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import AutoLoginPage from '@/pages/AutoLoginPage'
-import { Toaster } from 'react-hot-toast'
 
 const ResourcesHub = lazy(() => import('@/pages/resources/ResourcesHub'))
 const ResourcePage = lazy(() => import('@/pages/resources/ResourcePage'))
@@ -84,7 +83,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </ErrorBoundary>
-      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
     </BrowserRouter>
   )
 }

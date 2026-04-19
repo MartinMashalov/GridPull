@@ -36,13 +36,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   const handleLogout = () => {
     logout()
-    toast.success('Logged out')
-    navigate('/')
+    window.location.replace('/')
   }
 
   const handleLogoClick = () => {
     logout()
-    navigate('/')
+    window.location.replace('/')
   }
 
   return (

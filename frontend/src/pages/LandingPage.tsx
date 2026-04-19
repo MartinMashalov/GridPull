@@ -110,7 +110,7 @@ const PRICING_TIERS = [
   },
   {
     name: 'Starter',
-    price: '$49',
+    price: '$69',
     period: '/mo',
     desc: 'For solo agents & small agencies',
     features: [
@@ -136,7 +136,7 @@ const PRICING_TIERS = [
   },
   {
     name: 'Business',
-    price: '$699',
+    price: '$499',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
     features: [
@@ -153,7 +153,7 @@ const PRICING_TIERS = [
 const FAQ_ITEMS = [
   {
     q: 'How much does it cost?',
-    a: 'GridPull is free to start with 100 pages per month — no credit card required. When you need more, paid plans start at $49/month for 800 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
+    a: 'GridPull is free to start with 100 pages per month — no credit card required. When you need more, paid plans start at $69/month for 800 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
     q: 'Are my files secure?',

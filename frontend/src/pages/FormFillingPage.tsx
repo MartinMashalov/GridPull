@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import {
   Upload, Loader2, CheckCircle2, AlertCircle, X, FileText,
-  Download, ArrowRight, Lock, Trash2, Eye,
+  Download, Lock, Trash2, Eye,
   Sparkles, FilePlus2, Clipboard,
 } from 'lucide-react'
 import { useFormJobStore } from '@/store/formJobStore'
@@ -43,7 +43,7 @@ function formatBytes(bytes: number) {
 }
 
 export default function FormFillingPage() {
-  const { jobs, addJob, updateJob, dismissJob } = useFormJobStore()
+  const { jobs, addJob, dismissJob } = useFormJobStore()
   const [targetForm, setTargetForm] = useState<File | null>(null)
   const [sourceFiles, setSourceFiles] = useState<File[]>([])
   const [validationMsg, setValidationMsg] = useState<string | null>(null)

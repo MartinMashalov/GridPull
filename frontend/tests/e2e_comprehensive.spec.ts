@@ -143,9 +143,9 @@ test.describe('Landing Page — Pricing', () => {
     await page.waitForLoadState('networkidle')
     await page.getByText('Plans that scale with your agency').scrollIntoViewIfNeeded()
     await expect(page.getByText('Plans that scale with your agency')).toBeVisible()
-    await expect(page.locator('text=$49')).toBeVisible()
+    await expect(page.locator('text=$69')).toBeVisible()
     await expect(page.locator('text=$199')).toBeVisible()
-    await expect(page.locator('text=$699')).toBeVisible()
+    await expect(page.locator('text=$499')).toBeVisible()
   })
 
   test('Free tier includes 100 pages', async ({ page }) => {
