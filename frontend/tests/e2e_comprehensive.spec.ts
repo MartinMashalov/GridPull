@@ -148,10 +148,10 @@ test.describe('Landing Page — Pricing', () => {
     await expect(page.locator('text=$699')).toBeVisible()
   })
 
-  test('Free tier includes 500 pages', async ({ page }) => {
+  test('Free tier includes 100 pages', async ({ page }) => {
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByText('500 pages / month', { exact: true })).toBeVisible()
+    await expect(page.getByText('100 pages/month', { exact: true })).toBeVisible()
   })
 
   test('pricing describes page-based billing not credits', async ({ page }) => {

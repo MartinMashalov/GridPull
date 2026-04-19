@@ -656,7 +656,7 @@ export default function SchedulesPage() {
               Free limit reached ({usageWarning.pages_limit.toLocaleString()} pages/month)
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Upgrade to Starter for 7,500 pages/month starting at $49/mo.
+              Upgrade to Starter for 800 pages/month starting at $49/mo.
             </p>
           </div>
           <Button size="sm" onClick={() => navigate('/settings')} className="flex-shrink-0">

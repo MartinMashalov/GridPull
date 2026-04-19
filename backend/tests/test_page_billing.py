@@ -27,10 +27,10 @@ class TestTierDefinitions(unittest.TestCase):
 
     def test_tier_pages(self):
         from app.services.subscription_tiers import TIERS
-        self.assertEqual(TIERS["free"].pages_per_month, 500)
-        self.assertEqual(TIERS["starter"].pages_per_month, 7500)
-        self.assertEqual(TIERS["pro"].pages_per_month, 25000)
-        self.assertEqual(TIERS["business"].pages_per_month, 100000)
+        self.assertEqual(TIERS["free"].pages_per_month, 100)
+        self.assertEqual(TIERS["starter"].pages_per_month, 800)
+        self.assertEqual(TIERS["pro"].pages_per_month, 3000)
+        self.assertEqual(TIERS["business"].pages_per_month, 10000)
 
     def test_tier_pricing(self):
         from app.services.subscription_tiers import TIERS
@@ -42,9 +42,9 @@ class TestTierDefinitions(unittest.TestCase):
     def test_overage_rates(self):
         from app.services.subscription_tiers import TIERS
         self.assertIsNone(TIERS["free"].overage_rate_cents_per_page)
-        self.assertAlmostEqual(TIERS["starter"].overage_rate_cents_per_page, 1.2)
-        self.assertAlmostEqual(TIERS["pro"].overage_rate_cents_per_page, 1.0)
-        self.assertAlmostEqual(TIERS["business"].overage_rate_cents_per_page, 0.6)
+        self.assertAlmostEqual(TIERS["starter"].overage_rate_cents_per_page, 5.0)
+        self.assertAlmostEqual(TIERS["pro"].overage_rate_cents_per_page, 3.0)
+        self.assertAlmostEqual(TIERS["business"].overage_rate_cents_per_page, 1.5)
 
     def test_no_stale_credit_attributes(self):
         from app.services.subscription_tiers import TIERS
@@ -63,7 +63,7 @@ class TestTierDefinitions(unittest.TestCase):
 
     def test_get_tier_default(self):
         from app.services.subscription_tiers import get_tier
-        self.assertEqual(get_tier("nonexistent").pages_per_month, 500)
+        self.assertEqual(get_tier("nonexistent").pages_per_month, 100)
 
     def test_form_fill_cost(self):
         from app.services.subscription_tiers import FORM_FILL_PAGE_COST
@@ -339,7 +339,7 @@ class TestProposalFreeTierAndOverage(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(user.pages_used_this_period, 498)
 
     async def test_paid_tier_near_limit_accrues_overage(self):
-        """Pro user at 24,998 pages generating a 5-page proposal should increment overage by 3 (24,998+5−25,000)."""
+        """Pro user 2 pages from limit generating a 5-page proposal should accrue overage."""
         import types
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -347,7 +347,7 @@ class TestProposalFreeTierAndOverage(unittest.IsolatedAsyncioTestCase):
         from app.services.subscription_tiers import PROPOSAL_PAGE_COST, get_tier
 
         tier = get_tier("pro")
-        before_used = tier.pages_per_month - 2  # 24998
+        before_used = tier.pages_per_month - 2
         user = types.SimpleNamespace(
             id="u-overage", subscription_tier="pro",
             pages_used_this_period=before_used,
@@ -387,9 +387,8 @@ class TestProposalFreeTierAndOverage(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(user.pages_used_this_period, before_used + PROPOSAL_PAGE_COST)
-        # 24998 + 5 - 25000 = 3 pages of overage. Current code implementation charges
-        # the full PROPOSAL_PAGE_COST as overage once over, not the delta. Assert whichever
-        # the code does:
+        # Current code implementation may charge the full PROPOSAL_PAGE_COST as overage
+        # once over, not the delta. Assert whichever the code does:
         self.assertGreater(user.overage_pages_this_period, 0)
 
     async def test_cache_del_user_called_after_success(self):
@@ -518,10 +517,10 @@ class TestOverageCalculation(unittest.TestCase):
     def test_partial_overage(self):
         from app.services.subscription_tiers import get_tier
         tier = get_tier("starter")
-        used = 7400
+        used = 700
         new_pages = 200
         overage = max(0, (used + new_pages) - tier.pages_per_month)
-        self.assertEqual(overage, 100)  # 7600 - 7500 = 100
+        self.assertEqual(overage, 100)  # 900 - 800 = 100
 
     def test_overage_cost_calculation(self):
         from app.services.subscription_tiers import get_tier
@@ -529,14 +528,14 @@ class TestOverageCalculation(unittest.TestCase):
         overage_pages = 100
         cost_cents = overage_pages * tier.overage_rate_cents_per_page
         cost_dollars = cost_cents / 100
-        self.assertAlmostEqual(cost_dollars, 1.20)  # 100 * 1.2 cents = $1.20
+        self.assertAlmostEqual(cost_dollars, 5.00)  # 100 * 5.0 cents = $5.00
 
     def test_business_overage_cost(self):
         from app.services.subscription_tiers import get_tier
         tier = get_tier("business")
         overage_pages = 1000
         cost_dollars = (overage_pages * tier.overage_rate_cents_per_page) / 100
-        self.assertAlmostEqual(cost_dollars, 6.00)  # 1000 * 0.6 cents = $6.00
+        self.assertAlmostEqual(cost_dollars, 15.00)  # 1000 * 1.5 cents = $15.00
 
 
 class TestFormFillPageCost(unittest.TestCase):
@@ -550,16 +549,16 @@ class TestFormFillPageCost(unittest.TestCase):
     def test_form_fill_free_tier_limit(self):
         from app.services.subscription_tiers import get_tier, FORM_FILL_PAGE_COST
         tier = get_tier("free")
-        used = 497
+        used = 97
         blocked = tier.name == "free" and used + FORM_FILL_PAGE_COST > tier.pages_per_month
-        self.assertTrue(blocked)  # 497 + 5 = 502 > 500
+        self.assertTrue(blocked)  # 97 + 5 = 102 > 100
 
     def test_form_fill_under_limit(self):
         from app.services.subscription_tiers import get_tier, FORM_FILL_PAGE_COST
         tier = get_tier("free")
-        used = 490
+        used = 90
         blocked = tier.name == "free" and used + FORM_FILL_PAGE_COST > tier.pages_per_month
-        self.assertFalse(blocked)  # 490 + 5 = 495 <= 500
+        self.assertFalse(blocked)  # 90 + 5 = 95 <= 100
 
 
 class TestNoStaleReferences(unittest.TestCase):

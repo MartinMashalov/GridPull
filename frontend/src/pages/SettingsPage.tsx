@@ -181,23 +181,23 @@ export default function SettingsPage() {
   const TIER_FEATURES: Record<string, string[]> = {
     free: [
       'No credit card required',
-      '500 pages/month',
+      '100 pages/month',
       'All 5 tools unlocked',
     ],
     starter: [
-      '7,500 pages/month',
+      '800 pages/month',
       'Fill Applications, Schedules, and Document Inbox',
-      '$0.012/page overage',
+      '$0.05/page overage',
     ],
     pro: [
-      '25,000 pages/month',
+      '3,000 pages/month',
       'All 5 tools',
-      '$0.010/page overage',
+      '$0.03/page overage',
     ],
     business: [
-      '100,000 pages/month',
+      '10,000 pages/month',
       'All 5 tools for your entire team',
-      '$0.006/page overage',
+      '$0.015/page overage',
     ],
   }
 
@@ -266,7 +266,7 @@ export default function SettingsPage() {
           <h1 className="text-xl font-semibold text-foreground">Settings</h1>
         </div>
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
-          Start free with 500 pages/month. From solo agents to large brokerages, scale with your business. Process thousands of pages for a fraction of the cost of manual data entry.
+          Start free with 100 pages/month. From solo agents to large brokerages, scale with your business. Process thousands of pages for a fraction of the cost of manual data entry.
         </p>
       </div>
 

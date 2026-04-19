@@ -168,7 +168,7 @@ export default function FormFillingPage() {
         <p className="text-muted-foreground text-sm mt-1 max-w-2xl leading-relaxed">
           Fill carrier intake forms and supplemental applications automatically.
           Upload your source documents on the left, then add the blank PDF form you want filled on the right.
-          AI reads your source docs and fills every field on the carrier's form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
+          AI reads your source docs and fills every field on the form. Supports ACORD forms, carrier-specific apps, and any fillable PDF.
         </p>
       </div>
 

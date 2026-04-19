@@ -15,7 +15,6 @@ import { trackEvent } from '@/lib/analytics'
 import api from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion'
 
 const msalInstance = new PublicClientApplication({
@@ -45,13 +44,13 @@ const TOOLS = [
       'ACORD forms, carrier apps, and any fillable PDF',
       'Pulls data from your intake forms and source docs automatically',
       'Fill the same submission across multiple carriers in minutes',
-      'Handles supplemental applications and endorsement forms',
+      'Handles supplemental applications and carrier forms',
     ],
   },
   {
     icon: Table2,
     title: 'Schedules',
-    desc: 'Build every supplemental schedule a commercial submission needs — locations, equipment, vehicles, drivers, employees, and more — directly from your source documents. Upload last year\'s schedule as a baseline and GridPull updates it with new information automatically.',
+    desc: 'Build every schedule a commercial submission needs — locations, equipment, vehicles, drivers, employees, and more — directly from your source documents and emails. Upload last year\'s schedule as a baseline and GridPull updates it with new information automatically.',
     bullets: [
       'Locations, equipment, vehicles, drivers, employee schedules, and more',
       'Upload last year\'s schedule as a baseline and update it',
@@ -77,7 +76,7 @@ const TOOLS = [
     bullets: [
       'Your own private inbox address — never shared with another customer',
       'Forward emails from anywhere and attachments land organized by sender',
-      'Every teammate in your organization shares the same inbox — clients only have to email one address',
+      'Every teammate in your organization shares the same inbox',
       'Use any file directly inside Fill Applications, Schedules, Proposals, or Pipelines',
     ],
   },
@@ -103,7 +102,7 @@ const PRICING_TIERS = [
     desc: 'Try GridPull end-to-end, no commitment',
     features: [
       'No credit card required',
-      '500 pages/month',
+      '100 pages/month',
       'All 5 tools unlocked',
     ],
     cta: 'Start free',
@@ -115,9 +114,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For solo agents & small agencies',
     features: [
-      '7,500 pages/month',
+      '800 pages/month',
       'Fill Applications, Schedules, and Document Inbox',
-      '$0.012/page overage',
+      '$0.05/page overage',
     ],
     cta: 'Get started',
     highlight: false,
@@ -128,9 +127,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For growing agencies & teams',
     features: [
-      '25,000 pages/month',
+      '3,000 pages/month',
       'All 5 tools',
-      '$0.010/page overage',
+      '$0.03/page overage',
     ],
     cta: 'Go Pro',
     highlight: true,
@@ -141,9 +140,9 @@ const PRICING_TIERS = [
     period: '/mo',
     desc: 'For large brokerages & enterprises',
     features: [
-      '100,000 pages/month',
+      '10,000 pages/month',
       'All 5 tools for your entire team',
-      '$0.006/page overage',
+      '$0.015/page overage',
     ],
     cta: 'Contact us',
     highlight: false,
@@ -154,7 +153,7 @@ const PRICING_TIERS = [
 const FAQ_ITEMS = [
   {
     q: 'How much does it cost?',
-    a: 'GridPull is free to start with 500 pages per month — no credit card required. When you need more, paid plans start at $49/month for 7,500 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
+    a: 'GridPull is free to start with 100 pages per month — no credit card required. When you need more, paid plans start at $49/month for 800 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
     q: 'Are my files secure?',
@@ -372,10 +371,6 @@ export default function LandingPage() {
         <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-violet-200/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative max-w-3xl mx-auto">
-          <Badge variant="outline" className="mb-4 sm:mb-6 gap-1.5 px-3 py-1 text-xs font-medium">
-            Built for every agency and brokerage
-          </Badge>
-
           <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-[1.1]">
             Everything your agency and brokerage needs to{' '}
             <br className="hidden sm:block" />
@@ -403,7 +398,7 @@ export default function LandingPage() {
               No credit card required
             </p>
             <p className="text-xs text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              500 free pages/month  ·  Sign in and start uploading in seconds.
+              100 free pages/month  ·  Sign in and start uploading in seconds.
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
               <Lock size={10} />
@@ -443,12 +438,12 @@ export default function LandingPage() {
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
-              <p className="text-sm font-medium text-foreground mb-0.5">New business submissions</p>
-              <p className="text-xs text-muted-foreground">Fill carrier forms and build schedules from your intake data</p>
-            </div>
-            <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
               <p className="text-sm font-medium text-foreground mb-0.5">Renewal processing</p>
               <p className="text-xs text-muted-foreground">Update last year's schedules and re-fill applications automatically</p>
+            </div>
+            <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
+              <p className="text-sm font-medium text-foreground mb-0.5">New business submissions</p>
+              <p className="text-xs text-muted-foreground">Fill carrier forms and build schedules from your intake data</p>
             </div>
             <div className="bg-white border border-border/60 rounded-lg px-4 py-3 text-center">
               <p className="text-sm font-medium text-foreground mb-0.5">Client presentations</p>
@@ -522,7 +517,7 @@ export default function LandingPage() {
             Plans that scale with your agency
           </h2>
           <p className="text-center text-muted-foreground text-sm mb-4 max-w-lg mx-auto">
-            Start free with 500 pages/month. From solo agents to large brokerages, scale with your business.
+            Start free with 100 pages/month. From solo agents to large brokerages, scale with your business.
           </p>
           <p className="text-center text-primary text-sm font-semibold mb-4">
             Process thousands of pages for a fraction of the cost of manual data entry.
@@ -572,12 +567,12 @@ export default function LandingPage() {
 
           <div className="flex flex-col items-center text-center">
             <p className="text-xs text-muted-foreground mb-2">
-              Each page of your document counts toward your monthly limit. Each Form fill and proposal costs 5 pages.
+              Each page of your document counts toward your monthly limit. Each Form fill and proposal costs 5 pages. Max upload size is 5 MB per file.
             </p>
             <p className="text-xs text-muted-foreground mb-5">
               Every plan is purpose-built for insurance workflows — ACORD forms, commercial schedules, loss runs, carrier quotes, and claims documents, all in one platform. No contracts — cancel anytime.
             </p>
-            <SignInButton size="xl" label="Start free — 500 pages/month" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
+            <SignInButton size="xl" label="Start free — 100 pages/month" className="min-w-0 sm:min-w-[280px] w-full sm:w-auto" />
             <p className="mt-2 text-sm font-medium text-foreground flex items-center justify-center gap-1.5">
               <CheckCircle2 size={14} className="text-emerald-500" />
               No credit card required
@@ -667,7 +662,7 @@ export default function LandingPage() {
             </div>
             <p className="mb-5 text-xs font-medium text-foreground flex items-center gap-1.5">
               <CheckCircle2 size={13} className="text-emerald-500" />
-              No credit card required — 500 free pages/month
+              No credit card required — 100 free pages/month
             </p>
 
             <div className="flex flex-col gap-3">
