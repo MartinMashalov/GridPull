@@ -58,7 +58,7 @@ TIERS: dict[str, TierConfig] = {
     "business": TierConfig(
         name="business",
         display_name="Business",
-        price_monthly=49900,
+        price_monthly=69900,
         pages_per_month=10000,
         overage_rate_cents_per_page=1.5,
         has_pipeline=True,

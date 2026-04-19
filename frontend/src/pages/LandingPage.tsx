@@ -136,7 +136,7 @@ const PRICING_TIERS = [
   },
   {
     name: 'Business',
-    price: '$499',
+    price: '$699',
     period: '/mo',
     desc: 'For large brokerages & enterprises',
     features: [
