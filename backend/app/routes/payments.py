@@ -244,19 +244,46 @@ async def change_subscription(
     if not stripe_subscription_id:
         return await create_subscription(body=body, current_user=current_user, db=db)
 
-    price_id = await _get_stripe_price_id(body.tier)
+    # Inspect the existing subscription. A subscription that is canceled or has
+    # already passed its cancel-at-period-end date can't be modified — Stripe
+    # rejects it with InvalidRequestError — so we fall back to Checkout to
+    # create a fresh one.
+    try:
+        sub = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
+    except stripe.error.InvalidRequestError:
+        return await create_subscription(body=body, current_user=current_user, db=db)
 
-    sub = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
-    item_id = sub["items"]["data"][0]["id"]
+    modifiable = sub.get("status") in ("active", "trialing", "past_due")
+    if not modifiable:
+        logger.info(
+            "User %s has %s subscription — creating new one via Checkout for tier=%s",
+            current_user.id, sub.get("status"), body.tier,
+        )
+        return await create_subscription(body=body, current_user=current_user, db=db)
+
+    price_id = await _get_stripe_price_id(body.tier)
+    items = sub.get("items", {}).get("data") or []
+    if not items:
+        return await create_subscription(body=body, current_user=current_user, db=db)
+    item_id = items[0]["id"]
 
     proration = "always_invoice" if is_upgrade(current_user.subscription_tier, body.tier) else "none"
-    await asyncio.to_thread(
-        stripe.Subscription.modify,
-        stripe_subscription_id,
-        items=[{"id": item_id, "price": price_id}],
-        proration_behavior=proration,
-        metadata={"tier": body.tier},
-    )
+    try:
+        await asyncio.to_thread(
+            stripe.Subscription.modify,
+            stripe_subscription_id,
+            items=[{"id": item_id, "price": price_id}],
+            proration_behavior=proration,
+            cancel_at_period_end=False,  # reverse any prior cancel so user keeps new plan
+            metadata={"tier": body.tier},
+        )
+    except stripe.error.InvalidRequestError as exc:
+        msg = str(exc)
+        # Canceled / non-modifiable subs fall through to Checkout.
+        if "canceled" in msg.lower() or "cancel" in msg.lower():
+            return await create_subscription(body=body, current_user=current_user, db=db)
+        logger.warning("Stripe modify failed for user %s: %s", current_user.id, msg)
+        raise HTTPException(status_code=400, detail=f"Could not change plan: {msg}")
 
     result = await db.execute(select(User).where(User.id == current_user.id))
     user = result.scalar_one_or_none()
