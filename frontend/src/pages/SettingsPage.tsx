@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import api from '@/lib/api'
-import toast from 'react-hot-toast'
 import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -50,13 +49,17 @@ interface JobHistoryData {
 interface SubscriptionData {
   tier: TierInfo
   status: string
+  cancel_at_period_end?: boolean
   pages_used: number
   overage_pages: number
   pages_limit: number
   usage_percent: number
   current_period_end: string | null
   all_tiers: TierInfo[]
+  has_card?: boolean
 }
+
+type Banner = { kind: 'success' | 'error'; message: string } | null
 
 const TIER_ICONS: Record<string, React.ReactNode> = {
   free: <FileText size={18} />,
@@ -99,6 +102,12 @@ export default function SettingsPage() {
   const [history, setHistory] = useState<JobHistoryData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [banner, setBanner] = useState<Banner>(null)
+
+  const flashBanner = (b: Banner) => {
+    setBanner(b)
+    if (b) setTimeout(() => setBanner(prev => (prev === b ? null : prev)), 6000)
+  }
 
   const fetchHistory = () => {
     setLoadingHistory(true)
@@ -137,7 +146,7 @@ export default function SettingsPage() {
     const card = searchParams.get('card')
 
     if (subscription === 'success') {
-      toast.success('Subscription activated!')
+      flashBanner({ kind: 'success', message: 'Subscription activated!' })
       setSearchParams({})
       fetchSubscription()
     }
@@ -145,7 +154,7 @@ export default function SettingsPage() {
       setSearchParams({})
     }
     if (card === 'saved') {
-      toast.success('Card saved successfully!')
+      flashBanner({ kind: 'success', message: 'Card saved successfully.' })
       api.get('/payments/saved-card').then(r => {
         setSavedCard(r.data.card)
         if (r.data.card) updateSubscription({ has_card: true })
@@ -157,22 +166,32 @@ export default function SettingsPage() {
   const confirmAndSubscribe = async (tierName: string) => {
     setSubscribing(tierName)
     setConfirmTier(null)
+    setBanner(null)
     try {
-      if (sub?.tier.name && sub.tier.name !== 'free' && tierName !== 'free') {
-        const r = await api.post('/payments/change-subscription', { tier: tierName })
-        if (r.data.checkout_url) {
-          window.location.href = r.data.checkout_url
-          return
-        }
-        toast.success(`Plan changed to ${TIERS_DISPLAY[tierName] || tierName}!`)
-        fetchSubscription()
-      } else {
-        const r = await api.post('/payments/create-subscription', { tier: tierName })
+      // Target is free: always downgrade via the cancel flow, not Checkout.
+      if (tierName === 'free') {
+        await handleCancel()
+        return
+      }
+      const endpoint = sub?.tier.name && sub.tier.name !== 'free'
+        ? '/payments/change-subscription'
+        : '/payments/create-subscription'
+      const r = await api.post(endpoint, { tier: tierName })
+      if (r.data.checkout_url) {
         window.location.href = r.data.checkout_url
         return
       }
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to change plan')
+      flashBanner({ kind: 'success', message: `Plan changed to ${TIERS_DISPLAY[tierName] || tierName}.` })
+      fetchSubscription()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: unknown }; status?: number } }
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string'
+        ? detail
+        : err.response?.status
+          ? `Couldn't change plan (HTTP ${err.response.status}). Try again in a moment.`
+          : "Couldn't change plan — check your connection."
+      flashBanner({ kind: 'error', message: msg })
     } finally {
       setSubscribing(null)
     }
@@ -205,37 +224,48 @@ export default function SettingsPage() {
 
   const handleCancel = async () => {
     setCanceling(true)
+    setBanner(null)
     try {
       await api.post('/payments/cancel-subscription')
-      toast.success('Subscription will cancel at period end')
       trackEvent('subscription_cancel')
+      flashBanner({ kind: 'success', message: 'Your plan will downgrade to Free at the end of the current billing period.' })
       fetchSubscription()
-    } catch {
-      toast.error('Failed to cancel')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: unknown } } }
+      const detail = err.response?.data?.detail
+      flashBanner({ kind: 'error', message: typeof detail === 'string' ? detail : 'Failed to cancel subscription.' })
     } finally {
       setCanceling(false)
     }
   }
 
   const handleReactivate = async () => {
+    setBanner(null)
     try {
-      await api.post('/payments/reactivate-subscription')
-      toast.success('Subscription reactivated!')
+      const r = await api.post('/payments/reactivate-subscription')
+      if (r.data?.checkout_url) {
+        window.location.href = r.data.checkout_url
+        return
+      }
+      flashBanner({ kind: 'success', message: 'Subscription reactivated.' })
       fetchSubscription()
-    } catch {
-      toast.error('Failed to reactivate')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: unknown } } }
+      const detail = err.response?.data?.detail
+      flashBanner({ kind: 'error', message: typeof detail === 'string' ? detail : 'Failed to reactivate subscription.' })
     }
   }
 
   const handleRemoveCard = async () => {
     setLoadingCard(true)
+    setBanner(null)
     try {
       await api.delete('/payments/saved-card')
       setSavedCard(null)
       updateSubscription({ has_card: false })
-      toast.success('Card removed')
+      flashBanner({ kind: 'success', message: 'Card removed.' })
     } catch {
-      toast.error('Failed to remove card')
+      flashBanner({ kind: 'error', message: 'Failed to remove card.' })
     } finally {
       setLoadingCard(false)
     }
@@ -243,11 +273,12 @@ export default function SettingsPage() {
 
   const handleSetupCard = async () => {
     setLoadingCard(true)
+    setBanner(null)
     try {
       const r = await api.post('/payments/setup-card')
       window.location.href = r.data.setup_url
     } catch {
-      toast.error('Failed to set up card')
+      flashBanner({ kind: 'error', message: 'Failed to set up card.' })
       setLoadingCard(false)
     }
   }
@@ -271,6 +302,31 @@ export default function SettingsPage() {
           Start free with 100 pages/month. From solo agents to large brokerages, scale with your business. Process thousands of pages for a fraction of the cost of manual data entry.
         </p>
       </div>
+
+      {banner && (
+        <div
+          role="alert"
+          className={cn(
+            'relative mb-5 rounded-xl border p-4 flex items-start gap-3',
+            banner.kind === 'success'
+              ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700'
+              : 'border-red-500/30 bg-red-500/5 text-red-700',
+          )}
+        >
+          {banner.kind === 'success'
+            ? <CheckCircle2 size={16} className="mt-0.5 text-emerald-500 flex-shrink-0" />
+            : <AlertCircle size={16} className="mt-0.5 text-red-500 flex-shrink-0" />}
+          <p className="text-sm flex-1">{banner.message}</p>
+          <button
+            type="button"
+            onClick={() => setBanner(null)}
+            className="p-0.5 rounded hover:bg-black/5 flex-shrink-0"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       <Tabs defaultValue={searchParams.get('tab') || 'subscription'}>
         <TabsList className="mb-6 w-full sm:w-auto">
@@ -306,11 +362,19 @@ export default function SettingsPage() {
                         )}
                       </div>
                     </div>
-                    {sub.status === 'canceled' && (
+                    {sub.cancel_at_period_end && sub.status !== 'canceled' && (
                       <div className="mt-2 flex items-center gap-1.5">
                         <Badge variant="destructive" className="text-[10px]">Cancels at period end</Badge>
                         <button onClick={handleReactivate} className="text-xs text-primary hover:underline">
-                          Reactivate
+                          Keep my plan
+                        </button>
+                      </div>
+                    )}
+                    {sub.status === 'canceled' && (
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <Badge variant="destructive" className="text-[10px]">Subscription ended</Badge>
+                        <button onClick={handleReactivate} className="text-xs text-primary hover:underline">
+                          Resubscribe
                         </button>
                       </div>
                     )}
