@@ -44,10 +44,10 @@ def _resolve_tier(stripe_obj: dict, fallback: str | None = None) -> str | None:
     """Return the tier name for a Stripe subscription or checkout-session object.
 
     Resolution order (most → least authoritative):
-    1. Price ID on the first subscription item  →  authoritative, no metadata needed
+    1. Price ID on the first subscription item  →  matches reverse map of STRIPE_PRICE_MAP
     2. ``metadata.tier`` on the object itself
     3. ``fallback`` argument (caller-supplied, e.g. the current DB value)
-    4. None  →  caller should NOT overwrite the existing DB value
+    4. None  →  caller should try ``_resolve_tier_async`` or NOT overwrite the DB value
     """
     items = stripe_obj.get("items", {}).get("data", []) if isinstance(stripe_obj, dict) else []
     for item in items:
@@ -58,6 +58,40 @@ def _resolve_tier(stripe_obj: dict, fallback: str | None = None) -> str | None:
     meta_tier = (stripe_obj.get("metadata") or {}).get("tier") if isinstance(stripe_obj, dict) else None
     if meta_tier and meta_tier in TIERS:
         return meta_tier
+
+    return fallback
+
+
+async def _resolve_tier_async(stripe_obj: dict, fallback: str | None = None) -> str | None:
+    """Like ``_resolve_tier`` but, as a last resort before returning the fallback,
+    fetches each item's Price from Stripe and matches it to a tier by
+    ``unit_amount`` + monthly interval. Use this from webhook handlers so a price
+    ID we don't know about (e.g. a newly created Stripe price that hasn't been
+    wired into our ``STRIPE_PRICE_MAP`` env var yet) still resolves correctly
+    instead of silently defaulting the user to free.
+    """
+    tier = _resolve_tier(stripe_obj, fallback=None)
+    if tier:
+        return tier
+
+    items = stripe_obj.get("items", {}).get("data", []) if isinstance(stripe_obj, dict) else []
+    for item in items:
+        price_id = item.get("price", {}).get("id") or item.get("price")
+        if not price_id:
+            continue
+        try:
+            price = await asyncio.to_thread(stripe.Price.retrieve, price_id)
+        except Exception as exc:
+            logger.warning("resolve_tier: Price.retrieve(%s) failed: %s", price_id, exc)
+            continue
+        amount = price.get("unit_amount")
+        recurring = price.get("recurring") or {}
+        if recurring.get("interval") != "month":
+            continue
+        for tname, tcfg in TIERS.items():
+            if tcfg.price_monthly and tcfg.price_monthly == amount:
+                logger.info("resolve_tier: matched %s → %s via unit_amount=%s", price_id, tname, amount)
+                return tname
 
     return fallback
 
@@ -205,6 +239,22 @@ async def create_subscription(
     if body.tier not in STRIPE_PRICE_MAP or body.tier == "free":
         raise HTTPException(400, "Invalid tier")
 
+    # If the user already has a usable subscription in Stripe, don't create a
+    # duplicate — route to /change-subscription so they get a modify instead.
+    # Only treat canceled / incomplete_expired / unknown IDs as "no sub".
+    existing_sub_id = getattr(current_user, "stripe_subscription_id", None)
+    if existing_sub_id:
+        try:
+            existing = await asyncio.to_thread(stripe.Subscription.retrieve, existing_sub_id)
+            if existing.get("status") in ("active", "trialing", "past_due"):
+                logger.info(
+                    "User %s has active sub %s — routing create → change for tier=%s",
+                    current_user.id, existing_sub_id, body.tier,
+                )
+                return await change_subscription(body=body, current_user=current_user, db=db)
+        except stripe.error.InvalidRequestError:
+            pass  # Sub doesn't exist in Stripe anymore — fine to create new
+
     price_id = await _get_stripe_price_id(body.tier)
 
     customer_id = await _ensure_stripe_customer(current_user, db)
@@ -267,7 +317,10 @@ async def change_subscription(
         return await create_subscription(body=body, current_user=current_user, db=db)
     item_id = items[0]["id"]
 
-    proration = "always_invoice" if is_upgrade(current_user.subscription_tier, body.tier) else "none"
+    # Upgrades bill the prorated diff immediately; downgrades credit the user's
+    # next invoice instead of billing nothing (previously "none", which made
+    # mid-cycle downgrades forfeit the unused paid time).
+    proration = "always_invoice" if is_upgrade(current_user.subscription_tier, body.tier) else "create_prorations"
     try:
         await asyncio.to_thread(
             stripe.Subscription.modify,
@@ -303,11 +356,22 @@ async def cancel_subscription(
 ):
     stripe_subscription_id = getattr(current_user, "stripe_subscription_id", None)
     if stripe_subscription_id:
-        await asyncio.to_thread(
-            stripe.Subscription.modify,
-            stripe_subscription_id,
-            cancel_at_period_end=True,
-        )
+        try:
+            existing = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
+            status = existing.get("status")
+            if status in ("active", "trialing", "past_due"):
+                await asyncio.to_thread(
+                    stripe.Subscription.modify,
+                    stripe_subscription_id,
+                    cancel_at_period_end=True,
+                )
+            # status == canceled / incomplete_expired: nothing to do in Stripe,
+            # just update DB below. Keeps this endpoint idempotent.
+        except stripe.error.InvalidRequestError as exc:
+            logger.info(
+                "cancel-subscription: Stripe sub %s not modifiable (%s) — marking canceled in DB only",
+                stripe_subscription_id, exc,
+            )
 
     result = await db.execute(select(User).where(User.id == current_user.id))
     user = result.scalar_one_or_none()
@@ -325,9 +389,30 @@ async def reactivate_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     stripe_subscription_id = getattr(current_user, "stripe_subscription_id", None)
-    if not stripe_subscription_id:
-        raise HTTPException(400, "No active subscription to reactivate")
 
+    # No existing Stripe sub → user needs a fresh Checkout flow. Pick their
+    # last known paid tier (or Pro as a reasonable default) so Checkout lands
+    # on the right plan.
+    async def _restart_via_checkout() -> dict:
+        tier_name = current_user.subscription_tier if current_user.subscription_tier in STRIPE_PRICE_MAP else "pro"
+        return await create_subscription(
+            body=SubscribeRequest(tier=tier_name),
+            current_user=current_user, db=db,
+        )
+
+    if not stripe_subscription_id:
+        return await _restart_via_checkout()
+
+    try:
+        existing = await asyncio.to_thread(stripe.Subscription.retrieve, stripe_subscription_id)
+    except stripe.error.InvalidRequestError:
+        return await _restart_via_checkout()
+
+    status = existing.get("status")
+    if status in ("canceled", "incomplete_expired"):
+        return await _restart_via_checkout()
+
+    # Active/trialing/past_due with cancel_at_period_end=True → just lift the flag.
     await asyncio.to_thread(
         stripe.Subscription.modify,
         stripe_subscription_id,
@@ -533,18 +618,23 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 except Exception as e:
                     logger.warning("Could not retrieve Stripe subscription %s: %s", sub_id, e)
 
-            # Resolve tier: price ID on the subscription beats session metadata
-            tier = _resolve_tier(sub or {}, fallback=_resolve_tier(session, fallback=None))
+            # Resolve tier: subscription price → session metadata → Stripe Price lookup.
+            # If we STILL can't resolve, keep the existing DB tier untouched — never
+            # silently flip a paying customer to free.
+            tier = await _resolve_tier_async(sub or {}, fallback=None)
             if not tier:
-                logger.warning(
-                    "checkout.session.completed: could not resolve tier for sub=%s session_meta=%s — keeping existing tier",
-                    sub_id, (session.get("metadata") or {}),
+                tier = _resolve_tier(session, fallback=None)
+            if not tier:
+                logger.error(
+                    "checkout.session.completed: UNRESOLVABLE tier user=%s sub=%s session_meta=%s — keeping existing DB tier",
+                    user.id, sub_id, (session.get("metadata") or {}),
                 )
-                tier = user.subscription_tier  # keep whatever is already in DB
+                tier = user.subscription_tier  # preserve DB value
 
             user.stripe_customer_id = customer_id or user.stripe_customer_id
             user.stripe_subscription_id = sub_id or user.stripe_subscription_id
-            user.subscription_tier = tier
+            if tier:
+                user.subscription_tier = tier
             user.subscription_status = (
                 sub.get("status", "active")
                 if isinstance(sub, dict)
@@ -566,21 +656,25 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 async def _handle_subscription_created(sub: dict, db: AsyncSession):
     customer_id = sub.get("customer")
-    tier = _resolve_tier(sub, fallback=None)
-    if not tier:
-        logger.warning(
-            "subscription.created: could not resolve tier for customer=%s sub=%s meta=%s — defaulting to free",
-            customer_id, sub.get("id"), (sub.get("metadata") or {}),
-        )
-        tier = "free"
     result = await db.execute(select(User).where(User.stripe_customer_id == customer_id))
     user = result.scalar_one_or_none()
     if not user:
         logger.warning("Subscription created for unknown customer %s", customer_id)
         return
 
+    # Try local reverse map → metadata → Stripe Price.unit_amount lookup.
+    # If still unresolved, DO NOT change tier — the user may be mid-migration
+    # between price IDs and silently flipping them to free is worse than no-op.
+    tier = await _resolve_tier_async(sub, fallback=None)
+    if not tier:
+        logger.error(
+            "subscription.created: UNRESOLVABLE tier customer=%s sub=%s meta=%s — keeping DB tier=%s",
+            customer_id, sub.get("id"), (sub.get("metadata") or {}), user.subscription_tier,
+        )
+
     user.stripe_subscription_id = sub["id"]
-    user.subscription_tier = tier
+    if tier:
+        user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
@@ -588,7 +682,7 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
     user.pages_used_this_period = 0
     user.overage_pages_this_period = 0
     await db.commit()
-    logger.info("Subscription created: user=%s tier=%s sub=%s", user.id, tier, sub["id"])
+    logger.info("Subscription created: user=%s tier=%s sub=%s", user.id, tier or user.subscription_tier, sub["id"])
 
 
 async def _handle_subscription_updated(sub: dict, db: AsyncSession):
@@ -599,14 +693,17 @@ async def _handle_subscription_updated(sub: dict, db: AsyncSession):
         logger.warning("Subscription updated for unknown sub %s", sub_id)
         return
 
-    # Prefer price ID → metadata → keep existing DB value (never blindly default)
-    tier = _resolve_tier(sub, fallback=user.subscription_tier)
-    user.subscription_tier = tier
+    # Prefer price ID → metadata → Stripe Price.unit_amount lookup → keep DB value
+    tier = await _resolve_tier_async(sub, fallback=user.subscription_tier)
+    if tier:
+        user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
 
+    # TODO Phase 2: move this into a dedicated `cancel_at_period_end` column so
+    # we stop overloading subscription_status.
     if sub.get("cancel_at_period_end"):
         user.subscription_status = "canceled"
 
