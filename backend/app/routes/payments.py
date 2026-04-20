@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.user import User
+from app.models.webhook_event import WebhookEvent
 from app.middleware.auth_middleware import get_current_user
 from app.config import settings
 from app.services.subscription_tiers import (
@@ -209,6 +210,7 @@ async def get_subscription(
     return {
         "tier": tier_info_dict(tier),
         "status": user.subscription_status or "active",
+        "cancel_at_period_end": bool(user.cancel_at_period_end),
         "pages_used": pages_used,
         "overage_pages": overage_pages,
         "pages_limit": tier.pages_per_month,
@@ -343,6 +345,7 @@ async def change_subscription(
     if user:
         user.subscription_tier = body.tier
         user.subscription_status = "active"
+        user.cancel_at_period_end = False  # change-plan implicitly resumes
         await db.commit()
 
     logger.info("Changed subscription for user %s to %s", current_user.id, body.tier)
@@ -376,7 +379,10 @@ async def cancel_subscription(
     result = await db.execute(select(User).where(User.id == current_user.id))
     user = result.scalar_one_or_none()
     if user:
-        user.subscription_status = "canceled"
+        user.cancel_at_period_end = True
+        # Leave subscription_status alone — the user still has paid access until
+        # current_period_end. The dedicated flag above tells the UI to show
+        # "Cancels at period end" without lying about the Stripe status.
         await db.commit()
 
     logger.info("Subscription cancel requested for user %s", current_user.id)
@@ -423,6 +429,7 @@ async def reactivate_subscription(
     user = result.scalar_one_or_none()
     if user:
         user.subscription_status = "active"
+        user.cancel_at_period_end = False
         await db.commit()
 
     return {"ok": True}
@@ -557,8 +564,23 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     except (stripe.error.SignatureVerificationError, ValueError):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
+    event_id = event.get("id")
     event_type = event["type"]
     data = event["data"]["object"]
+
+    # Dedupe: Stripe retries deliveries until we 2xx, and will re-deliver on
+    # transient failures. Billing handlers mutate user state, so processing the
+    # same event_id twice can double-charge or silently reset usage. Claim the
+    # event by inserting its id — the first worker wins, retries fail the
+    # unique-key insert and we short-circuit with 200.
+    if event_id:
+        try:
+            db.add(WebhookEvent(event_id=event_id, source="stripe", event_type=event_type))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.info("Stripe webhook %s (%s) already processed — skipping", event_id, event_type)
+            return {"status": "duplicate"}
 
     # ── Subscription lifecycle events ──────────────────────────────────────────
 
@@ -676,6 +698,7 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
     if tier:
         user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
+    user.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
@@ -698,17 +721,16 @@ async def _handle_subscription_updated(sub: dict, db: AsyncSession):
     if tier:
         user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
+    user.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
     if sub.get("current_period_end"):
         user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
         user.usage_reset_at = user.current_period_end
 
-    # TODO Phase 2: move this into a dedicated `cancel_at_period_end` column so
-    # we stop overloading subscription_status.
-    if sub.get("cancel_at_period_end"):
-        user.subscription_status = "canceled"
-
     await db.commit()
-    logger.info("Subscription updated: user=%s tier=%s status=%s", user.id, tier, user.subscription_status)
+    logger.info(
+        "Subscription updated: user=%s tier=%s status=%s cancel_at_period_end=%s",
+        user.id, tier, user.subscription_status, user.cancel_at_period_end,
+    )
 
 
 async def _handle_subscription_deleted(sub: dict, db: AsyncSession):
@@ -720,6 +742,7 @@ async def _handle_subscription_deleted(sub: dict, db: AsyncSession):
 
     user.subscription_tier = "free"
     user.subscription_status = "active"
+    user.cancel_at_period_end = False
     user.stripe_subscription_id = None
     user.current_period_end = None
     user.pages_used_this_period = 0

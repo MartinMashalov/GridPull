@@ -135,6 +135,9 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS default_fields JSON",
             # Named extraction field presets
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS field_presets JSON",
+            # Subscription lifecycle: dedicated flag for "user clicked cancel but
+            # still paid through period_end" so we stop overloading subscription_status.
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE",
         ]:
             await conn.execute(__import__("sqlalchemy").text(sql))
             

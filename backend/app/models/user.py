@@ -27,7 +27,12 @@ class User(Base):
     # Subscription fields
     subscription_tier = Column(String, default="free")  # free / starter / pro / business
     stripe_subscription_id = Column(String, nullable=True)
-    subscription_status = Column(String, default="active")  # active / canceled / past_due / trialing
+    # True Stripe lifecycle only: active / past_due / trialing / incomplete / unpaid.
+    # "canceled" here means the Stripe sub is genuinely canceled — NOT
+    # "user clicked cancel but we're still in the paid period", which lives on
+    # cancel_at_period_end below.
+    subscription_status = Column(String, default="active")
+    cancel_at_period_end = Column(Boolean, default=False, nullable=False)
     current_period_end = Column(DateTime, nullable=True)
     pages_used_this_period = Column(Integer, default=0)
     overage_pages_this_period = Column(Integer, default=0)
