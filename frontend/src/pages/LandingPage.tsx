@@ -363,7 +363,7 @@ export default function LandingPage() {
       </header>
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <section className="flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-20 text-center relative overflow-hidden">
+      <section className="flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:pt-10 sm:pb-20 text-center relative overflow-hidden">
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-[700px] h-[500px] bg-primary/5 rounded-full blur-3xl" />
         </div>
