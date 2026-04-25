@@ -19,6 +19,7 @@ debit is refunded.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import List, Optional
 
@@ -291,6 +292,12 @@ async def extract_schedule(
     _require_schedules_creds()
     if not fields_json or not fields_json.strip():
         raise HTTPException(status_code=400, detail="fields_json is required.")
+    try:
+        parsed_fields = json.loads(fields_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"fields_json is not valid JSON: {exc.msg}")
+    if not isinstance(parsed_fields, list) or not parsed_fields:
+        raise HTTPException(status_code=400, detail="fields_json must be a non-empty JSON array of field objects.")
     schedule_type = _normalize_schedule_type(schedule_type)
     spreadsheets, docs = _classify(files)
     uploads, billable_pages = await _read_and_pack(spreadsheets + docs)
