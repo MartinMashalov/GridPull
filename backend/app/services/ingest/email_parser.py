@@ -2,12 +2,89 @@
 
 import logging
 import re
+import secrets
+import string
+import unicodedata
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from html import unescape
 
 logger = logging.getLogger(__name__)
+
+# Address-key alphabet: lowercase letters + digits only, no separators.
+# This keeps `slug-key` parseable in inbound email plus-tags.
+_ADDRESS_KEY_ALPHABET = string.ascii_lowercase + string.digits
+_ADDRESS_KEY_LEN = 6
+_ADDRESS_KEY_RE = re.compile(rf"^[a-z0-9]{{{_ADDRESS_KEY_LEN}}}$")
+_PLUS_TAG_RE = re.compile(r"\+([A-Za-z0-9_-]+)@")
+
+
+def gen_address_key() -> str:
+    """Generate a fresh alphanumeric routing key, 6 chars."""
+    return "".join(secrets.choice(_ADDRESS_KEY_ALPHABET) for _ in range(_ADDRESS_KEY_LEN))
+
+
+def is_alphanumeric_key(value: str | None) -> bool:
+    """True iff `value` is a 6-char lowercase alphanumeric address key."""
+    return bool(value and _ADDRESS_KEY_RE.match(value))
+
+
+def slugify_name(name: str | None, *, max_len: int = 12, fallback: str = "user") -> str:
+    """Turn a display name into an email-safe slug (lowercase a-z0-9)."""
+    if not name:
+        return fallback
+    first = name.strip().split()[0] if name.strip() else ""
+    decomposed = unicodedata.normalize("NFKD", first)
+    ascii_str = decomposed.encode("ascii", "ignore").decode("ascii")
+    cleaned = re.sub(r"[^a-z0-9]+", "", ascii_str.lower())
+    if not cleaned:
+        return fallback
+    return cleaned[:max_len]
+
+
+def format_inbox_address(universal_email: str, slug: str, address_key: str) -> str:
+    """Build the per-user plus-tagged address: documents+{slug}-{key}@gridpull.com."""
+    if "@" not in universal_email:
+        raise ValueError(f"universal_email must contain '@': {universal_email!r}")
+    local, domain = universal_email.split("@", 1)
+    return f"{local}+{slug}-{address_key}@{domain}"
+
+
+def extract_address_keys(headers) -> list[str]:
+    """Pull routing-key candidates out of a parsed email's recipient headers.
+
+    `headers` can be an `email.message.Message` or any object with a `.get`
+    method (including a plain dict). Returns an ordered, de-duplicated list
+    of candidate keys to try against `ingest_addresses.address_key`. Handles
+    three formats we want to support:
+      • documents+intake-{key}@gridpull.com   (legacy, never advertised)
+      • documents+{slug}-{key}@gridpull.com   (current per-user format)
+      • documents+{key}@gridpull.com          (minimal future format)
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        v = value.lower()
+        if v and v not in seen:
+            seen.add(v)
+            candidates.append(v)
+
+    def _process(raw: str) -> None:
+        for match in _PLUS_TAG_RE.finditer(raw or ""):
+            tag = match.group(1).lower()
+            _add(tag)
+            # Trailing segment after the last separator usually IS the key.
+            for seg in re.split(r"[-_]", tag):
+                if seg:
+                    _add(seg)
+
+    if not hasattr(headers, "get"):
+        return candidates
+    for hdr_name in ("Delivered-To", "To", "Cc", "X-Original-To", "Envelope-To"):
+        _process(headers.get(hdr_name, "") or "")
+    return candidates
 
 CONSUMER_DOMAINS = frozenset({
     "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",

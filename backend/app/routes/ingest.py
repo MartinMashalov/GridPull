@@ -31,7 +31,13 @@ from app.middleware.auth_middleware import get_current_user
 from app.models.extraction import Document, ExtractionJob
 from app.models.ingest import IngestAddress, IngestDocument, MobileUploadSession
 from app.models.user import User
-from app.services.ingest.email_parser import get_group_key
+from app.services.ingest.email_parser import (
+    format_inbox_address,
+    gen_address_key,
+    get_group_key,
+    is_alphanumeric_key,
+    slugify_name,
+)
 from app.services.ingest.s3_service import (
     delete_file as delete_from_s3,
     download_file as download_from_s3,
@@ -57,20 +63,20 @@ class ExtractRequest(BaseModel):
 
 # ── Address Management ─────────────────────────────────────────────────────────
 
-@router.post("/address")
-async def create_or_get_address(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create or return the user's unique ingest email address."""
+async def _ensure_address_key(db: AsyncSession, user: User) -> IngestAddress:
+    """Idempotently return the IngestAddress for `user`, creating one with a
+    fresh alphanumeric routing key if missing or upgrading any legacy key
+    (containing `-` / `_` from token_urlsafe) to the new alphanumeric format
+    so plus-tag parsing on inbound mail can rely on a clean separator."""
     result = await db.execute(
         select(IngestAddress).where(IngestAddress.user_id == user.id)
     )
     existing = result.scalar_one_or_none()
-    if not existing:
-        # Generate unique key (kept for backward compat / future per-user routing)
+
+    needs_new_key = existing is None or not is_alphanumeric_key(existing.address_key)
+    if needs_new_key:
         for _ in range(20):
-            key = secrets.token_urlsafe(4)[:6].lower()
+            key = gen_address_key()
             dup = await db.execute(
                 select(IngestAddress.id).where(IngestAddress.address_key == key)
             )
@@ -79,14 +85,36 @@ async def create_or_get_address(
         else:
             raise HTTPException(status_code=500, detail="Could not generate unique address")
 
-        existing = IngestAddress(user_id=user.id, address_key=key)
-        db.add(existing)
+        if existing is None:
+            existing = IngestAddress(user_id=user.id, address_key=key)
+            db.add(existing)
+        else:
+            existing.address_key = key
         user.ingest_address_key = key
         await db.commit()
 
+    return existing
+
+
+@router.post("/address")
+async def create_or_get_address(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or return the user's per-user inbox address.
+
+    Format: `documents+{name-slug}-{key}@gridpull.com`. Gmail plus-tagging
+    routes everything to the universal mailbox; the poller decodes the tag
+    to attribute mail to the right user — no MX changes needed.
+    """
+    record = await _ensure_address_key(db, user)
+    slug = slugify_name(getattr(user, "name", None))
+    address = format_inbox_address(settings.ingest_universal_email, slug, record.address_key)
     return {
-        "address": settings.ingest_universal_email,
-        "address_key": existing.address_key,
+        "address": address,
+        "address_key": record.address_key,
+        "slug": slug,
+        "universal_address": settings.ingest_universal_email,
     }
 
 

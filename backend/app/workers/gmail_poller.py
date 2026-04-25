@@ -2,9 +2,12 @@
 Gmail IMAP poller — checks a Gmail inbox for new emails with attachments
 and feeds them into the ingest pipeline (Hetzner SFTP + DB).
 
-Emails are routed by looking for "+intake-{key}" in the TO/Delivered-To
-headers (Gmail supports + addressing).  If no key is found, falls back to
-looking up any user whose ingest_address_key is set (single-tenant mode).
+Emails are routed by extracting the address key from any plus-tagged
+recipient header (`documents+{slug}-{key}@gridpull.com`). If no key
+candidate matches a stored `ingest_addresses.address_key`, we fall back
+to an exact From-email match for convenience. If neither matches, the
+mail is dropped with a warning — we deliberately do NOT route by sender
+domain because that's a multi-tenant data leak.
 """
 
 import asyncio
@@ -17,6 +20,7 @@ from datetime import datetime, timedelta
 from email.header import decode_header
 
 from app.config import settings
+from app.services.ingest.email_parser import extract_address_keys
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +40,6 @@ def _decode_header_value(raw: str | None) -> str:
         else:
             decoded.append(part)
     return " ".join(decoded)
-
-
-def _extract_address_key(msg: email_lib.message.Message) -> str | None:
-    """
-    Look for '+intake-{key}' in To, Delivered-To, Cc, or Envelope-To headers.
-    Returns the key or None.
-    """
-    pattern = re.compile(r"\+intake-([a-z0-9]+)@", re.IGNORECASE)
-    for hdr_name in ("Delivered-To", "To", "Cc", "X-Original-To", "Envelope-To"):
-        hdr = msg.get(hdr_name, "")
-        m = pattern.search(hdr)
-        if m:
-            return m.group(1).lower()
-    return None
 
 
 def _extract_sender(msg: email_lib.message.Message) -> str:
@@ -87,9 +77,9 @@ def _extract_attachments(msg: email_lib.message.Message) -> list[dict]:
 
 async def _process_email(msg: email_lib.message.Message, msg_uid: str):
     """Process a single email: find user, extract attachments, store in S3."""
-    from sqlalchemy import select
+    from sqlalchemy import select, func as sa_func
     from app.database import AsyncSessionLocal
-    from app.models.ingest import IngestDocument
+    from app.models.ingest import IngestAddress, IngestDocument
     from app.models.user import User
     from app.services.ingest.s3_service import upload_file as upload_to_s3
     from app.services.ingest.email_parser import extract_domain
@@ -103,41 +93,48 @@ async def _process_email(msg: email_lib.message.Message, msg_uid: str):
         logger.debug("Gmail poller: no attachments in email from %s, skipping", sender)
         return 0
 
-    # Route to user by sender email.
-    # Common providers (gmail, outlook, etc.) → exact email match only.
-    # Company domains → any user signed up with that domain.
-    _COMMON_DOMAINS = {
-        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
-        "live.com", "msn.com", "yahoo.com", "yahoo.co.uk", "ymail.com",
-        "aol.com", "icloud.com", "me.com", "mac.com", "protonmail.com",
-        "proton.me", "zoho.com", "mail.com", "gmx.com", "gmx.net",
-    }
-    sender_domain = sender.split("@")[1] if "@" in sender else ""
+    # Routing priority:
+    #   1. Address-key candidates pulled from plus-tagged recipient headers.
+    #   2. Exact From-email match against User.email (courtesy fallback for
+    #      users who forget to use their per-user address — only safe because
+    #      it's an exact match).
+    # We deliberately do not route by sender domain.
+    address_keys = extract_address_keys(msg)
 
     async with AsyncSessionLocal() as db:
-        from sqlalchemy import func as sa_func
+        user = None
+        matched_via = "none"
 
-        if sender_domain in _COMMON_DOMAINS:
-            # Exact email match
+        if address_keys:
             result = await db.execute(
-                select(User).where(sa_func.lower(User.email) == sender)
+                select(User)
+                .join(IngestAddress, IngestAddress.user_id == User.id)
+                .where(sa_func.lower(IngestAddress.address_key).in_(address_keys))
+                .limit(1)
             )
             user = result.scalar_one_or_none()
-        else:
-            # Company domain — match any user whose signup email is @same-domain
+            if user:
+                matched_via = "address_key"
+
+        if user is None:
             result = await db.execute(
-                select(User).where(
-                    sa_func.lower(User.email).like(f"%@{sender_domain}")
-                ).order_by(User.created_at).limit(1)
+                select(User).where(sa_func.lower(User.email) == sender).limit(1)
             )
             user = result.scalar_one_or_none()
+            if user:
+                matched_via = "from_email"
 
         if not user:
-            logger.debug(
-                "Gmail poller: sender %s not matched to any user, skipping",
-                sender,
+            logger.warning(
+                "Gmail poller: dropped email — from=%s subject=%r address_keys=%s "
+                "(no plus-tag match and From doesn't match any user)",
+                sender, subject[:80], address_keys,
             )
             return 0
+        logger.info(
+            "Gmail poller: routed message_id=%s from=%s to user=%s via=%s",
+            message_id, sender, user.id, matched_via,
+        )
 
         # Dedup by message_id (same email forwarded twice)
         existing = await db.execute(
