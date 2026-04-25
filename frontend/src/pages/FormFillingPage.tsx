@@ -117,6 +117,7 @@ export default function FormFillingPage() {
       const name = filenameMatch?.[1] || `filled_${capturedTarget.name}`
       triggerDownload(res.data, name)
       useFormJobStore.getState().updateJob(jobId, { status: 'complete', resultBlob: res.data, resultName: name })
+      window.dispatchEvent(new Event('gridpull:usage-changed'))
     } catch (err: unknown) {
       const e = err as { response?: { data?: Blob; status?: number } }
       let msg = 'Form filling failed — please try again'
@@ -124,6 +125,8 @@ export default function FormFillingPage() {
         try { const text = await e.response.data.text(); const json = JSON.parse(text); msg = json.detail?.message || json.detail || msg } catch { /* ignore */ }
       } else if (e.response?.status) msg = `Form filling failed (HTTP ${e.response.status})`
       useFormJobStore.getState().updateJob(jobId, { status: 'error', errorMsg: msg })
+      // Backend refunds pages on failure — pull the new count.
+      window.dispatchEvent(new Event('gridpull:usage-changed'))
     }
   }
 

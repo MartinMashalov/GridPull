@@ -93,7 +93,8 @@ async def fill_form(
         )
 
     user.pages_used_this_period = used + form_fill_cost
-    if user.pages_used_this_period > tier.pages_per_month:
+    over_quota = user.pages_used_this_period > tier.pages_per_month
+    if over_quota:
         user.overage_pages_this_period = (user.overage_pages_this_period or 0) + form_fill_cost
     await db.commit()
     try:
@@ -107,6 +108,31 @@ async def fill_form(
         current_user.id, target_form.filename, len(source_data), form_fill_cost,
     )
 
+    async def _refund_pages(reason: str) -> None:
+        # The fill failed — give the user their pages back so a 5xx doesn't
+        # silently consume quota. Re-fetch under a fresh select since
+        # populate_async can run for minutes and the row may have moved.
+        try:
+            r = await db.execute(select(User).where(User.id == current_user.id))
+            u = r.scalar_one_or_none()
+            if not u:
+                return
+            u.pages_used_this_period = max(0, (u.pages_used_this_period or 0) - form_fill_cost)
+            if over_quota:
+                u.overage_pages_this_period = max(0, (u.overage_pages_this_period or 0) - form_fill_cost)
+            await db.commit()
+            try:
+                from app.cache import cache_del_user
+                await cache_del_user(str(u.id))
+            except Exception:
+                pass
+            logger.info(
+                "Form fill refund — user_id=%s pages=%d reason=%s",
+                current_user.id, form_fill_cost, reason,
+            )
+        except Exception:
+            logger.exception("Form fill refund failed (user=%s)", current_user.id)
+
     try:
         populator = PDFPopulator()
         use_claude = force_claude and force_claude.lower() in ("1", "true", "yes")
@@ -114,8 +140,10 @@ async def fill_form(
             source_data, target_bytes, force_claude=use_claude,
         )
     except ValueError as e:
+        await _refund_pages(f"validation: {e}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        await _refund_pages(f"internal: {e.__class__.__name__}")
         logger.error("Form filling failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Form filling failed — please try again")
 

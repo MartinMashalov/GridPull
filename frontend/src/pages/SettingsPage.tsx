@@ -382,11 +382,24 @@ export default function SettingsPage() {
                       <Badge variant="destructive" className="mt-2 text-[10px]">Payment past due</Badge>
                     )}
                   </div>
-                  {sub.current_period_end && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Renews {new Date(sub.current_period_end).toLocaleDateString()}
-                    </p>
-                  )}
+                  {sub.current_period_end && (() => {
+                    const end = new Date(sub.current_period_end)
+                    const endLabel = end.toLocaleDateString()
+                    const expired = end.getTime() < Date.now()
+                    let prefix: string
+                    if (sub.status === 'canceled') {
+                      prefix = expired ? 'Ended' : 'Ends'
+                    } else if (sub.cancel_at_period_end) {
+                      prefix = 'Ends'
+                    } else {
+                      prefix = 'Renews'
+                    }
+                    return (
+                      <p className="text-[11px] text-muted-foreground">
+                        {prefix} {endLabel}
+                      </p>
+                    )
+                  })()}
                 </div>
 
                 {/* Usage meter */}

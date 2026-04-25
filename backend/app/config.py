@@ -157,6 +157,14 @@ class Settings(BaseSettings):
     papyra_user_email: str = ""
     papyra_user_password: str = ""
 
+    # Papyra Schedules service — HTTP Basic auth against
+    # /api/statements/{prepare,extract,extract-rows}-service. Credentials must
+    # be set via .env (PAPYRA_SCHEDULES_USERNAME / _PASSWORD); the route
+    # returns 503 if they're missing.
+    papyra_schedules_base_url: str = "http://127.0.0.1:8000"
+    papyra_schedules_username: str = ""
+    papyra_schedules_password: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

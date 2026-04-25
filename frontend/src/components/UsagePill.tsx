@@ -19,7 +19,12 @@ export default function UsagePill() {
   const [usage, setUsage] = useState<UsageWarning | null>(null)
 
   useEffect(() => {
-    api.get('/payments/usage-warning').then(r => setUsage(r.data)).catch(() => {})
+    const refresh = () => {
+      api.get('/payments/usage-warning').then(r => setUsage(r.data)).catch(() => {})
+    }
+    refresh()
+    window.addEventListener('gridpull:usage-changed', refresh)
+    return () => window.removeEventListener('gridpull:usage-changed', refresh)
   }, [])
 
   if (!usage) return null
