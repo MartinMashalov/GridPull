@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta
-from email.header import decode_header
+from email.header import decode_header, make_header
 
 from app.config import settings
 from app.services.ingest.email_parser import extract_address_keys
@@ -29,17 +29,26 @@ _STARTUP_DELAY = 10
 
 
 def _decode_header_value(raw: str | None) -> str:
-    """Decode RFC-2047 encoded header into a plain string."""
+    """Decode RFC-2047 encoded header into a plain string.
+
+    Uses make_header so adjacent encoded-words and ASCII segments concatenate
+    without injecting extra whitespace at segment boundaries (the previous
+    " ".join approach turned `Subject — body` into `Subject  —  body`).
+    """
     if not raw:
         return ""
-    parts = decode_header(raw)
-    decoded = []
-    for part, charset in parts:
-        if isinstance(part, bytes):
-            decoded.append(part.decode(charset or "utf-8", errors="replace"))
-        else:
-            decoded.append(part)
-    return " ".join(decoded)
+    try:
+        return str(make_header(decode_header(raw))).strip()
+    except Exception:
+        # Fallback: best-effort byte decode with no boundary spaces.
+        parts = decode_header(raw)
+        decoded: list[str] = []
+        for part, charset in parts:
+            if isinstance(part, bytes):
+                decoded.append(part.decode(charset or "utf-8", errors="replace"))
+            else:
+                decoded.append(part)
+        return "".join(decoded).strip()
 
 
 def _extract_sender(msg: email_lib.message.Message) -> str:
