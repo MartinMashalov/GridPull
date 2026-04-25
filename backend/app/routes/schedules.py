@@ -64,11 +64,17 @@ _VALID_SCHEDULE_TYPES = {t["value"] for t in SCHEDULE_TYPES}
 
 
 def _require_schedules_creds() -> None:
-    if not settings.papyra_schedules_username or not settings.papyra_schedules_password:
-        logger.error(
-            "PAPYRA_SCHEDULES_USERNAME / PAPYRA_SCHEDULES_PASSWORD not configured"
+    missing: list[str] = []
+    if not settings.papyra_schedules_username:
+        missing.append("PAPYRA_SCHEDULES_USERNAME")
+    if not settings.papyra_schedules_password:
+        missing.append("PAPYRA_SCHEDULES_PASSWORD")
+    if missing:
+        logger.error("Schedules creds missing: %s", ", ".join(missing))
+        raise HTTPException(
+            status_code=503,
+            detail=f"Schedules service not configured (missing: {', '.join(missing)})",
         )
-        raise HTTPException(status_code=503, detail="Schedules service not configured")
 
 
 def _basic_auth() -> tuple[str, str]:
