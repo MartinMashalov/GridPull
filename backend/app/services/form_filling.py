@@ -1235,20 +1235,27 @@ class PDFPopulator:
             except Exception:
                 logger.exception("[FORM-FILL] Paired-TF post-processing failed")
 
-        # 4c. LLM-as-judge with vision: render pages + send full source +
-        #    proposed values to Sonnet 4.6, apply explicit corrections.
-        #    Strict source-grounding + visual context catches hallucinations,
-        #    section-mismatches, and paired-question polarity errors that
-        #    upstream passes might have missed.
+        # 4c. LLM-as-judge with vision — TWO PASSES.
+        #    Pass 1: catch hallucinations, section-mismatches, polarity errors
+        #            in the upstream fill.
+        #    Pass 2: re-review the corrected state. Catches anything pass 1
+        #            missed and confirms convergence — if pass 2 returns zero
+        #            corrections we know the fill is stable. Pass 2 is also
+        #            faster on average because there's less to fix and the
+        #            input prompt benefits from prompt-caching on the source +
+        #            schema (only the field-values block changes between passes).
         if settings.anthropic_api_key:
-            try:
-                corrections, judge_cost = await _judge_fill_with_vision(
-                    target_pdf_bytes, source_context, schema, filled,
-                )
+            for pass_idx in range(1, 3):  # passes 1 and 2
+                try:
+                    corrections, judge_cost = await _judge_fill_with_vision(
+                        target_pdf_bytes, source_context, schema, filled,
+                    )
+                except Exception:
+                    logger.exception("[FORM-FILL] Judge pass %d failed (non-fatal)", pass_idx)
+                    break
                 total_cost += judge_cost
                 applied = 0
                 for k, v in corrections.items():
-                    # Treat empty-string corrections as "clear the field"
                     if str(v).strip() == "":
                         if not _is_blank(filled.get(k)):
                             filled[k] = ""
@@ -1257,11 +1264,15 @@ class PDFPopulator:
                         if str(filled.get(k, "")).strip() != str(v).strip():
                             filled[k] = v
                             applied += 1
-                if applied:
-                    logger.info("[FORM-FILL] Judge applied %d field corrections",
-                                applied)
-            except Exception:
-                logger.exception("[FORM-FILL] Judge stage failed (non-fatal)")
+                logger.info(
+                    "[FORM-FILL] Judge pass %d: %d suggestions → %d applied (cost $%.4f)",
+                    pass_idx, len(corrections), applied, judge_cost,
+                )
+                # Converged: no further corrections to make.
+                if applied == 0:
+                    if pass_idx == 1:
+                        logger.info("[FORM-FILL] Judge pass 1 clean — skipping pass 2")
+                    break
 
         # 4d. Normalize to PDF values
         pdf_values = _normalize_values(filled, schema)
