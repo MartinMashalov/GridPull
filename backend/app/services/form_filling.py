@@ -117,17 +117,11 @@ def _pdf_form_fields_as_text(file_bytes: bytes) -> str:
             except Exception:
                 label = ""
             if not label:
-                # Fall back to the deepest segment of the field name with
-                # numeric [n] indices stripped — better than the full XFA
-                # path, still less informative than a real /TU.
-                short = name.split('.')[-1]
-                while short.endswith(']') and '[' in short:
-                    bracket = short.rfind('[')
-                    if short[bracket + 1:-1].isdigit():
-                        short = short[:bracket]
-                    else:
-                        break
-                label = short.strip() or name
+                # Parse the AcroForm name into a readable label — picks up
+                # ACORD-style names like Producer_FullName_A → "Producer Full
+                # Name", Policy_Status_EffectiveDate_A → "Policy Status
+                # Effective Date".
+                label = _humanize_field_name(name) or name
             lines.append(f"{label}: {sval}")
         return "\n".join(lines)
     except Exception as e:
@@ -369,7 +363,7 @@ def _get_checked_state(fd) -> dict:
 
 def _short_field_name(name: str) -> str:
     """Strip trailing [n] index segments from the last dotted part of a field
-    name so 'Page2[0].Loss[0].Year[0]' becomes 'Year' for use as a label hint
+    name so 'Page2[0].Loss[0].Year[0]' becomes 'Year' — used as a label hint
     when the PDF didn't supply /TU."""
     short = name.split('.')[-1]
     while short.endswith(']') and '[' in short:
@@ -381,16 +375,55 @@ def _short_field_name(name: str) -> str:
     return short.strip()
 
 
+# Patterns for parsing AcroForm field names into readable labels when /TU is
+# absent. ACORD-style forms encode the meaning into the name itself —
+# `Producer_FullName_A`, `Policy_Status_EffectiveDate_A` — so a tiny parser
+# extracts plenty of signal without OCR.
+_TRAILING_VARIANT_RE = re.compile(r'_[A-Z]\d?$')        # _A, _B, _C, _A1, _B2 …
+_CAMEL_BOUNDARY_RE = re.compile(r'(?<=[a-z0-9])(?=[A-Z])')
+
+
+def _humanize_field_name(name: str) -> str:
+    """Convert a cryptic AcroForm field name into a human-readable label.
+
+    Steps:
+      1. Take the deepest dotted segment, strip `[n]` indices.
+      2. Drop trailing single-letter variant suffixes like '_A', '_B', '_A1'.
+      3. Split on underscores AND camelCase boundaries.
+      4. Title-case and join with spaces.
+    Returns "" if the resulting label is empty or identical to the original
+    fragment (i.e. no useful structure was found)."""
+    short = _short_field_name(name)
+    if not short:
+        return ""
+    cleaned = _TRAILING_VARIANT_RE.sub("", short)
+    parts: list[str] = []
+    for chunk in cleaned.split("_"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        # Split CamelCase: "FullName" → ["Full", "Name"]
+        sub = _CAMEL_BOUNDARY_RE.split(chunk)
+        for s in sub:
+            s = s.strip()
+            if s:
+                parts.append(s)
+    if not parts:
+        return ""
+    label = " ".join(p[:1].upper() + p[1:] if p[:1].islower() else p for p in parts)
+    return label if label.lower() != name.lower() else ""
+
+
 def _label_hint(meta: dict, name: str) -> str:
     """[label: "..."] suffix for a field. Prefers the PDF's /TU tooltip
-    (the human-readable form label); falls back to the deepest segment of
-    the field name if no tooltip was authored."""
+    (the human-readable form label); falls back to a parsed version of the
+    field name when the form author didn't set /TU."""
     label = (meta.get("label") or "").strip()
     if label:
         return f' [label: "{label}"]'
-    short = _short_field_name(name)
-    if short and short != name:
-        return f' [name: "{short}"]'
+    parsed = _humanize_field_name(name)
+    if parsed:
+        return f' [name: "{parsed}"]'
     return ''
 
 
