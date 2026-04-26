@@ -233,6 +233,7 @@ def _extract_target_schema(reader: PdfReader) -> dict:
     """
     Returns dict of field_name -> field_meta where field_meta has:
       type: 'text' | 'checkbox' | 'dropdown' | 'radio'
+      label: human-readable tooltip from /TU (None if absent)
       options: list (for dropdown/radio)
       appearance_states: dict (for checkbox)
     """
@@ -243,23 +244,36 @@ def _extract_target_schema(reader: PdfReader) -> dict:
     schema = {}
     for name, fd in raw.items():
         ft = fd.get('/FT', '')
+        # /TU is the form's own user-readable tooltip (e.g. "1. REQUISITION
+        # NUMBER", "Year of Loss"). Without this, the model only sees the
+        # cryptic AcroForm name like Loss[0].Year[0] and tends to dump
+        # any year-shaped value into it.
+        try:
+            tu_raw = fd.get('/TU')
+            label = str(tu_raw).strip() if tu_raw is not None else None
+        except Exception:
+            label = None
         if ft == '/Tx':
-            schema[name] = {"type": "text"}
+            schema[name] = {"type": "text", "label": label}
         elif ft == '/Btn':
             opts = fd.get('/Opt', [])
             if opts and len(opts) > 2:
-                schema[name] = {"type": "radio", "options": [str(o) for o in opts]}
+                schema[name] = {"type": "radio", "options": [str(o) for o in opts], "label": label}
             else:
-                schema[name] = {"type": "checkbox", "appearance_states": _get_checked_state(fd)}
+                schema[name] = {
+                    "type": "checkbox",
+                    "appearance_states": _get_checked_state(fd),
+                    "label": label,
+                }
         elif ft == '/Ch':
             opts = fd.get('/Opt', [])
             clean = [str(o) for o in opts if str(o) not in ('Please Select...', '')]
-            schema[name] = {"type": "dropdown", "options": clean}
+            schema[name] = {"type": "dropdown", "options": clean, "label": label}
         elif ft == '/Sig':
             pass  # skip signature fields
         else:
             # unknown type — treat as text
-            schema[name] = {"type": "text"}
+            schema[name] = {"type": "text", "label": label}
 
     return schema
 
@@ -321,8 +335,36 @@ def _get_checked_state(fd) -> dict:
 
 # ─── LLM fill ─────────────────────────────────────────────────────────────────
 
+def _short_field_name(name: str) -> str:
+    """Strip trailing [n] index segments from the last dotted part of a field
+    name so 'Page2[0].Loss[0].Year[0]' becomes 'Year' for use as a label hint
+    when the PDF didn't supply /TU."""
+    short = name.split('.')[-1]
+    while short.endswith(']') and '[' in short:
+        bracket = short.rfind('[')
+        if short[bracket + 1:-1].isdigit():
+            short = short[:bracket]
+        else:
+            break
+    return short.strip()
+
+
+def _label_hint(meta: dict, name: str) -> str:
+    """[label: "..."] suffix for a field. Prefers the PDF's /TU tooltip
+    (the human-readable form label); falls back to the deepest segment of
+    the field name if no tooltip was authored."""
+    label = (meta.get("label") or "").strip()
+    if label:
+        return f' [label: "{label}"]'
+    short = _short_field_name(name)
+    if short and short != name:
+        return f' [name: "{short}"]'
+    return ''
+
+
 def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
-    """Build the field descriptions block for the prompt."""
+    """Build the field descriptions block for the prompt. Every line carries
+    a [label: "..."] hint so the model fills by meaning, not by string-type."""
     lines = []
     names = focus_names if focus_names else list(schema.keys())
     for name in names:
@@ -330,29 +372,19 @@ def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
         if not meta:
             continue
         t = meta["type"]
+        hint = _label_hint(meta, name)
         if t == "text":
-            lines.append(f'  "{name}": text')
+            lines.append(f'  "{name}": text{hint}')
         elif t == "checkbox":
-            # Surface the readable label for XFA-style full-path field names.
-            # Strip trailing numeric array indices (e.g. [0], [1]) from the last segment.
-            short = name.split('.')[-1]
-            while short.endswith(']') and '[' in short:
-                bracket = short.rfind('[')
-                if short[bracket + 1:-1].isdigit():
-                    short = short[:bracket]
-                else:
-                    break
-            short = short.strip()
-            label_hint = f' [label: "{short}"]' if short and short != name else ''
-            lines.append(f'  "{name}": checkbox{label_hint} — respond with "Yes" or "No"')
+            lines.append(f'  "{name}": checkbox{hint} — respond with "Yes" or "No"')
         elif t == "dropdown":
             opts = meta.get("options", [])
             opts_str = " | ".join(opts) if opts else "any value"
-            lines.append(f'  "{name}": dropdown — choose one of: {opts_str}')
+            lines.append(f'  "{name}": dropdown{hint} — choose one of: {opts_str}')
         elif t == "radio":
             opts = meta.get("options", [])
             opts_str = " | ".join(opts) if opts else "any value"
-            lines.append(f'  "{name}": radio — choose one of: {opts_str}')
+            lines.append(f'  "{name}": radio{hint} — choose one of: {opts_str}')
     return "\n".join(lines)
 
 
@@ -373,29 +405,34 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
     focus_note = ""
     if focus_names:
         focus_note = (
-            f"\n\nFOCUS: The {len(focus_names)} fields below were left blank in a prior attempt. "
-            "Look harder at the source data — use any reasonable inference or partial match. "
-            "Do NOT leave fields blank if there is ANY relevant information available."
+            f"\n\nFOCUS: The {len(focus_names)} fields below were left blank in a prior pass. "
+            "Re-check the source for any value that semantically matches each field's [label]. "
+            "If the source genuinely has no value for that label, leave \"\" — do NOT guess to fill it."
         )
 
-    return f"""You are filling out a form. Your goal is to fill EVERY field possible — leave nothing blank if there is any way to determine or reasonably infer a value.
+    return f"""You are filling out a structured form (typically ACORD or government). Each field below shows its machine name plus a [label: "..."] hint that is the form's own user-facing label (from the PDF's /TU tooltip). The label tells you what the field is asking — match by meaning, never by data type alone.
+
+CORE PRINCIPLE — GROUND OR LEAVE BLANK:
+A wrong answer is far worse than an empty field. Only fill a field when you can point to a specific value in the source that semantically matches the [label]. If you can't, leave it as "".
+- Do NOT invent data.
+- Do NOT borrow a value from one section to fill an unrelated field. A property year-built is NOT a Loss Year. A vendor address is NOT a mortgagee address. A total premium is NOT a per-line premium.
+- Do NOT compute, infer, or derive values that the source doesn't state directly.
 
 RULES:
-1. Return a single flat JSON object with field names as keys and string values.
-2. For checkbox fields: return "Yes" or "No" only. Use the [label] hint to understand what the checkbox represents.
-   - If the label describes something that is clearly present, applicable, or confirmed in the source, return "Yes".
-   - If the label describes something that is clearly absent, inapplicable, or contradicted by the source, return "No".
-   - For ambiguous checkboxes with no relevant source data, return "No" as a conservative default.
-3. For dropdown fields: return exactly one of the listed options (never "Please Select...").
-4. For text fields: fill aggressively using any available information:
-   - Use direct matches, close matches, or any value from the source that fits the field's intent.
-   - Infer derived values: end date = start date + duration; totals = sum of parts; rate × quantity = amount; etc.
-   - For numeric/financial fields with no exact match, use the closest available figure from the source.
-   - For descriptive/narrative fields about activities, operations, history, or background, compose a concise factual answer drawn from the source context.
-   - Leave "" ONLY if the information is genuinely absent AND cannot be inferred in any reasonable way.
-5. NEVER return null, None, or "N/A" — use "" only as a last resort when a field is truly unanswerable.
-6. CRITICAL — always fill these whenever ANY related data exists: names, addresses, phone numbers, emails, dates, monetary amounts, quantities, ID numbers, organization names, titles, locations.
-7. For yes/no questions about adverse events, prior incidents, losses, or conditions not mentioned in the source, default to "No".
+1. Return a single flat JSON object — keys = field names exactly as listed below, values = strings.
+2. Text fields: fill ONLY when the source clearly answers the [label]'s question. Otherwise "".
+3. Checkbox fields:
+   - "Yes" if the source explicitly confirms the [label].
+   - "No" if the source explicitly denies the [label] OR the source explicitly says there are none of those items (e.g. "no losses in past 5 years" → all "have you had losses?" boxes = "No").
+   - "" only if source is silent AND the box doesn't represent a yes/no question with a reasonable default.
+4. Dropdown / radio: pick the option whose meaning matches the source. "" if no option clearly applies.
+5. Repeated table rows (Loss[0].*, Loss[1].*, Driver[0].*, Vehicle[0].*, etc):
+   - Fill row N only if the source contains an Nth distinct record matching that table's purpose.
+   - If the source has fewer records than there are rows, leave the extra rows entirely blank.
+   - If the source explicitly says "no losses / no claims / none" or has a "Check here if none" indicator that's selected, leave EVERY row in that table blank.
+6. NEVER return null, None, "N/A", "Unknown", "Not provided" — use "" for any unanswered field.
+7. Numeric/currency fields: only fill if the source states the specific amount the [label] asks for. Don't reuse a different amount just because both are dollars.
+8. Names, addresses, dates: only fill when the [label]'s entity matches the source entity exactly. The applicant's name is NOT a contact's name; an inspection address is NOT a mailing address; an effective date is NOT an expiration date.
 
 SOURCE DATA:
 {source_context}{prior_block}{focus_note}
@@ -408,7 +445,11 @@ Respond with ONLY the JSON object. No markdown, no explanation."""
 
 _FORM_FILL_MODEL = "gpt-4.1-mini"
 _FORM_FILL_HAIKU_MODEL = "claude-haiku-4-5-20251001"
-_HAIKU_FIELD_THRESHOLD = 100  # use Haiku 4.5 when form has >= 100 fields
+# Always route to Haiku 4.5 — gpt-4.1-mini was string-type-matching values
+# into wrong fields (loss table getting building-fact text, etc). Haiku
+# follows the [label] hints far more faithfully. gpt-4.1-mini stays as the
+# fallback if the Anthropic key is unset.
+_HAIKU_FIELD_THRESHOLD = 0
 
 # Lazy-initialised Anthropic client
 _anthropic_client = None
