@@ -410,29 +410,30 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
             "If the source genuinely has no value for that label, leave \"\" — do NOT guess to fill it."
         )
 
-    return f"""You are filling out a structured form (typically ACORD or government). Each field below shows its machine name plus a [label: "..."] hint that is the form's own user-facing label (from the PDF's /TU tooltip). The label tells you what the field is asking — match by meaning, never by data type alone.
+    return f"""You are filling out a structured form (ACORD, government, or similar). Each field below shows its machine name plus a [label: "..."] hint pulled from the PDF's own tooltip — that label tells you what the field is for. Match by the meaning of the label, not by string-type alone.
 
-CORE PRINCIPLE — GROUND OR LEAVE BLANK:
-A wrong answer is far worse than an empty field. Only fill a field when you can point to a specific value in the source that semantically matches the [label]. If you can't, leave it as "".
-- Do NOT invent data.
-- Do NOT borrow a value from one section to fill an unrelated field. A property year-built is NOT a Loss Year. A vendor address is NOT a mortgagee address. A total premium is NOT a per-line premium.
-- Do NOT compute, infer, or derive values that the source doesn't state directly.
+CORE PRINCIPLE — match by meaning, accept synonyms, but never dump data:
+A wrong answer is worse than an empty field. Fill a field when the source contains a value that answers the question the label asks (even using different words for the same concept). Leave "" when the source has no value that matches the label's purpose.
+- Synonyms ARE the same: "Vendor" / "Supplier" / "Offeror" / "Contractor" / "Company" / "Insured" can all be the same entity if context supports it. "Invoice number" / "PO number" / "Order number" / "Reference number" are interchangeable identifiers if the source has only one. Use sensible mappings.
+- BUT do NOT cross-pollinate sections: a property year-built is NOT a Loss Year; a building square-footage is NOT a Description of Loss; a building address is NOT a mortgagee address; a total premium is NOT a per-line premium. The label tells you which section the field belongs to.
+- Do NOT invent or fabricate data the source doesn't contain.
+- Do NOT compute or derive values unless the math is trivial and the source provides every input (e.g. line totals when quantity and unit price are both given).
 
 RULES:
 1. Return a single flat JSON object — keys = field names exactly as listed below, values = strings.
-2. Text fields: fill ONLY when the source clearly answers the [label]'s question. Otherwise "".
+2. Text fields: fill when the source has a value that answers the [label]'s question (synonyms welcome). Otherwise "".
 3. Checkbox fields:
-   - "Yes" if the source explicitly confirms the [label].
-   - "No" if the source explicitly denies the [label] OR the source explicitly says there are none of those items (e.g. "no losses in past 5 years" → all "have you had losses?" boxes = "No").
-   - "" only if source is silent AND the box doesn't represent a yes/no question with a reasonable default.
+   - "Yes" if the source confirms what the [label] describes.
+   - "No" if the source denies it OR explicitly says "none" / "no losses" / "no incidents" for that category.
+   - "" only when the source is silent AND there's no reasonable default.
 4. Dropdown / radio: pick the option whose meaning matches the source. "" if no option clearly applies.
-5. Repeated table rows (Loss[0].*, Loss[1].*, Driver[0].*, Vehicle[0].*, etc):
+5. Repeated table rows (Loss[0].*, Loss[1].*, Driver[0].*, Vehicle[0].*, line items, etc):
    - Fill row N only if the source contains an Nth distinct record matching that table's purpose.
-   - If the source has fewer records than there are rows, leave the extra rows entirely blank.
+   - If the source has fewer records than the form has rows, leave the extra rows entirely blank.
    - If the source explicitly says "no losses / no claims / none" or has a "Check here if none" indicator that's selected, leave EVERY row in that table blank.
 6. NEVER return null, None, "N/A", "Unknown", "Not provided" — use "" for any unanswered field.
-7. Numeric/currency fields: only fill if the source states the specific amount the [label] asks for. Don't reuse a different amount just because both are dollars.
-8. Names, addresses, dates: only fill when the [label]'s entity matches the source entity exactly. The applicant's name is NOT a contact's name; an inspection address is NOT a mailing address; an effective date is NOT an expiration date.
+7. Numeric / currency fields: fill from the value the [label] asks for. Don't substitute a different amount just because both are dollars.
+8. Names / addresses / dates: the [label] tells you whose name, which address, which date. Map the right entity from the source. The applicant's name is NOT a third-party contact's name; an inspection address is NOT a mailing address; an effective date is NOT an expiration date.
 
 SOURCE DATA:
 {source_context}{prior_block}{focus_note}
