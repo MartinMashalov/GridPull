@@ -626,6 +626,11 @@ RULES:
    - "Yes" if the source confirms what the [label] describes.
    - "No" if the source denies it OR explicitly says "none" / "no losses" / "no incidents" for that category.
    - "" only when the source is silent AND there's no reasonable default.
+3a. Paired True/False checkboxes — labels of the form "<question> — True" and "<question> — False":
+   - These are TWO sides of one Yes/No question. The text before "—" is the question; "True" / "False" is the answer option.
+   - First decide the correct answer to the question from the source, THEN mark "Yes" on the option matching that answer and "No" on the other. Never mark both.
+   - Example: label "Applicant has been in business under current management for more than three (3) years — True" + source says years_in_business=24. Answer = True. Mark this checkbox "Yes". The matching "...— False" checkbox gets "No".
+   - For double-negative phrasing like "Insured does NOT occupy more than 25,000 square feet": if the source says the insured occupies 8,500 sqft, the statement is TRUE (they do not exceed 25k), so "...— True" = Yes.
 4. Dropdown / radio: pick the option whose meaning matches the source. "" if no option clearly applies.
 5. Repeated table rows (Loss[0].*, Loss[1].*, Driver[0].*, Vehicle[0].*, line items, etc):
    - Fill row N only if the source contains an Nth distinct record matching that table's purpose.
