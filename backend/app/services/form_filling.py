@@ -975,6 +975,19 @@ def _write_pdf(reader: PdfReader, field_values: dict) -> bytes:
 _JUDGE_MAX_PAGES = 6              # cap rendered pages to control prompt size
 _JUDGE_RENDER_DPI_SCALE = 2.0     # 2x = 144 dpi at 72 dpi default
 _JUDGE_MAX_FIELDS_LISTED = 250    # cap field listing in prompt
+_JUDGE_MAX_SOURCE_CHARS = 30_000  # cap source-data block in prompt
+_JUDGE_TIMEOUT_S = 45.0           # hard timeout per provider — fail over to next
+_JUDGE_MAX_TOKENS = 6144
+
+# Judge prefers cheap+fast vision models. Failover order:
+#   1. Anthropic Haiku 4.5  (~$0.001/Mtok in, $0.005/Mtok out, fast, vision)
+#   2. OpenAI GPT-4.1-mini  (~$0.0004/Mtok in, $0.0016/Mtok out, fast, vision)
+#   3. OpenAI GPT-4o-mini   (~$0.000150/Mtok in, $0.0006/Mtok out, vision)
+# Sonnet 4.6 was the original choice but it's 10x more expensive than Haiku
+# for the same task, slower under load, and shares the Anthropic rate-limit
+# pool with the main fill — meaning a busy minute can take down both stages.
+_JUDGE_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+_JUDGE_OPENAI_MODELS = ("gpt-4.1-mini", "gpt-4o-mini")
 
 
 def _render_pages_to_b64(pdf_bytes: bytes, max_pages: int = _JUDGE_MAX_PAGES) -> list[str]:
@@ -1083,7 +1096,7 @@ async def _judge_fill_with_vision(
         "addresses (mailing vs business vs inspection), paired True/False "
         "answers (one Yes per pair), and section ownership (a value belonging "
         "to Section II shouldn't sit in Section V).\n\n"
-        f"SOURCE DATA (full):\n{source_context[:30000]}\n\n"
+        f"SOURCE DATA (full):\n{source_context[:_JUDGE_MAX_SOURCE_CHARS]}\n\n"
         f"CURRENT FIELD VALUES ({len(schema)} fields total):\n{fields_block}\n\n"
         "Respond with ONLY a JSON object mapping field names to their CORRECTED "
         "value. Include ONLY fields you are changing — empty object {} if "
@@ -1091,36 +1104,10 @@ async def _judge_fill_with_vision(
         "fields whose current value should stay."
     )
 
-    content: list[dict] = [{"type": "text", "text": prompt_text}]
-    for img_b64 in images_b64:
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": img_b64},
-        })
-
-    try:
-        client = _get_anthropic_client()
-        response = await client.messages.create(
-            model=_FORM_FILL_HAIKU_MODEL,
-            max_tokens=8192,
-            temperature=0,
-            messages=[{"role": "user", "content": content}],
-        )
-    except Exception as exc:
-        logger.warning("[JUDGE] LLM call failed: %s", exc)
+    raw, cost, used_model = await _judge_call_with_rotation(prompt_text, images_b64)
+    if raw is None:
+        # All providers failed — main fill stands.
         return {}, 0.0
-
-    cost = 0.0
-    if response.usage:
-        from app.services.extraction.core import _estimate_cost, _MARKUP
-        cost = _estimate_cost(
-            _FORM_FILL_HAIKU_MODEL,
-            response.usage.input_tokens or 0,
-            response.usage.output_tokens or 0,
-            getattr(response.usage, "cache_read_input_tokens", 0) or 0,
-        ) * _MARKUP
-
-    raw = response.content[0].text if response.content else "{}"
     if "```json" in raw:
         raw = raw.split("```json")[1].split("```")[0].strip()
     elif "```" in raw:
@@ -1129,7 +1116,7 @@ async def _judge_fill_with_vision(
     try:
         corrections = json.loads(raw)
     except json.JSONDecodeError:
-        logger.warning("[JUDGE] non-JSON response: %s", raw[:300])
+        logger.warning("[JUDGE] non-JSON response from %s: %s", used_model, raw[:300])
         return {}, cost
 
     if not isinstance(corrections, dict):
@@ -1144,10 +1131,108 @@ async def _judge_fill_with_vision(
         )
 
     logger.info(
-        "[JUDGE] %d corrections accepted, cost=$%.4f, %d pages reviewed",
-        len(valid), cost, len(images_b64),
+        "[JUDGE] %d corrections accepted (model=%s cost=$%.4f, %d pages)",
+        len(valid), used_model, cost, len(images_b64),
     )
     return valid, cost
+
+
+async def _judge_call_with_rotation(
+    prompt_text: str, images_b64: list[str],
+) -> tuple[str | None, float, str]:
+    """Call the judge with a Haiku → GPT-4.1-mini → GPT-4o-mini rotation.
+
+    Each attempt is wrapped in a hard timeout so a hung provider doesn't
+    block the whole pipeline. Returns (raw_response_text, cost_usd,
+    model_id_used) — raw=None means all providers failed.
+    """
+    last_exc: Exception | None = None
+
+    # ── 1. Anthropic Haiku 4.5 ─────────────────────────────────────────
+    if settings.anthropic_api_key:
+        anth_content: list[dict] = [{"type": "text", "text": prompt_text}]
+        for img_b64 in images_b64:
+            anth_content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": img_b64},
+            })
+        try:
+            client = _get_anthropic_client()
+            response = await asyncio.wait_for(
+                client.messages.create(
+                    model=_JUDGE_ANTHROPIC_MODEL,
+                    max_tokens=_JUDGE_MAX_TOKENS,
+                    temperature=0,
+                    messages=[{"role": "user", "content": anth_content}],
+                ),
+                timeout=_JUDGE_TIMEOUT_S,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            last_exc = exc
+            logger.warning("[JUDGE] Anthropic Haiku failed (%s) — rotating to OpenAI",
+                           exc.__class__.__name__)
+        else:
+            cost = 0.0
+            if response.usage:
+                from app.services.extraction.core import _estimate_cost, _MARKUP
+                cost = _estimate_cost(
+                    _JUDGE_ANTHROPIC_MODEL,
+                    response.usage.input_tokens or 0,
+                    response.usage.output_tokens or 0,
+                    getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+                ) * _MARKUP
+            raw = response.content[0].text if response.content else "{}"
+            return raw, cost, _JUDGE_ANTHROPIC_MODEL
+
+    # ── 2. OpenAI rotation (GPT-4.1-mini → GPT-4o-mini) ────────────────
+    if not settings.openai_api_key:
+        logger.warning("[JUDGE] no OPENAI_API_KEY — cannot fall back from Anthropic")
+        return None, 0.0, "none"
+
+    try:
+        from openai import AsyncOpenAI
+    except ImportError:
+        logger.warning("[JUDGE] openai SDK not installed — fallback unavailable")
+        return None, 0.0, "none"
+
+    oai_content = [{"type": "text", "text": prompt_text}]
+    for img_b64 in images_b64:
+        oai_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+        })
+
+    oai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+    for model in _JUDGE_OPENAI_MODELS:
+        try:
+            response = await asyncio.wait_for(
+                oai_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": oai_content}],
+                    max_tokens=_JUDGE_MAX_TOKENS,
+                    temperature=0,
+                ),
+                timeout=_JUDGE_TIMEOUT_S,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            last_exc = exc
+            logger.warning("[JUDGE] OpenAI %s failed (%s) — trying next",
+                           model, exc.__class__.__name__)
+            continue
+        cost = 0.0
+        if response.usage:
+            from app.services.extraction.core import _estimate_cost, _MARKUP
+            cost = _estimate_cost(
+                model,
+                response.usage.prompt_tokens or 0,
+                response.usage.completion_tokens or 0,
+                0,
+            ) * _MARKUP
+        raw = response.choices[0].message.content or "{}"
+        return raw, cost, model
+
+    logger.error("[JUDGE] all providers failed: %s", last_exc)
+    return None, 0.0, "none"
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
