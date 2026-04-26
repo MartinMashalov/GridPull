@@ -970,6 +970,186 @@ def _write_pdf(reader: PdfReader, field_values: dict) -> bytes:
     return out.getvalue()
 
 
+# ─── LLM-as-judge with vision ─────────────────────────────────────────────────
+
+_JUDGE_MAX_PAGES = 6              # cap rendered pages to control prompt size
+_JUDGE_RENDER_DPI_SCALE = 2.0     # 2x = 144 dpi at 72 dpi default
+_JUDGE_MAX_FIELDS_LISTED = 250    # cap field listing in prompt
+
+
+def _render_pages_to_b64(pdf_bytes: bytes, max_pages: int = _JUDGE_MAX_PAGES) -> list[str]:
+    """Render PDF pages to base64-encoded PNGs for vision input."""
+    out: list[str] = []
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as exc:
+        logger.warning("[JUDGE] page render — open failed: %s", exc)
+        return out
+    try:
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            try:
+                mat = fitz.Matrix(_JUDGE_RENDER_DPI_SCALE, _JUDGE_RENDER_DPI_SCALE)
+                pix = page.get_pixmap(matrix=mat)
+                png_bytes = pix.tobytes("png")
+                out.append(base64.standard_b64encode(png_bytes).decode("ascii"))
+            except Exception as exc:
+                logger.warning("[JUDGE] page %d render failed: %s", i, exc)
+    finally:
+        doc.close()
+    return out
+
+
+async def _judge_fill_with_vision(
+    target_pdf_bytes: bytes,
+    source_context: str,
+    schema: dict,
+    current_fill: dict,
+) -> tuple[dict, float]:
+    """Vision-based LLM-as-judge stage.
+
+    Renders the target form pages to images, sends them along with the
+    full source data and the proposed fill values to Sonnet 4.6, and
+    asks the model to flag any field whose current value is wrong or
+    missing. Returns {field_name: corrected_value} for fields that need
+    changing — anything not mentioned keeps its current value.
+
+    The judge gets the maximum context we can provide:
+      • Vision: every page of the target form rendered
+      • Text: the full source data (all extracted Label: Value pairs)
+      • Schema: each field's name, type, label hint, and current value
+
+    Skips silently on any failure — the main fill remains the answer.
+    """
+    if not settings.anthropic_api_key:
+        return {}, 0.0
+    if not schema:
+        return {}, 0.0
+
+    images_b64 = _render_pages_to_b64(target_pdf_bytes)
+    if not images_b64:
+        logger.info("[JUDGE] no pages rendered — skipping")
+        return {}, 0.0
+
+    # Build the field state block. List ALL fields (including blanks) so
+    # the judge can suggest filling what was missed.
+    listed = 0
+    field_lines: list[str] = []
+    for name, meta in schema.items():
+        if listed >= _JUDGE_MAX_FIELDS_LISTED:
+            field_lines.append(f"  ...(+{len(schema)-listed} more fields, truncated)")
+            break
+        ftype = meta.get("type", "text")
+        label = (meta.get("label") or "").strip() or _humanize_field_name(name) or "(no label)"
+        cur = current_fill.get(name, "")
+        if cur and not _is_blank(cur):
+            cur_repr = repr(str(cur)[:120])
+        else:
+            cur_repr = '""'
+        if ftype in ("dropdown", "radio"):
+            opts = meta.get("options") or []
+            opts_str = " | ".join(str(o) for o in opts[:8])
+            field_lines.append(
+                f'  "{name}" [{ftype}, label: "{label}", options: {opts_str}] = {cur_repr}'
+            )
+        else:
+            field_lines.append(
+                f'  "{name}" [{ftype}, label: "{label}"] = {cur_repr}'
+            )
+        listed += 1
+    fields_block = "\n".join(field_lines)
+
+    prompt_text = (
+        "You are auditing an automated PDF form fill for accuracy. The pages "
+        "of the target form are attached as images — use the printed labels, "
+        "section headings, and visible context to understand what each field "
+        "is asking. Compare every field's current value against:\n"
+        "  • The visible printed label/instruction near that field on the page\n"
+        "  • The full source data extracted from the applicant's records\n"
+        "  • Section context (which section the field belongs to)\n"
+        "  • For paired True/False: exactly one Yes per pair, never both\n\n"
+        "RULES for corrections:\n"
+        "  1. Only correct a field when you are confident the current value is "
+        "wrong. If the current value is reasonable and grounded in the source, "
+        "leave it as-is (don't include it in your response).\n"
+        "  2. Use ONLY information from the source data — never invent values.\n"
+        "  3. For text fields whose source has no matching value, the correct "
+        "answer is \"\" (empty string). Suggest \"\" if the current value is "
+        "fabricated or borrowed from an unrelated section.\n"
+        "  4. For checkboxes, return \"Yes\" or \"No\".\n"
+        "  5. For dropdowns/radios, use only the listed options.\n"
+        "  6. Pay extra attention to: applicant identity vs producer/contact, "
+        "addresses (mailing vs business vs inspection), paired True/False "
+        "answers (one Yes per pair), and section ownership (a value belonging "
+        "to Section II shouldn't sit in Section V).\n\n"
+        f"SOURCE DATA (full):\n{source_context[:30000]}\n\n"
+        f"CURRENT FIELD VALUES ({len(schema)} fields total):\n{fields_block}\n\n"
+        "Respond with ONLY a JSON object mapping field names to their CORRECTED "
+        "value. Include ONLY fields you are changing — empty object {} if "
+        "everything is correct. Do not include any prose, explanation, or "
+        "fields whose current value should stay."
+    )
+
+    content: list[dict] = [{"type": "text", "text": prompt_text}]
+    for img_b64 in images_b64:
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": img_b64},
+        })
+
+    try:
+        client = _get_anthropic_client()
+        response = await client.messages.create(
+            model=_FORM_FILL_HAIKU_MODEL,
+            max_tokens=8192,
+            temperature=0,
+            messages=[{"role": "user", "content": content}],
+        )
+    except Exception as exc:
+        logger.warning("[JUDGE] LLM call failed: %s", exc)
+        return {}, 0.0
+
+    cost = 0.0
+    if response.usage:
+        from app.services.extraction.core import _estimate_cost, _MARKUP
+        cost = _estimate_cost(
+            _FORM_FILL_HAIKU_MODEL,
+            response.usage.input_tokens or 0,
+            response.usage.output_tokens or 0,
+            getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+        ) * _MARKUP
+
+    raw = response.content[0].text if response.content else "{}"
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0].strip()
+    raw = raw.strip()
+    try:
+        corrections = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("[JUDGE] non-JSON response: %s", raw[:300])
+        return {}, cost
+
+    if not isinstance(corrections, dict):
+        return {}, cost
+
+    # Drop any keys not in schema (model hallucinating field names)
+    valid: dict = {k: v for k, v in corrections.items() if k in schema}
+    if len(valid) != len(corrections):
+        logger.warning(
+            "[JUDGE] %d/%d suggested keys not in schema (dropped)",
+            len(corrections) - len(valid), len(corrections),
+        )
+
+    logger.info(
+        "[JUDGE] %d corrections accepted, cost=$%.4f, %d pages reviewed",
+        len(valid), cost, len(images_b64),
+    )
+    return valid, cost
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
 class PDFPopulator:
@@ -1055,7 +1235,35 @@ class PDFPopulator:
             except Exception:
                 logger.exception("[FORM-FILL] Paired-TF post-processing failed")
 
-        # 4b. Normalize to PDF values
+        # 4c. LLM-as-judge with vision: render pages + send full source +
+        #    proposed values to Sonnet 4.6, apply explicit corrections.
+        #    Strict source-grounding + visual context catches hallucinations,
+        #    section-mismatches, and paired-question polarity errors that
+        #    upstream passes might have missed.
+        if settings.anthropic_api_key:
+            try:
+                corrections, judge_cost = await _judge_fill_with_vision(
+                    target_pdf_bytes, source_context, schema, filled,
+                )
+                total_cost += judge_cost
+                applied = 0
+                for k, v in corrections.items():
+                    # Treat empty-string corrections as "clear the field"
+                    if str(v).strip() == "":
+                        if not _is_blank(filled.get(k)):
+                            filled[k] = ""
+                            applied += 1
+                    else:
+                        if str(filled.get(k, "")).strip() != str(v).strip():
+                            filled[k] = v
+                            applied += 1
+                if applied:
+                    logger.info("[FORM-FILL] Judge applied %d field corrections",
+                                applied)
+            except Exception:
+                logger.exception("[FORM-FILL] Judge stage failed (non-fatal)")
+
+        # 4d. Normalize to PDF values
         pdf_values = _normalize_values(filled, schema)
 
         # 5. Write output PDF
