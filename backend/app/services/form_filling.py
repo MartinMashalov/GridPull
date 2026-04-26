@@ -317,8 +317,10 @@ def _extract_visible_labels(pdf_bytes: bytes) -> dict[str, str]:
 
                 label = ""
                 if ft == 7 or ft == 0:  # text field (or unknown -> treat as text)
-                    # For each span on the line, walk every colon as a label
-                    # boundary; pick the boundary nearest the field's left edge.
+                    # ── Strategy 1 (LEFT layout, most common on insurance forms):
+                    # for each span on the same line as the field, walk every
+                    # colon as a label boundary; pick the boundary nearest the
+                    # field's left edge.
                     best_seg = None
                     best_dist = float("inf")
                     for (sx0, _, sx1, _), text in same_line:
@@ -341,6 +343,28 @@ def _extract_visible_labels(pdf_bytes: bytes) -> dict[str, str]:
                             prev_idx = i + 1
                     if best_seg:
                         label = best_seg
+
+                    # ── Strategy 2 (ABOVE layout, common on web-style forms):
+                    # if no left-side label, look for the closest text DIRECTLY
+                    # ABOVE the field whose horizontal extent overlaps the field.
+                    if not label:
+                        best_above = None
+                        best_above_dist = float("inf")
+                        for (sx0, sy0, sx1, sy1), text in spans:
+                            # Must be above the field
+                            if sy1 > fy0:
+                                continue
+                            # Must overlap horizontally with the field
+                            if sx1 < fx0 or sx0 > fx1:
+                                continue
+                            d = fy0 - sy1
+                            if 0 <= d < best_above_dist and d < 30:  # within 30px
+                                cleaned = re.sub(r"[_\s\t]+", " ", text).strip().rstrip(":")
+                                if cleaned and not re.fullmatch(r"\d+\.?", cleaned):
+                                    best_above_dist = d
+                                    best_above = cleaned
+                        if best_above:
+                            label = best_above
                 elif ft in (2, 5):  # checkbox or radio
                     stem = ""
                     for (sx0, _, _, _), text in same_line:
@@ -650,11 +674,13 @@ Respond with ONLY the JSON object. No markdown, no explanation."""
 
 
 _FORM_FILL_MODEL = "gpt-4.1-mini"
-_FORM_FILL_HAIKU_MODEL = "claude-haiku-4-5-20251001"
-# Always route to Haiku 4.5 — gpt-4.1-mini was string-type-matching values
-# into wrong fields (loss table getting building-fact text, etc). Haiku
-# follows the [label] hints far more faithfully. gpt-4.1-mini stays as the
-# fallback if the Anthropic key is unset.
+# Sonnet 4.6 for form fill — Haiku 4.5 was flipping polarity on paired
+# True/False eligibility checkboxes ~40% of the time on negative-phrased
+# questions ("Insured does NOT occupy more than 25,000 sqft"). Sonnet's
+# stronger reasoning is worth the extra cost when the alternative is the
+# wrong answer on a binding insurance application. gpt-4.1-mini stays as
+# fallback when the Anthropic key isn't set.
+_FORM_FILL_HAIKU_MODEL = "claude-sonnet-4-6"
 _HAIKU_FIELD_THRESHOLD = 0
 
 # Lazy-initialised Anthropic client
