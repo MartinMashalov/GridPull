@@ -676,6 +676,18 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     return {"status": "ok"}
 
 
+def _sub_current_period_end(sub: dict) -> int | None:
+    """Stripe API 2025-03-31+ moved current_period_end onto subscription items.
+    Read item-level first, fall back to top-level for older event payloads."""
+    items = (sub.get("items") or {}).get("data") or []
+    if items:
+        cpe = items[0].get("current_period_end")
+        if cpe:
+            return int(cpe)
+    cpe = sub.get("current_period_end")
+    return int(cpe) if cpe else None
+
+
 async def _handle_subscription_created(sub: dict, db: AsyncSession):
     customer_id = sub.get("customer")
     result = await db.execute(select(User).where(User.stripe_customer_id == customer_id))
@@ -699,8 +711,9 @@ async def _handle_subscription_created(sub: dict, db: AsyncSession):
         user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     user.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
-    if sub.get("current_period_end"):
-        user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
+    cpe = _sub_current_period_end(sub)
+    if cpe:
+        user.current_period_end = datetime.utcfromtimestamp(cpe)
         user.usage_reset_at = user.current_period_end
     user.pages_used_this_period = 0
     user.overage_pages_this_period = 0
@@ -722,14 +735,16 @@ async def _handle_subscription_updated(sub: dict, db: AsyncSession):
         user.subscription_tier = tier
     user.subscription_status = sub.get("status", "active")
     user.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
-    if sub.get("current_period_end"):
-        user.current_period_end = datetime.utcfromtimestamp(sub["current_period_end"])
+    cpe = _sub_current_period_end(sub)
+    if cpe:
+        user.current_period_end = datetime.utcfromtimestamp(cpe)
         user.usage_reset_at = user.current_period_end
 
     await db.commit()
     logger.info(
-        "Subscription updated: user=%s tier=%s status=%s cancel_at_period_end=%s",
+        "Subscription updated: user=%s tier=%s status=%s cancel_at_period_end=%s period_end=%s",
         user.id, tier, user.subscription_status, user.cancel_at_period_end,
+        user.current_period_end,
     )
 
 
