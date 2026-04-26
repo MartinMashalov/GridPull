@@ -377,17 +377,24 @@ def _extract_visible_labels(pdf_bytes: bytes) -> dict[str, str]:
                             continue
                         if len(cleaned) > len(stem):
                             stem = cleaned
+                    # Find the option text right of the box. Use SPAN CENTER vs
+                    # FIELD CENTER (not "span starts after field's right edge")
+                    # because label text often visually overlaps a small 8px
+                    # checkbox bbox — strict edge-after checks miss the option.
+                    fx_center = (fx0 + fx1) / 2
                     opt = ""
                     opt_dist = float("inf")
                     for (sx0, _, sx1, _), text in same_line:
                         cleaned = re.sub(r"[_\s\t]+$", "", text).strip().rstrip(":")
                         if not cleaned:
                             continue
-                        if sx0 >= fx1 - 2:
-                            d = sx0 - fx1
-                            if d < opt_dist:
-                                opt_dist = d
-                                opt = cleaned
+                        sx_center = (sx0 + sx1) / 2
+                        if sx_center <= fx_center:
+                            continue
+                        d = sx_center - fx_center
+                        if d < opt_dist:
+                            opt_dist = d
+                            opt = cleaned
                     if stem and opt and stem != opt:
                         label = f"{stem} — {opt}"
                     else:
