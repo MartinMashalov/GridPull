@@ -877,6 +877,7 @@ Respond ONLY with a JSON object mapping question numbers to "True" or "False", e
 
     cost = 0.0
     if response.usage:
+        from app.services.extraction.core import _estimate_cost, _MARKUP
         cost = _estimate_cost(
             _FORM_FILL_HAIKU_MODEL,
             response.usage.input_tokens or 0,
