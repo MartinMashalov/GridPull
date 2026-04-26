@@ -11,6 +11,7 @@ from email.parser import BytesParser
 from html import unescape
 from mistralai import Mistral
 from pypdf import PdfReader, PdfWriter
+import fitz  # PyMuPDF — used for OCR-free visible-label extraction
 
 from app.services.llm_router import routed_acompletion
 from app.config import settings
@@ -255,11 +256,134 @@ async def _extract_source_text(filename: str, file_bytes: bytes, ocr: MistralOCR
 
 # ─── Target field schema ───────────────────────────────────────────────────────
 
-def _extract_target_schema(reader: PdfReader) -> dict:
+def _extract_visible_labels(pdf_bytes: bytes) -> dict[str, str]:
+    """OCR-free visible-label extraction using PyMuPDF.
+
+    For each AcroForm widget, find the printed label nearby on the page —
+    necessary for forms (like AmTrust E&S) whose authors didn't set /TU
+    and whose field names are just `Text1`, `Check Box1`, etc. Returns
+    {field_name: label} with labels like "Name of Applicant" for text
+    fields and "<question stem> — <option>" for checkboxes.
+
+    Strategy:
+      • Text-input field: split each text span at every colon (one span
+        often holds 'P.O. Box: ___ City: ___ State: ___' on a single
+        visual row); each colon is a label boundary. Pick the boundary
+        with the smallest x-distance to the field's left edge.
+      • Checkbox / radio: combine the question stem (longest non-numeric
+        non-option text on the same line) with the option (text directly
+        right of the box) — yields "Insured does not occupy more than
+        25,000 square feet — True".
+    """
+    same_line_tol = 4.0
+    out: dict[str, str] = {}
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        logger.debug("[VISIBLE-LABELS] open failed: %s", e)
+        return out
+
+    try:
+        for page in doc:
+            try:
+                page_dict = page.get_text("dict")
+            except Exception:
+                continue
+            spans: list[tuple[tuple[float, float, float, float], str]] = []
+            for block in page_dict.get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        t = span.get("text") or ""
+                        if t.strip():
+                            spans.append((span["bbox"], t))
+
+            try:
+                widgets = list(page.widgets() or [])
+            except Exception:
+                widgets = []
+
+            for w in widgets:
+                name = w.field_name
+                if not name:
+                    continue
+                ft = w.field_type  # pymupdf: 7 = text, 2 = checkbox, 5 = radio
+                fx0, fy0, fx1, fy1 = w.rect.x0, w.rect.y0, w.rect.x1, w.rect.y1
+                fcy = (fy0 + fy1) / 2
+
+                same_line = [
+                    (b, t) for b, t in spans
+                    if abs((b[1] + b[3]) / 2 - fcy) <= same_line_tol
+                ]
+
+                label = ""
+                if ft == 7 or ft == 0:  # text field (or unknown -> treat as text)
+                    # For each span on the line, walk every colon as a label
+                    # boundary; pick the boundary nearest the field's left edge.
+                    best_seg = None
+                    best_dist = float("inf")
+                    for (sx0, _, sx1, _), text in same_line:
+                        if ":" not in text:
+                            continue
+                        width = max(sx1 - sx0, 1.0)
+                        n = len(text)
+                        prev_idx = 0
+                        for i, ch in enumerate(text):
+                            if ch != ":":
+                                continue
+                            seg = text[prev_idx:i]
+                            seg = re.sub(r"^[_\s\t]+|[_\s\t]+$", "", seg).strip()
+                            if seg:
+                                colon_x = sx0 + (i + 1) / n * width
+                                d = abs(colon_x - fx0)
+                                if d < best_dist:
+                                    best_dist = d
+                                    best_seg = seg
+                            prev_idx = i + 1
+                    if best_seg:
+                        label = best_seg
+                elif ft in (2, 5):  # checkbox or radio
+                    stem = ""
+                    for (sx0, _, _, _), text in same_line:
+                        cleaned = re.sub(r"[_\s\t]+", " ", text).strip().rstrip(":")
+                        if not cleaned:
+                            continue
+                        if re.fullmatch(r"\d+\.?", cleaned):
+                            continue
+                        if cleaned.lower() in ("true", "false", "yes", "no"):
+                            continue
+                        if len(cleaned) > len(stem):
+                            stem = cleaned
+                    opt = ""
+                    opt_dist = float("inf")
+                    for (sx0, _, sx1, _), text in same_line:
+                        cleaned = re.sub(r"[_\s\t]+$", "", text).strip().rstrip(":")
+                        if not cleaned:
+                            continue
+                        if sx0 >= fx1 - 2:
+                            d = sx0 - fx1
+                            if d < opt_dist:
+                                opt_dist = d
+                                opt = cleaned
+                    if stem and opt and stem != opt:
+                        label = f"{stem} — {opt}"
+                    else:
+                        label = opt or stem
+
+                if label:
+                    out[name] = label[:200]  # cap to keep prompts reasonable
+    finally:
+        doc.close()
+
+    return out
+
+
+def _extract_target_schema(reader: PdfReader, pdf_bytes: bytes | None = None) -> dict:
     """
     Returns dict of field_name -> field_meta where field_meta has:
       type: 'text' | 'checkbox' | 'dropdown' | 'radio'
-      label: human-readable tooltip from /TU (None if absent)
+      label: human-readable label — /TU tooltip first, falling back to
+             OCR-free visible-label extraction (PyMuPDF positional text
+             matching), and finally None
       options: list (for dropdown/radio)
       appearance_states: dict (for checkbox)
     """
@@ -267,18 +391,29 @@ def _extract_target_schema(reader: PdfReader) -> dict:
     if not raw:
         raise ValueError("No form fields found in target PDF")
 
+    # Pull visible labels once per form — used as fallback when /TU is unset.
+    visible_labels: dict[str, str] = {}
+    if pdf_bytes:
+        visible_labels = _extract_visible_labels(pdf_bytes)
+        logger.info(
+            "[FORM-FILL] Visible-label extraction: %d/%d fields got a printed label",
+            len(visible_labels), len(raw),
+        )
+
     schema = {}
     for name, fd in raw.items():
         ft = fd.get('/FT', '')
-        # /TU is the form's own user-readable tooltip (e.g. "1. REQUISITION
-        # NUMBER", "Year of Loss"). Without this, the model only sees the
-        # cryptic AcroForm name like Loss[0].Year[0] and tends to dump
-        # any year-shaped value into it.
+        # Resolve a label for this field. Priority:
+        #   1. /TU tooltip (the form's own user-readable label)
+        #   2. visible printed text near the field (PyMuPDF position match)
+        #   3. None — let _label_hint fall back to a humanized field name
         try:
             tu_raw = fd.get('/TU')
             label = str(tu_raw).strip() if tu_raw is not None else None
         except Exception:
             label = None
+        if not label and visible_labels:
+            label = visible_labels.get(name) or None
         if ft == '/Tx':
             schema[name] = {"type": "text", "label": label}
         elif ft == '/Btn':
@@ -694,7 +829,7 @@ class PDFPopulator:
 
         # 2. Extract target schema
         reader = await asyncio.to_thread(PdfReader, io.BytesIO(target_pdf_bytes))
-        schema = await asyncio.to_thread(_extract_target_schema, reader)
+        schema = await asyncio.to_thread(_extract_target_schema, reader, target_pdf_bytes)
         logger.info("[FORM-FILL] Target schema: %d fillable fields", len(schema))
 
         # 3. Three-pass fill
