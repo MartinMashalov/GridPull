@@ -768,16 +768,143 @@ async def _call_llm_haiku(prompt: str) -> tuple[dict, float, str]:
 
 
 async def _call_llm(prompt: str, n_fields: int = 0, force_claude: bool = False) -> tuple[dict, float, str]:
-    """Route to Haiku 4.5 for large forms (100+ fields) or when forced, else GPT-4.1-mini."""
+    """Route to Sonnet 4.6 (was Haiku 4.5) when configured, else GPT-4.1-mini."""
     use_haiku = (
         (force_claude or n_fields >= _HAIKU_FIELD_THRESHOLD)
         and settings.anthropic_api_key
     )
     if use_haiku:
-        logger.info("[FORM-FILL] Using Haiku 4.5 (fields=%d, forced=%s, threshold=%d)",
-                     n_fields, force_claude, _HAIKU_FIELD_THRESHOLD)
+        logger.info("[FORM-FILL] Using %s (fields=%d, forced=%s, threshold=%d)",
+                     _FORM_FILL_HAIKU_MODEL, n_fields, force_claude, _HAIKU_FIELD_THRESHOLD)
         return await _call_llm_haiku(prompt)
     return await _call_llm_openai(prompt)
+
+
+# ─── Paired True/False post-processing ─────────────────────────────────────
+
+_PAIRED_TF_RE = re.compile(r"^(.*?)\s*[—–-]\s*(true|false|yes|no)\s*$", re.IGNORECASE)
+
+
+def _detect_paired_tf(schema: dict) -> dict[str, list[tuple[str, str]]]:
+    """Group checkbox fields whose labels look like '<question> — True' /
+    '<question> — False'. Returns {normalized_question: [(field_name, side), ...]}
+    where side is 'true' or 'false'. Pairs with both sides present are the
+    candidates for deterministic post-processing.
+    """
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for name, meta in schema.items():
+        if meta.get("type") != "checkbox":
+            continue
+        label = (meta.get("label") or "").strip()
+        if not label:
+            continue
+        m = _PAIRED_TF_RE.match(label)
+        if not m:
+            continue
+        stem = m.group(1).strip().lower()
+        side = m.group(2).lower()
+        if side in ("yes", "y"):
+            side = "true"
+        elif side in ("no", "n"):
+            side = "false"
+        groups.setdefault(stem, []).append((name, side))
+    # Keep only groups with both sides represented (i.e. real pairs)
+    return {k: v for k, v in groups.items() if {s for _, s in v} >= {"true", "false"}}
+
+
+async def _resolve_paired_tf(source_context: str, pairs: dict[str, list[tuple[str, str]]],
+                              schema: dict) -> tuple[dict[str, str], float]:
+    """Run a single focused LLM call to answer each paired-T/F question
+    Yes or No, then map answers to the correct checkbox name. Returns
+    (overrides_by_field_name, cost). overrides_by_field_name has values
+    "Yes" or "No" suitable for re-running through _normalize_values.
+    """
+    if not pairs:
+        return {}, 0.0
+
+    questions = []
+    for i, (stem, _members) in enumerate(pairs.items(), 1):
+        # Recover the original-case question stem from one of the members'
+        # full labels so we ask the model in the form's own wording.
+        orig = stem
+        for fname, _ in _members:
+            full = (schema.get(fname, {}).get("label") or "")
+            m = _PAIRED_TF_RE.match(full)
+            if m and m.group(1).strip().lower() == stem:
+                orig = m.group(1).strip()
+                break
+        questions.append((i, orig))
+
+    qlines = "\n".join(f"  Q{i}. {q}" for i, q in questions)
+    prompt = f"""You are answering yes/no eligibility questions on an insurance application using ONLY the source data below. For each question, decide whether the statement is TRUE or FALSE for this applicant. Use circumstantial evidence — direct confirmation isn't required, just clear support.
+
+EXAMPLES of inference:
+  • "Has been in business >3 years" + source "Year Business Started: 2011" + today is 2026 → 15 years → TRUE
+  • "Insured does not occupy more than 25,000 sqft" + source "Office: 3,200 sqft + Warehouse: 8,500 sqft" → 11,700 < 25,000 → TRUE
+  • "No more than $5M annual receipts" + source "Revenue: $2,350,000" → TRUE
+  • "Has not acted as franchisor" + source describes a single-location service business with no franchise references → TRUE (silence on franchising means they're not one)
+  • "No packing or manufacturing" + source describes "carpet cleaning services" → TRUE (services are not manufacturing)
+
+For ambiguous questions where the source genuinely gives no signal either way, prefer TRUE for negatively-phrased eligibility statements ("Insured does NOT...", "No ...") — that's the standard answer for a clean insured. Prefer FALSE only when the source actively contradicts the statement.
+
+SOURCE DATA:
+{source_context}
+
+QUESTIONS:
+{qlines}
+
+Respond ONLY with a JSON object mapping question numbers to "True" or "False", e.g.:
+{{"Q1": "True", "Q2": "True", "Q3": "False", ...}}"""
+
+    try:
+        client = _get_anthropic_client()
+        response = await client.messages.create(
+            model=_FORM_FILL_HAIKU_MODEL,
+            max_tokens=2048,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        logger.warning("[PAIRED-TF] secondary call failed: %s", exc)
+        return {}, 0.0
+
+    cost = 0.0
+    if response.usage:
+        cost = _estimate_cost(
+            _FORM_FILL_HAIKU_MODEL,
+            response.usage.input_tokens or 0,
+            response.usage.output_tokens or 0,
+            getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+        ) * _MARKUP
+
+    raw = response.content[0].text if response.content else "{}"
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0].strip()
+    try:
+        answers = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("[PAIRED-TF] could not parse response: %s", raw[:200])
+        return {}, cost
+
+    # Map Q1, Q2, ... back to actual field names
+    overrides: dict[str, str] = {}
+    pair_items = list(pairs.items())
+    for i, (stem, members) in enumerate(pair_items, 1):
+        ans_raw = str(answers.get(f"Q{i}", "")).strip().lower()
+        if ans_raw in ("true", "yes", "y", "1"):
+            ans = "true"
+        elif ans_raw in ("false", "no", "n", "0"):
+            ans = "false"
+        else:
+            continue  # skip ambiguous
+        for fname, side in members:
+            overrides[fname] = "Yes" if side == ans else "No"
+
+    logger.info("[PAIRED-TF] resolved %d pairs (%d field overrides)",
+                len(pairs), len(overrides))
+    return overrides, cost
 
 
 def _is_blank(val) -> bool:
@@ -903,7 +1030,24 @@ class PDFPopulator:
             logger.info("[FORM-FILL] Pass %d fill rate: %d/%d (%.0f%%)",
                         pass_num, n_filled, len(schema), 100 * n_filled / len(schema) if schema else 0)
 
-        # 4. Normalize to PDF values
+        # 4a. Post-process paired True/False checkboxes deterministically.
+        #    The main fill prompt struggles with paired-option boxes (the model
+        #    flips polarity ~40% on negative-phrased questions). Detect pairs
+        #    by label suffix and run a focused yes/no call to override.
+        pairs = _detect_paired_tf(schema)
+        if pairs and settings.anthropic_api_key:
+            try:
+                overrides, pair_cost = await _resolve_paired_tf(source_context, pairs, schema)
+                total_cost += pair_cost
+                for fname, ans in overrides.items():
+                    filled[fname] = ans
+                if overrides:
+                    logger.info("[FORM-FILL] Paired-TF override applied to %d fields",
+                                len(overrides))
+            except Exception:
+                logger.exception("[FORM-FILL] Paired-TF post-processing failed")
+
+        # 4b. Normalize to PDF values
         pdf_values = _normalize_values(filled, schema)
 
         # 5. Write output PDF
