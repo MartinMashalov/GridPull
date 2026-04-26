@@ -88,15 +88,47 @@ class MistralOCR:
 # ─── Source extraction ─────────────────────────────────────────────────────────
 
 def _pdf_form_fields_as_text(file_bytes: bytes) -> str:
-    """Extract filled PDF form fields as 'Key: Value' lines — primary data source."""
+    """Extract filled source-PDF form fields as 'Label: Value' lines.
+
+    Uses each field's /TU tooltip (the form's own user-readable label, e.g.
+    "Named Insured", "Tax ID") as the key. Falls back to a cleaned-up
+    deepest-segment of the field name if /TU is absent.
+
+    Without this, every value ships to the LLM keyed by its cryptic
+    AcroForm path like "topmostSubform[0].Page1[0].field_42[0]" — the
+    model can't tell what each value means, gives up on label-matching,
+    and assigns values to target fields by data type / order, which
+    produces an off-by-one shift across the whole form.
+    """
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
         fields = reader.get_fields() or {}
         lines = []
         for name, field in fields.items():
             val = field.get("/V", "")
-            if val and str(val).strip() not in ("", " ", "Please Select...", "/Off"):
-                lines.append(f"{name}: {val}")
+            if not val:
+                continue
+            sval = str(val).strip()
+            if sval in ("", " ", "Please Select...", "/Off"):
+                continue
+            try:
+                tu_raw = field.get("/TU")
+                label = str(tu_raw).strip() if tu_raw is not None else ""
+            except Exception:
+                label = ""
+            if not label:
+                # Fall back to the deepest segment of the field name with
+                # numeric [n] indices stripped — better than the full XFA
+                # path, still less informative than a real /TU.
+                short = name.split('.')[-1]
+                while short.endswith(']') and '[' in short:
+                    bracket = short.rfind('[')
+                    if short[bracket + 1:-1].isdigit():
+                        short = short[:bracket]
+                    else:
+                        break
+                label = short.strip() or name
+            lines.append(f"{label}: {sval}")
         return "\n".join(lines)
     except Exception as e:
         logger.debug("[FORM-FIELDS] %s", e)
