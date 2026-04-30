@@ -6,6 +6,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react'
 import { useNavigate } from 'react-router-dom'
 import api from '@/lib/api'
+import { SAFE_FILE_INPUT_PROPS } from '@/lib/fileInput'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -322,6 +323,7 @@ export default function InboxPage() {
           accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.md,.html,.htm,.json,.xml,.eml,.msg,.zip"
           className="hidden"
           onChange={e => handleFileUpload(e.target.files)}
+          {...SAFE_FILE_INPUT_PROPS}
         />
         <input
           ref={groupFileInputRef}
@@ -334,6 +336,7 @@ export default function InboxPage() {
             pendingGroupRef.current = null
             if (groupFileInputRef.current) groupFileInputRef.current.value = ''
           }}
+          {...SAFE_FILE_INPUT_PROPS}
         />
 
         {/* ── Page header ──────────────────────────────────────────────── */}

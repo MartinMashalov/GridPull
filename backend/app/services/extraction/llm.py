@@ -185,8 +185,28 @@ def _infer_schedule_key_fields(
         # ID field scoring — must be highly unique to be a valid identifier.
         # Fields with < 80% unique values (e.g. "Model" shared across rows)
         # are penalised heavily to prevent merging distinct entities.
-        uniqueness_bonus = profile["unique_ratio"] * 6
-        low_uniqueness_penalty = 8 if profile["unique_ratio"] < 0.8 else 0
+        #
+        # Two refinements over the original "uniqueness * 6, penalty 8 if <80%":
+        #
+        # 1. Scale uniqueness bonus by filled_ratio. A column that's only
+        #    filled in 2/3 of rows can't be the canonical entity ID even
+        #    if the values it does carry are 100% unique — otherwise
+        #    sparse "Frame/Masonry"-style columns out-score real IDs.
+        #
+        # 2. Exempt ID-shaped columns from the low-uniqueness penalty.
+        #    A column of short codes or pure digits with duplicate values
+        #    (e.g. "1, 1, 2") is the merge SIGNAL, not a disqualifier —
+        #    duplicates here are exactly what we want to merge on. Only
+        #    penalise when the column is not even ID-shaped (long strings,
+        #    no digits) and uniqueness is poor.
+        uniqueness_bonus = profile["unique_ratio"] * 6 * profile["filled_ratio"]
+        is_id_shaped = (
+            profile["short_code_ratio"] >= 0.5
+            or profile["numeric_only_ratio"] >= 0.5
+        )
+        low_uniqueness_penalty = (
+            8 if profile["unique_ratio"] < 0.8 and not is_id_shaped else 0
+        )
         score = (
             profile["filled_ratio"] * 1.5
             + uniqueness_bonus

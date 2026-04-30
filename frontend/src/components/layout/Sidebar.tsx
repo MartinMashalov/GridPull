@@ -40,8 +40,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   }
 
   const handleLogoClick = () => {
-    logout()
-    window.location.replace('/')
+    // Logo is a "go to dashboard" link — Schedules is the de-facto landing
+    // tool inside the app (App.tsx maps /dashboard → /schedules). Logout
+    // lives in the dedicated button at the bottom of the sidebar so that an
+    // accidental logo click can't drop the user out of their session.
+    navigate('/schedules')
   }
 
   return (
@@ -60,7 +63,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <button
             type="button"
             onClick={handleLogoClick}
-            title="Log out and return to home"
+            title="Go to dashboard"
             className={cn(
               'flex items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring',
               collapsed ? 'justify-center' : ''

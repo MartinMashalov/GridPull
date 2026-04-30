@@ -15,6 +15,7 @@ export interface FormJob {
 interface FormJobState {
   jobs: FormJob[]
   addJob: (job: FormJob) => void
+  addJobs: (jobs: FormJob[]) => void
   updateJob: (id: string, update: Partial<FormJob>) => void
   dismissJob: (id: string) => void
 }
@@ -22,6 +23,7 @@ interface FormJobState {
 export const useFormJobStore = create<FormJobState>((set) => ({
   jobs: [],
   addJob: (job) => set((state) => ({ jobs: [job, ...state.jobs] })),
+  addJobs: (jobs) => set((state) => ({ jobs: [...jobs, ...state.jobs] })),
   updateJob: (id, update) => set((state) => ({
     jobs: state.jobs.map(j => j.id === id ? { ...j, ...update } : j),
   })),

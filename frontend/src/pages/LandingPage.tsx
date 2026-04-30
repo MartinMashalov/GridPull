@@ -104,6 +104,7 @@ const PRICING_TIERS = [
       'No credit card required',
       '100 pages/month',
       'All 5 tools unlocked',
+      'Form fill 5 pages · Proposal 25 pages',
     ],
     cta: 'Start free',
     highlight: false,
@@ -116,6 +117,7 @@ const PRICING_TIERS = [
     features: [
       '800 pages/month',
       'Fill Applications, Schedules, and Document Inbox',
+      'Form fill 5 pages each (no proposals)',
       '$0.05/page overage',
     ],
     cta: 'Get started',
@@ -129,6 +131,7 @@ const PRICING_TIERS = [
     features: [
       '3,000 pages/month',
       'All 5 tools',
+      'Form fill 5 pages · Proposal 25 pages',
       '$0.03/page overage',
     ],
     cta: 'Go Pro',
@@ -142,6 +145,7 @@ const PRICING_TIERS = [
     features: [
       '10,000 pages/month',
       'All 5 tools for your entire team',
+      'Form fill 5 pages · Proposal 25 pages',
       '$0.015/page overage',
     ],
     cta: 'Contact us',
@@ -153,7 +157,7 @@ const PRICING_TIERS = [
 const FAQ_ITEMS = [
   {
     q: 'How much does it cost?',
-    a: 'GridPull is free to start with 100 pages per month — no credit card required. When you need more, paid plans start at $69/month for 800 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
+    a: 'GridPull is free to start with 100 pages per month — no credit card required. When you need more, paid plans start at $69/month for 800 pages. Page costs: each page of an uploaded document is 1 page; each form fill costs 5 pages; each generated proposal costs 25 pages. Every paid plan includes on-demand overage so you\'re never blocked during a busy submission cycle.',
   },
   {
     q: 'Are my files secure?',
@@ -181,7 +185,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How does the proposal tool work?',
-    a: 'Upload one or more carrier quotes, select the line of business and template size, upload your agency\'s logo and brand colors, and GridPull generates a professional, branded PDF proposal. It includes coverage analysis, quote comparison tables across carriers, and customizable recommendations.',
+    a: 'Upload one or more carrier quotes, select the line of business and template size, upload your agency\'s logo and brand colors, and GridPull generates a professional, branded PDF proposal. It includes coverage analysis, quote comparison tables across carriers, and customizable recommendations. Each generated proposal counts as 25 pages against your monthly limit.',
   },
   {
     q: 'What forms can be filled?',
@@ -567,7 +571,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col items-center text-center">
             <p className="text-xs text-muted-foreground mb-2">
-              Each page of your document counts toward your monthly limit. Each Form fill and proposal costs 5 pages. Max upload size is 5 MB per file.
+              Each page of your document counts toward your monthly limit. Form fills cost 5 pages; proposals cost 25 pages. Max upload size is 5 MB per file.
             </p>
             <p className="text-xs text-muted-foreground mb-5">
               Every plan is purpose-built for insurance workflows — ACORD forms, commercial schedules, loss runs, carrier quotes, and claims documents, all in one platform. No contracts — cancel anytime.

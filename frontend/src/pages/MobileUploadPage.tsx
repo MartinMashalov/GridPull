@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Camera, Image as ImageIcon, Check, AlertCircle, Loader2, FileSpreadsheet } from 'lucide-react'
 import api from '@/lib/api'
+import { SAFE_FILE_INPUT_PROPS } from '@/lib/fileInput'
 
 type Status = 'validating' | 'ready' | 'uploading' | 'success' | 'expired' | 'error'
 
@@ -117,6 +118,7 @@ export default function MobileUploadPage() {
           capture="environment"
           onChange={handleChange}
           className="hidden"
+          {...SAFE_FILE_INPUT_PROPS}
         />
 
         {/* Gallery/file input — opens photo picker / file browser */}
@@ -126,6 +128,7 @@ export default function MobileUploadPage() {
           accept="image/*,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.html,.json,.xml,.eml,.msg"
           onChange={handleChange}
           className="hidden"
+          {...SAFE_FILE_INPUT_PROPS}
         />
 
         <div className="w-full max-w-xs space-y-3">

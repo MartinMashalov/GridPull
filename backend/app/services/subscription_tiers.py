@@ -12,7 +12,7 @@ from typing import Optional
 
 # ── Global limits ────────────────────────────────────────────────────────────────
 FORM_FILL_PAGE_COST = 5        # 1 form fill = 5 pages
-PROPOSAL_PAGE_COST = 5         # 1 generated proposal = 5 pages
+PROPOSAL_PAGE_COST = 25        # 1 generated proposal = 25 pages (matches ~15-page output + makes Pro/Business overage profitable: ~$0.30 API cost vs $0.75 / $0.375 charged)
 MAX_FILE_SIZE_MB = 5           # hard cap per uploaded file
 
 

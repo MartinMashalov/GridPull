@@ -204,20 +204,24 @@ export default function SettingsPage() {
       'No credit card required',
       '100 pages/month',
       'All 5 tools unlocked',
+      'Form fill 5 pages · Proposal 25 pages',
     ],
     starter: [
       '800 pages/month',
       'Fill Applications, Schedules, and Document Inbox',
+      'Form fill 5 pages each (no proposals)',
       '$0.05/page overage',
     ],
     pro: [
       '3,000 pages/month',
       'All 5 tools',
+      'Form fill 5 pages · Proposal 25 pages',
       '$0.03/page overage',
     ],
     business: [
       '10,000 pages/month',
       'All 5 tools for your entire team',
+      'Form fill 5 pages · Proposal 25 pages',
       '$0.015/page overage',
     ],
   }

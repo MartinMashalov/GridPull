@@ -1,0 +1,261 @@
+Fill out a structured PDF form (ACORD, government, insurance) using a source document.
+
+PRINCIPLES
+  • Match each field by the meaning of its [label] AND its machine name.
+    Both signal what the field wants. Synonyms welcome.
+  • A wrong answer is worse than an empty field. Output "" for any field
+    whose answer is not clearly present in the source.
+
+GEOMETRY DISCIPLINE
+  Field lines may carry a capacity hint like "(NARROW field 60×13pt — short
+  code/number/abbreviation only; NO addresses, NO sentences)". Capacity is
+  binding: if the field is geometrically narrow, write at most a short code,
+  number, abbreviation, or numeric reference. Never an address or sentence.
+
+ANTI-PATTERNS (these are the historical failure modes — guard against them)
+  A. "For Office / IRS / Government Use Only" sections must be left "".
+     Heuristic: tight clusters of small fields (≤80×12pt) with labels like
+     "Received by", "Function", "Date stamp", "OMB", "For X Use Only", or
+     field names containing "Pg1Header" / "OfficeUse" — leave all blank.
+  B. Right-source / right-party discipline. The label tells you whose
+     value goes there. Taxpayer phone gets the taxpayer's phone, not the
+     appointee's. Veteran address gets the veteran's, not the spouse's.
+  C. Don't duplicate already-given values into empty repeating slots. If
+     the form has 4 tax-period slots and the source supplies 2 years,
+     fill 2 and LEAVE the other two blank — do not repeat.
+  D. Default-OFF for unsupported checkboxes. A claim like "I am exempt
+     from withholding" or "Bonds are required" must be UNCHECKED unless
+     the source affirmatively supports it.
+     IMPORTANT EXCEPTION — industry / operations / classification grids:
+     When a question asks the applicant to identify their type of
+     business / industry / operations (e.g. "Please indicate the
+     Applicant's operations:", "Nature of business:", "Class of
+     business:", "Type of work performed:", "Operations performed:",
+     followed by a long list of trade / profession options like
+     "Accountants", "Bookkeeper", "Lawyers office", "Real estate
+     consultant", "Notary", "Tax preparer", "Insurance agencies", etc.,
+     including an "Other (Describe)" row), these checkboxes ARE
+     supported when the source describes the applicant's business in
+     ANY of: business name, dba, NAICS / SIC / class code, industry
+     description, narrative of operations, prior-policy LOB, ACORD 125
+     "Nature of Business / Description of Operations", or the COPE /
+     occupancy section. Read the source for industry signals and CHECK
+     EVERY OPTION whose label is a synonym or hyponym of the
+     applicant's described activities. Examples:
+       - Source describes a "real estate brokerage" → check "Real
+         estate consultant" / "Real estate agent" if present.
+       - Source describes a "law firm" or "attorney" → check "Lawyers
+         office".
+       - Source describes a "CPA firm" doing "tax prep + bookkeeping"
+         → check "Accountants", "Bookkeeper", AND "Tax preparer".
+       - Source describes an "insurance agency" → check "Insurance
+         agencies".
+     Only leave the entire grid blank when the source is genuinely
+     silent about the applicant's industry. An "Other (Describe)" row
+     should be filled with a short description ONLY if the applicant's
+     operation is not covered by any other listed option.
+  E. Do NOT compute deadlines / dates from form rules. If the form says
+     "must be returned within 15 days" and the source has a request date,
+     do NOT compute (request_date + 15 days) — leave the deadline blank.
+  F. Don't cross-pollinate sections (year-built ≠ Loss Year, building
+     address ≠ mortgagee address).
+  G. SSN / EIN / ID number discipline. Fields labeled with identity numbers
+     (Social Security Number, EIN, ITIN, etc.) must contain ONLY the
+     corresponding identifier — never amounts, dates, or other data.
+     Check the field label carefully: if it asks for "Your social security
+     number" or similar identity credential, fill it with the SSN/EIN/ID
+     from the source, NOT with numeric data from calculations or line items.
+     Example: A field labeled "Your social security number" with geometry
+     71×12pt should contain "555-82-3947", NOT "11003" (a line amount).
+  H. Future signature dates. If the source states that documents "will be
+     signed" on a specific future date, DO fill in that date in signature
+     date fields. The source explicitly commits to signing on that date,
+     so it is the correct value (not a computation). Example: "They will
+     sign and date Form 656 on March 18, 2024" → fill Date fields with
+     "03/18/2024" or equivalent format.
+  I. Line-item amount discipline. When filling tax form line items (especially
+     on Schedule A, Schedule C, Form 1040, etc.), use the FINAL CALCULATED
+     amount for each line as stated in the source document, not intermediate
+     values or subtotals that feed into that line.
+     Example: If the source shows "Total medical expenses: $21,690" and
+     "Deductible amount: $21,690 - $10,687.50 = $11,002.50", then:
+     - The field for total medical expenses gets "21690"
+     - The field for deductible medical expenses gets "11003" (rounded) or "11002.50"
+     NOT the same "21690" value repeated.
+     Look for language like "Line X:", "deductible amount:", "total after limitation:",
+     "enter on line Y:" to identify the correct final value for each field.
+
+FORM-SPECIFIC GUIDANCE
+
+IRS Schedule A (Form 1040) - Itemized Deductions:
+  • Header fields:
+    - Name field: Enter taxpayer name(s) as shown on Form 1040 (both spouses for joint filers)
+    - SSN field labeled "Your social security number": Enter PRIMARY taxpayer's SSN only
+  • Medical and Dental Expenses (Lines 1-4):
+    - Line 1: Total unreimbursed medical/dental expenses
+    - Line 2: AGI from Form 1040 line 11
+    - Line 3: Multiply line 2 by 7.5% (or as instructed)
+    - Line 4: Deductible medical expenses (Line 1 minus Line 3, if positive)
+    Use the FINAL deductible amount for line 4, not the gross total
+  • Taxes Paid (Lines 5-7):
+    - Line 5a: State/local income taxes OR general sales taxes (mutually exclusive)
+    - Checkbox 5a: Check if claiming general SALES tax instead of income tax
+    - Line 5b: Real estate taxes
+    - Line 5c: Personal property taxes
+    - Line 5d: Sum of 5a + 5b + 5c
+    - Line 5e: Enter line 5d or $10,000 ($5,000 if MFS), whichever is SMALLER (SALT cap)
+    - Line 6: Other taxes (itemized in text field)
+    - Line 7: Add lines 5e and 6
+  • Interest Paid (Lines 8-10):
+    - Line 8a: Home mortgage interest reported on Form 1098
+    - Checkbox 8b: Check if home mortgage interest NOT reported on 1098
+    - Line 8b amount: Interest not on 1098 (requires lender details in text field)
+    - Line 8c: Points not reported on 1098
+    - Line 8d: Mortgage insurance premiums
+    - Line 9: Investment interest
+    - Line 10: Total interest (sum of applicable lines)
+  • Gifts to Charity (Lines 11-14):
+    - Line 11: Cash contributions
+    - Line 12: Non-cash contributions
+    - Line 13: Carryover from prior year
+    - Line 14: Total charitable contributions
+  • Casualty and Theft Losses (Line 15):
+    - Only for federally declared disasters (post-TCJA)
+  • Other Itemized Deductions (Line 16):
+    - Gambling losses (limited to gambling winnings), estate tax on IRD, etc.
+    - Provide description in text field
+  • Total Itemized Deductions (Line 17):
+    - Sum of lines 4, 7, 10, 14, 15, 16
+  • Limitation (Line 18):
+    - Checkbox: The Pease limitation is SUSPENDED for tax years 2018-2025 under TCJA
+    - Leave checkbox UNCHECKED for these years unless source explicitly indicates otherwise
+
+IRS Form 3911 (Taxpayer Statement Regarding Refund):
+  • inquiry_date: The date the taxpayer contacted the IRS about the refund issue
+  • refund_date: The tax year/period for which the refund was issued (e.g., "2023")
+  • Section 1 (lines 1-4): Current taxpayer information and contact details
+  • Line 4 fields: If the source indicates "no change from above" or address matches
+    current information, enter "N/A" in all line 4 fields
+  • Line 5-6 (representative): Leave blank if source states "not applicable" or
+    no representative authorized
+  • Line 7 checkboxes: Check "Individual" for Form 1040, "Business" for corporate
+    returns. "Type of refund requested" refers to the original refund method
+    (check vs. direct deposit)
+  • Bank information: Enter the bank where taxpayer normally deposits/cashes checks,
+    along with routing and account numbers if provided
+  • Section 2 checkboxes: Check ONLY the boxes that match the taxpayer's situation.
+    "I didn't receive a refund" is mutually exclusive with "received check but lost/
+    stolen/destroyed"
+  • Signature fields (lines 10-11): For joint returns, both spouses must sign.
+    Enter names in signature fields and dates in corresponding date fields
+
+IRS Form 4868 (Extension of Time to File):
+  • Voucher header fields (small fields at top):
+    - First two fields: Tax year (e.g., "2023")
+    - Third field (very small, ~22×11pt): Form code "68" (short abbreviation for Form 4868)
+  • Part I - Identification:
+    - Name field: Both spouses for joint filers
+    - Address fields: Current mailing address
+    - SSN fields: Primary and spouse SSNs in separate fields
+  • Tax liability and payment fields:
+    - Total tax liability: Estimated total tax for the year
+    - Total payments: Withholding plus estimated payments already made
+    - Balance due: Amount owed (do NOT fill if source says leave blank)
+    - Payment with extension: Amount being remitted with Form 4868
+  • Out of country checkboxes:
+    - First checkbox (labeled "resident"): Check if taxpayer was OUT of the country
+    - Second checkbox (labeled "employee subject to U.S. income tax withholding"):
+      Check if employed abroad as employee with U.S. tax withholding obligations
+  • Confirmation number field (Page 3): Enter EFTPS or payment confirmation number
+  • Deprecated/reserved fields: If source explicitly says "do NOT fill field X" or
+    "field X is for IRS use only" or "field X is deprecated", leave that field blank
+    regardless of available data
+
+DOL Form WH-384 (FMLA Certification of Qualifying Exigency):
+  • Top section (First/Middle/Last): This is the EMPLOYEE's name (the person
+    requesting FMLA leave), not the military member
+  • Military member information section (First/Last/Middle in lower portion):
+    This is the spouse/family member who is deployed
+  • Qualifying exigency checkboxes: Check all that apply based on source. Common
+    exigencies include:
+    - Short notice deployment (7 days or fewer)
+    - Military events (ceremonies, family readiness programs)
+    - Childcare activities (arranging alternative care)
+    - Financial/legal arrangements (POA, military ID cards)
+    - R&R leave (rest and recuperation visits)
+    - Post-deployment activities (homecoming, reintegration)
+  • "Care for military member's parent": Check only if employee needs to arrange
+    care for the deployed person's parent (not their own parent)
+  • "Counseling": Must be non-healthcare counseling (deployment-related support)
+  • Exigency start date: Date deployment orders received or exigency began
+  • Leave schedule sections:
+    - Continuous leave: Use "From" / "to" date pairs for uninterrupted periods
+    - Intermittent leave: Use frequency fields (e.g., "2-3 times per month")
+      and duration (e.g., "4-6 hours")
+  • "I am able to work": Describe employee's availability during intermittent
+    leave (flexible schedules, specific hours, etc.)
+  • Meeting information: Enter individual's name/title or organization name,
+    full address, phone with area code, purpose of meeting
+  • Employer information: Organization name requesting the certification
+  • Certification timeline: Date requested and return-by date
+  • Description fields (military events, childcare, reintegration): Provide
+    concise summary from source. May split long text across continuation fields
+  • Dates of military service: Full service period (e.g., "October 2015 - present")
+  • Documentation checkboxes at bottom: Check only if source explicitly states
+    documentation was attached or provided
+
+GENERAL DATE FORMATTING
+  • Use MM/DD/YYYY format unless field geometry or label suggests otherwise
+  • For tax periods or years alone, use just the year (e.g., "2023")
+  • For date ranges, fill both start and end fields separately
+
+PHONE NUMBER FORMATTING
+  • If form has separate area code field, extract area code from phone number
+  • Format remaining digits according to field label (with or without hyphens)
+  • Example: "555-867-5309" with area code "555" → area_code: "555", phone: "867-5309"
+
+NAME FORMATTING
+  • Split full names into First/Middle/Last according to field structure
+  • If middle name/initial not provided in source, leave middle field blank
+  • For signature fields, use full name as it appears in source
+
+CHECKBOX LOGIC
+  • "Yes" means check the box; "No" means leave unchecked
+  • Only check when source explicitly supports the statement
+  • If source says "may" or "might" need something in future, do NOT check
+    (e.g., "may request R&R leave" → leave R&R checkbox unchecked)
+  • Exception: If source describes activities under a category and plans to do them,
+    check the box (e.g., describes post-deployment ceremony plans → check
+    post-deployment checkbox)
+  • Industry / operations / classification grids (long lists of trades or
+    professions following a single stem like "Indicate Applicant's
+    operations" / "Nature of business" / "Class of business" / "Type of
+    work performed"): treat as a multi-select. Scan the source for
+    business-type / industry / NAICS / SIC / occupancy / nature-of-
+    operations signals and check EVERY option that is a synonym or
+    component of the applicant's described work. Leaving the whole grid
+    blank when the source clearly describes the business is a FAIL —
+    these grids almost always have at least one supported option.
+    Synonym hints: "law firm" ↔ "Lawyers office" / "Attorney"; "real
+    estate brokerage / agency" ↔ "Real estate consultant" / "Real
+    estate agent"; "CPA / accounting practice" ↔ "Accountants",
+    "Bookkeeper", "Tax preparer"; "insurance agency / brokerage" ↔
+    "Insurance agencies"; "title company" ↔ "Title abstractor". When
+    the applicant's work spans multiple options, check ALL that fit.
+
+N/A vs BLANK
+  • Use "N/A" when form instructions explicitly suggest it (e.g., "you may mark
+    them as N/A") or source says "not applicable"
+  • Otherwise use "" (empty string) for fields with no data
+
+AMOUNT FORMATTING
+  • For currency amounts in narrow fields (≤80pt wide), omit dollar signs and
+    use comma thousands separators: "18,450" not "$18,450"
+  • Round to whole dollars when source indicates rounding (e.g., "Round to whole
+    dollars: $59,893")
+  • Preserve cents when source provides exact amounts and field accommodates them
+
+OUTPUT FORMAT
+  Return a single flat JSON object whose keys exactly match the field
+  names listed in fields_spec. Values are strings. Use "" (empty string)
+  for blanks. Use "Yes" / "No" for checkboxes. No commentary, no markdown.

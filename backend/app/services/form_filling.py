@@ -408,6 +408,34 @@ def _extract_visible_labels(pdf_bytes: bytes) -> dict[str, str]:
     return out
 
 
+def _extract_widget_geometry(pdf_bytes: bytes) -> dict[str, tuple[float, float]]:
+    """Return {field_name: (width, height)} in PDF points (1pt ≈ 1/72 inch).
+
+    Geometry is the strongest defense against the wrong_format failure mode
+    where the model writes a long sentence into a 60×13pt numeric-reference
+    field. Plumbed into the fill prompt so the LLM sees field capacity.
+    """
+    out: dict[str, tuple[float, float]] = {}
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        logger.debug("[GEOMETRY] open failed: %s", e)
+        return out
+    try:
+        for page in doc:
+            try:
+                widgets = list(page.widgets() or [])
+            except Exception:
+                continue
+            for w in widgets:
+                if w.field_name:
+                    r = w.rect
+                    out[w.field_name] = (round(r.width, 1), round(r.height, 1))
+    finally:
+        doc.close()
+    return out
+
+
 def _extract_target_schema(reader: PdfReader, pdf_bytes: bytes | None = None) -> dict:
     """
     Returns dict of field_name -> field_meta where field_meta has:
@@ -415,6 +443,9 @@ def _extract_target_schema(reader: PdfReader, pdf_bytes: bytes | None = None) ->
       label: human-readable label — /TU tooltip first, falling back to
              OCR-free visible-label extraction (PyMuPDF positional text
              matching), and finally None
+      width, height: widget rectangle in PDF points (0 if PyMuPDF can't
+             open the PDF). Used by _build_field_lines to give the LLM a
+             capacity hint, blocking long-content-in-narrow-field bugs.
       options: list (for dropdown/radio)
       appearance_states: dict (for checkbox)
     """
@@ -424,8 +455,10 @@ def _extract_target_schema(reader: PdfReader, pdf_bytes: bytes | None = None) ->
 
     # Pull visible labels once per form — used as fallback when /TU is unset.
     visible_labels: dict[str, str] = {}
+    geometry: dict[str, tuple[float, float]] = {}
     if pdf_bytes:
         visible_labels = _extract_visible_labels(pdf_bytes)
+        geometry = _extract_widget_geometry(pdf_bytes)
         logger.info(
             "[FORM-FILL] Visible-label extraction: %d/%d fields got a printed label",
             len(visible_labels), len(raw),
@@ -445,27 +478,29 @@ def _extract_target_schema(reader: PdfReader, pdf_bytes: bytes | None = None) ->
             label = None
         if not label and visible_labels:
             label = visible_labels.get(name) or None
+        w_pt, h_pt = geometry.get(name, (0.0, 0.0))
+        common = {"label": label, "width": w_pt, "height": h_pt}
         if ft == '/Tx':
-            schema[name] = {"type": "text", "label": label}
+            schema[name] = {"type": "text", **common}
         elif ft == '/Btn':
             opts = fd.get('/Opt', [])
             if opts and len(opts) > 2:
-                schema[name] = {"type": "radio", "options": [str(o) for o in opts], "label": label}
+                schema[name] = {"type": "radio", "options": [str(o) for o in opts], **common}
             else:
                 schema[name] = {
                     "type": "checkbox",
                     "appearance_states": _get_checked_state(fd),
-                    "label": label,
+                    **common,
                 }
         elif ft == '/Ch':
             opts = fd.get('/Opt', [])
             clean = [str(o) for o in opts if str(o) not in ('Please Select...', '')]
-            schema[name] = {"type": "dropdown", "options": clean, "label": label}
+            schema[name] = {"type": "dropdown", "options": clean, **common}
         elif ft == '/Sig':
             pass  # skip signature fields
         else:
             # unknown type — treat as text
-            schema[name] = {"type": "text", "label": label}
+            schema[name] = {"type": "text", **common}
 
     return schema
 
@@ -593,9 +628,33 @@ def _label_hint(meta: dict, name: str) -> str:
     return ''
 
 
+def _capacity_hint(meta: dict) -> str:
+    """Capacity warning for the LLM when a text field is geometrically narrow.
+
+    Empirically, text fields under ~80×16pt almost always want a short code,
+    abbreviation, or numeric reference — never an address or full sentence.
+    The single biggest historical failure mode was full DFAS addresses dropped
+    into 60×13pt 'ITEM' reference fields. Surfacing the geometry blocks that.
+    """
+    if meta.get("type") != "text":
+        return ""
+    w = meta.get("width") or 0
+    h = meta.get("height") or 0
+    if w <= 0 or h <= 0:
+        return ""
+    if w <= 30 and h <= 18:
+        return f' (TINY field {w:.0f}×{h:.0f}pt — single digit/letter or 2-3 char code only)'
+    if w <= 80 and h <= 18:
+        return f' (NARROW field {w:.0f}×{h:.0f}pt — short code, number, abbreviation, or item-reference; NO addresses, NO sentences)'
+    if h >= 36:
+        return f' (multi-line field {w:.0f}×{h:.0f}pt — addresses or paragraph OK)'
+    return f' ({w:.0f}×{h:.0f}pt)'
+
+
 def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
     """Build the field descriptions block for the prompt. Every line carries
-    a [label: "..."] hint so the model fills by meaning, not by string-type."""
+    a [label: "..."] hint so the model fills by meaning, not by string-type,
+    plus a geometry capacity hint to block long-content-in-narrow-field bugs."""
     lines = []
     names = focus_names if focus_names else list(schema.keys())
     for name in names:
@@ -604,8 +663,9 @@ def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
             continue
         t = meta["type"]
         hint = _label_hint(meta, name)
+        cap = _capacity_hint(meta)
         if t == "text":
-            lines.append(f'  "{name}": text{hint}')
+            lines.append(f'  "{name}": text{hint}{cap}')
         elif t == "checkbox":
             lines.append(f'  "{name}": checkbox{hint} — respond with "Yes" or "No"')
         elif t == "dropdown":
@@ -617,6 +677,26 @@ def _build_field_lines(schema: dict, focus_names: list | None = None) -> str:
             opts_str = " | ".join(opts) if opts else "any value"
             lines.append(f'  "{name}": radio{hint} — choose one of: {opts_str}')
     return "\n".join(lines)
+
+
+# GEPA-evolved instruction body — loaded from a side file so it can be hot-
+# swapped without code change. The original hand-engineered prompt (P0 fixes
+# A–F) is kept inline below as a fallback if the file is missing.
+_EVOLVED_PROMPT_PATH = os.path.join(
+    os.path.dirname(__file__), "form_fill_evolved_prompt.txt",
+)
+
+
+def _load_evolved_prompt() -> str | None:
+    try:
+        with open(_EVOLVED_PROMPT_PATH, encoding="utf-8") as f:
+            text = f.read().strip()
+        return text if text else None
+    except Exception:
+        return None
+
+
+_EVOLVED_PROMPT_BODY = _load_evolved_prompt()
 
 
 def _build_prompt(source_context: str, schema: dict, focus_names: list | None = None,
@@ -641,14 +721,86 @@ def _build_prompt(source_context: str, schema: dict, focus_names: list | None = 
             "If the source genuinely has no value for that label, leave \"\" — do NOT guess to fill it."
         )
 
-    return f"""You are filling out a structured form (ACORD, government, or similar). Each field below shows its machine name plus a [label: "..."] hint pulled from the PDF's own tooltip — that label tells you what the field is for. Match by the meaning of the label, not by string-type alone.
+    # Prefer the GEPA-evolved instruction when available — measured +6.8pp lift
+    # (92.0% → 98.8%) over the v2 hand-engineered prompt on a held-out 15-form
+    # valset. Falls back to the v2 inline prompt if the file is missing.
+    if _EVOLVED_PROMPT_BODY:
+        return (
+            f"{_EVOLVED_PROMPT_BODY}\n\n"
+            f"SOURCE DATA:\n{source_context}{prior_block}{focus_note}\n\n"
+            f"FIELDS TO FILL ({n_fields} total):\n{field_block}\n\n"
+            "Respond with ONLY the JSON object. No markdown, no explanation."
+        )
+
+    return f"""You are filling out a structured form (ACORD, government, or similar). Each field below shows its machine name plus a [label: "..."] hint pulled from the PDF's own tooltip — that label tells you what the field is for. Match by the meaning of the label, not by string-type alone. Some fields also show a geometry capacity hint like "(NARROW field 60×13pt — short code only)" — respect those literally; never write a sentence into a narrow field.
 
 CORE PRINCIPLE — match by meaning, accept synonyms, but never dump data:
 A wrong answer is worse than an empty field. Fill a field when the source contains a value that answers the question the label asks (even using different words for the same concept). Leave "" when the source has no value that matches the label's purpose.
 - Synonyms ARE the same: "Vendor" / "Supplier" / "Offeror" / "Contractor" / "Company" / "Insured" can all be the same entity if context supports it. "Invoice number" / "PO number" / "Order number" / "Reference number" are interchangeable identifiers if the source has only one. Use sensible mappings.
 - BUT do NOT cross-pollinate sections: a property year-built is NOT a Loss Year; a building square-footage is NOT a Description of Loss; a building address is NOT a mortgagee address; a total premium is NOT a per-line premium. The label tells you which section the field belongs to.
 - Do NOT invent or fabricate data the source doesn't contain.
-- Do NOT compute or derive values unless the math is trivial and the source provides every input (e.g. line totals when quantity and unit price are both given).
+- Do NOT compute or derive values unless the math is trivial and the source provides every input (e.g. line totals when quantity and unit price are both given). Do NOT calculate a "due date" or "deadline" from form rules + a request date — that's hallucination.
+
+ANTI-PATTERNS — these are the historical failure modes; check each field against this list before writing a value:
+
+A. "For Office / IRS / Government Use Only" header sections — DO NOT FILL.
+   Many forms have a small header block in the upper-right corner with labels
+   like "Received by: Name / Telephone / Function / Date" or "OMB / For IRS
+   Use Only". These are filled by the receiving agency, NEVER by the
+   submitter. Heuristic: a tight cluster of small (≤80pt-wide, ≤12pt-tall)
+   fields whose labels read "Received by", "Function", "Date stamp",
+   "Office use", "Reviewer", "Examiner" — leave all of them "".
+   Specific cases: IRS 8821 / 2848 fields named "Pg1Header" → ""; any field
+   whose visible label is or contains "For [X] Use Only" → "".
+
+B. Right-source / right-party discipline.
+   The label tells you WHOSE value goes in the field. "Taxpayer phone" gets
+   the taxpayer's phone, NOT the appointee/representative's phone. "Veteran
+   address" gets the veteran's, not the spouse's. When the source contains
+   multiple parties (taxpayer + appointee, veteran + spouse, employer +
+   employee), match the field's owner to the corresponding source section.
+
+C. Don't duplicate already-given values into empty repeating slots.
+   If the form has 4 tax-period slots and the source supplied 2 years
+   (2023, 2024), fill slot 1 = 2023, slot 2 = 2024, leave slots 3-4 BLANK.
+   Do NOT repeat 2023 into slots 3 and 4 to "fill the form".
+   Same rule for dependents, vehicles, locations, drivers, line items.
+
+D. Default-OFF for unsupported checkboxes.
+   When a checkbox claims something specific ("I claim exemption from
+   withholding", "Job description is attached", "Bonds are required"), the
+   default is UNCHECKED unless the source AFFIRMATIVELY supports it. Do not
+   check a box because it "seems right" or "is common".
+   EXCEPTION — industry / operations / classification grids: a long list
+   of trade / profession / industry options sharing a single question stem
+   like "Please indicate the Applicant's operations", "Nature of
+   business", "Class of business", "Type of work performed", "Operations
+   performed", or "Description of operations" is a MULTI-SELECT grouped
+   by industry. The source supports an option whenever it describes the
+   applicant's business, NAICS / SIC code, occupancy, or narrative of
+   operations using a synonym of that option. Examples:
+     - "law firm" / "attorneys at law" → check "Lawyers office".
+     - "real estate brokerage" → check "Real estate consultant" /
+       "Real estate agent".
+     - "accounting firm doing tax prep" → check "Accountants",
+       "Bookkeeper", AND "Tax preparer".
+     - "insurance agency" → check "Insurance agencies".
+   Leaving the entire grid blank when the source clearly describes the
+   applicant's industry is a FAIL — at least one option is almost always
+   supported. Only leave the grid blank when the source is genuinely
+   silent on industry / operations.
+
+E. Don't infer dates from form rules.
+   Forms often state "must allow at least 15 calendar days from request
+   date". Do NOT compute (request_date + 15 days) and write that into the
+   "must be returned by" field. Leave it blank unless the source provides
+   the actual deadline.
+
+F. Geometry-aware writing — the capacity hint is binding.
+   If a field shows "(NARROW field 60×13pt)", write at most a short code,
+   number, or item reference. Never an address, never a sentence. If the
+   only data the label seems to ask for would not fit, leave "" and let a
+   downstream judge correct it.
 
 RULES:
 1. Return a single flat JSON object — keys = field names exactly as listed below, values = strings.
@@ -657,6 +809,15 @@ RULES:
    - "Yes" if the source confirms what the [label] describes.
    - "No" if the source denies it OR explicitly says "none" / "no losses" / "no incidents" for that category.
    - "" only when the source is silent AND there's no reasonable default.
+   - For industry / operations / classification grids (long lists of trade
+     options sharing one question stem): treat as multi-select. Scan the
+     source for business-type / industry signals and answer "Yes" for
+     every option that is a synonym of the applicant's described work
+     ("law firm" → Lawyers office; "real estate brokerage" → Real estate
+     consultant; "CPA" → Accountants + Bookkeeper + Tax preparer;
+     "insurance agency" → Insurance agencies). Leaving the entire grid
+     "No" / "" while the source clearly describes the applicant's
+     industry is a FAIL.
 3a. Paired True/False checkboxes — labels of the form "<question> — True" and "<question> — False":
    - These are TWO sides of one Yes/No question. The text before "—" is the question; "True" / "False" is the answer option.
    - First decide the correct answer to the question from the source, THEN mark "Yes" on the option matching that answer and "No" on the other. Never mark both.
@@ -1020,18 +1181,16 @@ async def _judge_fill_with_vision(
     schema: dict,
     current_fill: dict,
 ) -> tuple[dict, float]:
-    """Vision-based LLM-as-judge stage.
+    """LLM-as-judge stage.
 
-    Renders the target form pages to images, sends them along with the
-    full source data and the proposed fill values to Sonnet 4.6, and
-    asks the model to flag any field whose current value is wrong or
-    missing. Returns {field_name: corrected_value} for fields that need
-    changing — anything not mentioned keeps its current value.
+    Compares each field's current value against the source + the field's
+    label and geometry. Returns {field_name: corrected_value} for fields
+    that need changing.
 
-    The judge gets the maximum context we can provide:
-      • Vision: every page of the target form rendered
-      • Text: the full source data (all extracted Label: Value pairs)
-      • Schema: each field's name, type, label hint, and current value
+    Vision is off by default (set FORM_FILL_JUDGE_USE_VISION=1 to enable).
+    Text-only is materially cheaper and the field name + label + geometry +
+    source already provide enough signal to catch the failure modes that
+    matter (wrong content, wrong format, polarity errors, hallucination).
 
     Skips silently on any failure — the main fill remains the answer.
     """
@@ -1040,10 +1199,14 @@ async def _judge_fill_with_vision(
     if not schema:
         return {}, 0.0
 
-    images_b64 = _render_pages_to_b64(target_pdf_bytes)
-    if not images_b64:
-        logger.info("[JUDGE] no pages rendered — skipping")
-        return {}, 0.0
+    use_vision = (os.environ.get("FORM_FILL_JUDGE_USE_VISION", "0") in ("1", "true", "yes"))
+    if use_vision:
+        images_b64 = _render_pages_to_b64(target_pdf_bytes)
+        if not images_b64:
+            logger.info("[JUDGE] no pages rendered — falling back to text-only")
+            images_b64 = []
+    else:
+        images_b64 = []
 
     # Build the field state block. List ALL fields (including blanks) so
     # the judge can suggest filling what was missed.
@@ -1060,28 +1223,54 @@ async def _judge_fill_with_vision(
             cur_repr = repr(str(cur)[:120])
         else:
             cur_repr = '""'
+        # Geometry hint — width × height in PDF points. Lets the judge spot
+        # the "long content in narrow numeric-reference field" failure mode
+        # without needing vision.
+        w = meta.get("width") or 0
+        h = meta.get("height") or 0
+        geom = f"{w:.0f}x{h:.0f}pt" if (w and h) else ""
+        if w and h and w <= 80 and h <= 18:
+            geom += " [NARROW — short code/number/abbrev only]"
+        elif h and h >= 36:
+            geom += " [multi-line — paragraph/address OK]"
         if ftype in ("dropdown", "radio"):
             opts = meta.get("options") or []
             opts_str = " | ".join(str(o) for o in opts[:8])
             field_lines.append(
-                f'  "{name}" [{ftype}, label: "{label}", options: {opts_str}] = {cur_repr}'
+                f'  "{name}" [{ftype}, label: "{label}", geom: {geom}, options: {opts_str}] = {cur_repr}'
             )
         else:
             field_lines.append(
-                f'  "{name}" [{ftype}, label: "{label}"] = {cur_repr}'
+                f'  "{name}" [{ftype}, label: "{label}", geom: {geom}] = {cur_repr}'
             )
         listed += 1
     fields_block = "\n".join(field_lines)
 
+    if images_b64:
+        context_clause = (
+            "The pages of the target form are attached as images — use the "
+            "printed labels, section headings, and visible context to "
+            "understand what each field is asking. Compare every field's "
+            "current value against:\n"
+            "  • The visible printed label/instruction near that field on the page\n"
+            "  • The full source data extracted from the applicant's records\n"
+            "  • Section context (which section the field belongs to)\n"
+            "  • For paired True/False: exactly one Yes per pair, never both"
+        )
+    else:
+        context_clause = (
+            "Compare every field's current value against:\n"
+            "  • The field's [label] (the printed instruction near that field)\n"
+            "  • The field's machine name (often the most reliable signal)\n"
+            "  • The field's geometry — narrow fields (≤80×18pt) want short "
+            "codes/numbers/abbreviations, NOT addresses or sentences; "
+            "multi-line fields (≥36pt tall) accept paragraphs\n"
+            "  • The full source data extracted from the applicant's records\n"
+            "  • For paired True/False: exactly one Yes per pair, never both"
+        )
+
     prompt_text = (
-        "You are auditing an automated PDF form fill for accuracy. The pages "
-        "of the target form are attached as images — use the printed labels, "
-        "section headings, and visible context to understand what each field "
-        "is asking. Compare every field's current value against:\n"
-        "  • The visible printed label/instruction near that field on the page\n"
-        "  • The full source data extracted from the applicant's records\n"
-        "  • Section context (which section the field belongs to)\n"
-        "  • For paired True/False: exactly one Yes per pair, never both\n\n"
+        f"You are auditing an automated PDF form fill for accuracy. {context_clause}\n\n"
         "RULES for corrections:\n"
         "  1. Only correct a field when you are confident the current value is "
         "wrong. If the current value is reasonable and grounded in the source, "
@@ -1094,8 +1283,43 @@ async def _judge_fill_with_vision(
         "  5. For dropdowns/radios, use only the listed options.\n"
         "  6. Pay extra attention to: applicant identity vs producer/contact, "
         "addresses (mailing vs business vs inspection), paired True/False "
-        "answers (one Yes per pair), and section ownership (a value belonging "
-        "to Section II shouldn't sit in Section V).\n\n"
+        "answers (one Yes per pair), section ownership (a value belonging "
+        "to Section II shouldn't sit in Section V), and geometry mismatches "
+        "(addresses/sentences in narrow numeric-reference fields).\n"
+        "  7. \"For Office Use Only\" / \"Received by\" / \"Pg1Header\" "
+        "fields — these are filled by the receiving agency, not the applicant. "
+        "If any of these have a non-empty value, correct them to \"\".\n"
+        "  8. Signature fields are auto-handled elsewhere — do NOT correct any "
+        "field whose name contains \"Signature\" or \"Sig_\".\n"
+        "  9. UNDER-FILL CHECK — flag and correct missing checkbox selections, "
+        "not just hallucinations. Look for grids of checkboxes that share a "
+        "common question stem describing the applicant's industry, "
+        "operations, classification, or nature of business (printed labels "
+        "like \"Indicate the Applicant's operations\", \"Nature of business\", "
+        "\"Class of business\", \"Type of work performed\", \"Operations "
+        "performed\", or \"Description of operations\", followed by a long "
+        "list of trade / profession options such as Accountants, Bookkeeper, "
+        "Lawyers office, Real estate consultant, Notary, Tax preparer, "
+        "Insurance agencies, etc.). When EVERY option in such a grid is "
+        "currently blank / \"No\" but the source describes the applicant's "
+        "business in any way (business name, dba, NAICS / SIC / class code, "
+        "narrative of operations, prior-policy LOB, nature-of-business "
+        "section), CORRECT every option whose label is a synonym or "
+        "component of the described business to \"Yes\". Examples: source "
+        "says \"law firm\" → flip \"Lawyers office\" to \"Yes\"; source says "
+        "\"real estate brokerage\" → flip \"Real estate consultant\" / "
+        "\"Real estate agent\" to \"Yes\"; source says \"CPA practice doing "
+        "tax preparation and bookkeeping\" → flip \"Accountants\", "
+        "\"Bookkeeper\", AND \"Tax preparer\" to \"Yes\". Be precise — only "
+        "flip options whose printed label is a true synonym of the source's "
+        "description; do NOT flip unrelated options just because the grid is "
+        "empty. If the source is genuinely silent on industry, leave the "
+        "grid alone.\n"
+        " 10. Do NOT fabricate checkbox selections the source does not "
+        "support. Hallucinated checks are still worse than a missing one — "
+        "rule 9 only applies when the source clearly describes the "
+        "applicant's business and the grid label asks for that business "
+        "type.\n\n"
         f"SOURCE DATA (full):\n{source_context[:_JUDGE_MAX_SOURCE_CHARS]}\n\n"
         f"CURRENT FIELD VALUES ({len(schema)} fields total):\n{fields_block}\n\n"
         "Respond with ONLY a JSON object mapping field names to their CORRECTED "
@@ -1150,12 +1374,18 @@ async def _judge_call_with_rotation(
 
     # ── 1. Anthropic Haiku 4.5 ─────────────────────────────────────────
     if settings.anthropic_api_key:
-        anth_content: list[dict] = [{"type": "text", "text": prompt_text}]
-        for img_b64 in images_b64:
-            anth_content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/png", "data": img_b64},
-            })
+        if images_b64:
+            anth_content: list[dict] = [{"type": "text", "text": prompt_text}]
+            for img_b64 in images_b64:
+                anth_content.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": img_b64},
+                })
+            messages = [{"role": "user", "content": anth_content}]
+        else:
+            # Text-only — skip the image array entirely. Cheaper and avoids
+            # the multimodal overhead when we have no pages to send.
+            messages = [{"role": "user", "content": prompt_text}]
         try:
             client = _get_anthropic_client()
             response = await asyncio.wait_for(
@@ -1163,7 +1393,7 @@ async def _judge_call_with_rotation(
                     model=_JUDGE_ANTHROPIC_MODEL,
                     max_tokens=_JUDGE_MAX_TOKENS,
                     temperature=0,
-                    messages=[{"role": "user", "content": anth_content}],
+                    messages=messages,
                 ),
                 timeout=_JUDGE_TIMEOUT_S,
             )
@@ -1195,12 +1425,16 @@ async def _judge_call_with_rotation(
         logger.warning("[JUDGE] openai SDK not installed — fallback unavailable")
         return None, 0.0, "none"
 
-    oai_content = [{"type": "text", "text": prompt_text}]
-    for img_b64 in images_b64:
-        oai_content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-        })
+    if images_b64:
+        oai_content = [{"type": "text", "text": prompt_text}]
+        for img_b64 in images_b64:
+            oai_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+            })
+        oai_messages = [{"role": "user", "content": oai_content}]
+    else:
+        oai_messages = [{"role": "user", "content": prompt_text}]
 
     oai_client = AsyncOpenAI(api_key=settings.openai_api_key)
     for model in _JUDGE_OPENAI_MODELS:
@@ -1208,7 +1442,7 @@ async def _judge_call_with_rotation(
             response = await asyncio.wait_for(
                 oai_client.chat.completions.create(
                     model=model,
-                    messages=[{"role": "user", "content": oai_content}],
+                    messages=oai_messages,
                     max_tokens=_JUDGE_MAX_TOKENS,
                     temperature=0,
                 ),
@@ -1233,6 +1467,150 @@ async def _judge_call_with_rotation(
 
     logger.error("[JUDGE] all providers failed: %s", last_exc)
     return None, 0.0, "none"
+
+
+# ─── Deterministic backstops ─────────────────────────────────────────────────
+
+# Patterns that indicate a field is for the receiving agency, not the
+# applicant. Field names matching these are FORCED blank — even if the LLM
+# put a plausible value there. High precision: these names are reliably
+# agency-internal across IRS/SSA/USCIS forms we've seen.
+_OFFICE_USE_NAME_PATTERNS = (
+    "pg1header",        # IRS 8821, 2848 — top-right "For IRS Use Only" block
+    "officeuse",
+    "office_use",
+    "for_office_use",
+    "received_by",
+    "receivedby",
+    "irs_use",
+    "irsuse",
+    "for_irs_use_only",
+    "examiner_only",
+    "agency_use_only",
+)
+
+# Visible/TU label phrases — exact substring match (case-insensitive) on the
+# text near or attached to the widget. Triggers the same forced-blank.
+_OFFICE_USE_LABEL_PHRASES = (
+    "for irs use only",
+    "for office use only",
+    "for agency use only",
+    "for government use only",
+    "received by:",
+    "for examiner only",
+    "do not write in this space",
+    "office use only",
+)
+
+# Signature widget detection (mirrors the harness's pattern) — used to find
+# blank signatures so we can blank their paired Date / Title / PrintName
+# widgets too.
+_SIG_NAME_PATTERNS = ("signature", "sig_", "_sig", "digitalsignature", "digital_signature", "sigfield")
+
+
+def _is_signature_field_name(name: str) -> bool:
+    n = (name or "").lower()
+    return any(p in n for p in _SIG_NAME_PATTERNS)
+
+
+def _is_signature_partner_name(name: str) -> bool:
+    """Date / Title / PrintName widgets typically clustered with a signature."""
+    n = (name or "").lower()
+    if "printname" in n or "print_name" in n:
+        return True
+    if "namecontracting" in n or "datesigned" in n or "date_signed" in n:
+        return True
+    # Bare "Date" suffix — date column under a signature row
+    if n.endswith("date") and "/" not in n:
+        return True
+    # "Title" suffix — title column under a signature row. Adjacency check
+    # (caller's ±3 window) prevents misfiring on legitimate Title fields
+    # on forms that don't have signatures nearby.
+    if n.endswith("title") or "_title" in n:
+        return True
+    return False
+
+
+def _apply_backstops(filled: dict, schema: dict) -> set[str]:
+    """Deterministic post-processors that clean up residual LLM mistakes.
+
+    Returns the set of field names that were zeroed.
+
+    Backstops:
+      A. "For Office Use Only" zeroer — agency-internal fields are forced
+         blank no matter what value the LLM placed there. Catches the
+         IRS Pg1Header failure mode if the prompt ever regresses.
+      B. Geometry override — text fields with width × height < 250 pt² and
+         a long (>20 char) value are zeroed. Catches addresses dropped into
+         narrow numeric-reference fields when the prompt's capacity hint was
+         ignored.
+      C. Signature-partner blanker — for every blank signature widget on
+         the form, blank the nearby Date / Title / PrintName fields too
+         (those should be filled at signing time, not by an upstream pipeline).
+
+    All backstops are high-precision: if you have a counter-example where
+    a backstop misfires, add an exception in the test set.
+    """
+    zeroed: set[str] = set()
+
+    # ── A. "For Office Use Only" zeroer ───────────────────────────────
+    for name, meta in schema.items():
+        cur = filled.get(name)
+        if not cur or _is_blank(cur):
+            continue
+        ln = (name or "").lower()
+        if any(p in ln for p in _OFFICE_USE_NAME_PATTERNS):
+            filled[name] = ""
+            zeroed.add(name)
+            continue
+        label = (meta.get("label") or "")
+        if label:
+            ll = label.lower()
+            if any(p in ll for p in _OFFICE_USE_LABEL_PHRASES):
+                filled[name] = ""
+                zeroed.add(name)
+
+    # ── B. Geometry override — long content in narrow fields ──────────
+    # Same definition as the prompt's NARROW capacity hint: w ≤ 80 AND h ≤ 18
+    # is a short-code-only field. Anything > 20 chars in such a field is
+    # almost certainly a wrong-format error.
+    for name, meta in schema.items():
+        if meta.get("type") != "text":
+            continue
+        cur = filled.get(name)
+        if not cur or _is_blank(cur):
+            continue
+        w = float(meta.get("width") or 0)
+        h = float(meta.get("height") or 0)
+        if w <= 0 or h <= 0:
+            continue
+        if w <= 80 and h <= 18 and len(str(cur).strip()) > 20:
+            filled[name] = ""
+            zeroed.add(name)
+
+    # ── C. Signature-partner blanker ──────────────────────────────────
+    sig_blank_names = {
+        n for n in schema
+        if _is_signature_field_name(n) and _is_blank(filled.get(n))
+    }
+    if sig_blank_names:
+        # Order schema names to detect adjacent signature → partner pairings.
+        names = list(schema.keys())
+        for i, name in enumerate(names):
+            if not _is_signature_partner_name(name):
+                continue
+            cur = filled.get(name)
+            if _is_blank(cur):
+                continue
+            # If any signature within ±3 schema positions is blank, blank this
+            lo, hi = max(0, i - 3), min(len(names), i + 4)
+            for j in range(lo, hi):
+                if names[j] in sig_blank_names:
+                    filled[name] = ""
+                    zeroed.add(name)
+                    break
+
+    return zeroed
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
@@ -1359,7 +1737,18 @@ class PDFPopulator:
                         logger.info("[FORM-FILL] Judge pass 1 clean — skipping pass 2")
                     break
 
-        # 4d. Normalize to PDF values
+        # 4d. Deterministic backstops — fire AFTER the LLM judge to clean up
+        #     residual failure-mode classes that prompt evolution can't reliably
+        #     close. All are high-precision (won't fire on legitimate fills).
+        backstop_zeroed = _apply_backstops(filled, schema)
+        if backstop_zeroed:
+            logger.info(
+                "[FORM-FILL] Backstops zeroed %d fields: %s",
+                len(backstop_zeroed),
+                ", ".join(sorted(backstop_zeroed)[:5]) + ("…" if len(backstop_zeroed) > 5 else ""),
+            )
+
+        # 4e. Normalize to PDF values
         pdf_values = _normalize_values(filled, schema)
 
         # 5. Write output PDF

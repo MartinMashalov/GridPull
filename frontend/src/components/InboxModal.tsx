@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Mail, Copy, Check, ChevronDown, ChevronRight, Trash2, X, Loader2, RefreshCw, Upload, Plus, Smartphone } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import api from '@/lib/api'
+import { SAFE_FILE_INPUT_PROPS } from '@/lib/fileInput'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
@@ -281,6 +282,7 @@ export default function InboxModal({ open, onClose, onSelectDocuments, onUploadD
             accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.txt,.md,.html,.htm,.json,.xml,.eml,.msg,.zip"
             className="hidden"
             onChange={e => handleFileUpload(e.target.files)}
+            {...SAFE_FILE_INPUT_PROPS}
           />
           <input
             ref={groupFileInputRef}
@@ -293,6 +295,7 @@ export default function InboxModal({ open, onClose, onSelectDocuments, onUploadD
               pendingGroupRef.current = null
               if (groupFileInputRef.current) groupFileInputRef.current.value = ''
             }}
+            {...SAFE_FILE_INPUT_PROPS}
           />
           <Button
             size="sm"

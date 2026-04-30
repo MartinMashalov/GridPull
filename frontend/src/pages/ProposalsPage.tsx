@@ -6,6 +6,7 @@ import {
   Image as ImageIcon, Save,
 } from 'lucide-react'
 import api from '@/lib/api'
+import { SAFE_FILE_INPUT_PROPS } from '@/lib/fileInput'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -323,6 +324,7 @@ export default function ProposalsPage() {
             data-testid="agency-logo-input"
             style={{ display: 'none' }}
             onChange={(e) => handlePickLogo(e.target.files?.[0] ?? null)}
+            {...SAFE_FILE_INPUT_PROPS}
           />
 
           {agencyLoading ? (
@@ -448,7 +450,7 @@ export default function ProposalsPage() {
                   : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
-            <input {...getInputProps()} />
+            <input {...getInputProps(SAFE_FILE_INPUT_PROPS)} />
             <div className="flex flex-col items-center gap-3">
               <div className={cn(
                 'w-12 h-12 rounded-xl flex items-center justify-center',
@@ -501,6 +503,7 @@ export default function ProposalsPage() {
             <><Sparkles size={15} /> Generate Proposal</>
           )}
         </Button>
+        <p className="text-xs text-muted-foreground text-center -mt-2">Each generated proposal counts as 25 pages against your monthly limit.</p>
 
         {/* Generation progress */}
         {generating && (

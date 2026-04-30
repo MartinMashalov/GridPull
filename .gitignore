@@ -18,6 +18,19 @@ dist/
 
 # Environment
 *.env.local
+backend/.env
+frontend/.env
+
+# Local agent / IDE state
+.claude/
+
+# Test artifacts (generated outputs / pilot fixtures)
+backend/test_files/
+backend/test_outputs/
+backend/test-results/
+frontend/test-results/
+frontend/test-screenshots/
+frontend/test-results-local/
 
 # Database
 *.db

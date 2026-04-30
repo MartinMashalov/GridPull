@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import ExtractionFieldsModal from '@/components/ExtractionFieldsModal'
 import SpreadsheetViewer from '@/components/SpreadsheetViewer'
 import api from '@/lib/api'
+import { SAFE_FILE_INPUT_PROPS } from '@/lib/fileInput'
 import { useJobProgress } from '@/hooks/useJobProgress'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -782,7 +783,7 @@ export default function SchedulesPage() {
                 : 'border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5'
             )}
           >
-            <input {...getBaselineInputProps()} />
+            <input {...getBaselineInputProps(SAFE_FILE_INPUT_PROPS)} />
             <div className="flex flex-col items-center gap-3">
               <div className={cn(
                 'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',
@@ -823,7 +824,7 @@ export default function SchedulesPage() {
                 : 'border-border hover:border-primary/40 hover:bg-accent/30'
             )}
           >
-            <input {...getDocumentInputProps()} data-doc-input />
+            <input {...getDocumentInputProps(SAFE_FILE_INPUT_PROPS)} data-doc-input />
             <div className="flex flex-col items-center gap-3">
               <div className={cn(
                 'w-12 h-12 rounded-xl flex items-center justify-center transition-colors',

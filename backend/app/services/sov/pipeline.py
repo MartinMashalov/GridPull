@@ -324,7 +324,13 @@ def _expected_rows_from_text(text: str) -> int | None:
     if not text:
         return None
     patterns = (
-        # "Total: 22" / "Total 22" at a table footer
+        # "Total: 22" / "Total 22" at a table footer; also matches phrasings
+        # like "Total Vehicles: 35" or "Total Locations 12" — the optional
+        # word block between 'total' and the separator captures the labelled
+        # form without bleeding into unrelated paragraphs (the lazy [\w\s]
+        # cap is bounded to a few words by requiring a [:#-] separator).
+        r"\btotal\b(?:[\w\s]{0,40}?)[:#-]\s*(\d{1,4})\b",
+        # Bare "Total <n>" or "Total: <n>" with no labelling word in between.
         r"\btotal\s*[:#-]?\s*(\d{1,4})\b",
         # "22 of 22" / "record 3 of 15"
         r"\b\d+\s+of\s+(\d{1,4})\b",
