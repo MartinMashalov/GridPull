@@ -311,8 +311,16 @@ export default function FormFillingPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
 
         {/* Left — Source documents */}
+        {/* Both columns wrap the header in a min-h block so the dropzones
+            below them stay vertically aligned even when one side carries
+            more description text than the other. */}
         <div>
-          <p className="text-xs text-muted-foreground mb-2">Source documents</p>
+          <div className="min-h-[58px]">
+            <p className="text-xs text-muted-foreground mb-1">Source documents</p>
+            <p className="text-[11px] text-muted-foreground mb-2 leading-snug">
+              Drop the files that contain the data — quote PDFs, prior policies, ACORD forms, intake notes, anything with the values to extract.
+            </p>
+          </div>
           <div
             {...sourceDropzone.getRootProps()}
             className={cn(
@@ -372,10 +380,12 @@ export default function FormFillingPage() {
 
         {/* Right — Target forms (multi) */}
         <div>
-          <p className="text-xs text-muted-foreground mb-1">Target forms (1-{MAX_TARGET_FORMS} PDFs)</p>
-          <p className="text-[11px] text-muted-foreground mb-2 leading-snug">
-            Drop up to {MAX_TARGET_FORMS} fillable PDF forms — they'll be processed in parallel and you'll get all filled PDFs back.
-          </p>
+          <div className="min-h-[58px]">
+            <p className="text-xs text-muted-foreground mb-1">Target forms (1-{MAX_TARGET_FORMS} PDFs)</p>
+            <p className="text-[11px] text-muted-foreground mb-2 leading-snug">
+              Drop up to {MAX_TARGET_FORMS} fillable PDF forms — they'll be processed in parallel and you'll get all filled PDFs back.
+            </p>
+          </div>
           <div
             {...targetDropzone.getRootProps()}
             className={cn(
