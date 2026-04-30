@@ -102,6 +102,7 @@ export default function SettingsPage() {
   const [history, setHistory] = useState<JobHistoryData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [banner, setBanner] = useState<Banner>(null)
 
   const flashBanner = (b: Banner) => {
@@ -111,9 +112,26 @@ export default function SettingsPage() {
 
   const fetchHistory = () => {
     setLoadingHistory(true)
+    setHistoryError(null)
     api.get('/documents/history?limit=50')
-      .then(r => setHistory(r.data))
-      .catch(() => {})
+      .then(r => { setHistory(r.data); setHistoryError(null) })
+      .catch(err => {
+        // Surface a real diagnostic instead of silently flashing "Failed to
+        // load usage data" — most failures here are auth-stale (401) which
+        // a refresh fixes; others are server errors worth knowing about.
+        const status = err?.response?.status
+        const detail = err?.response?.data?.detail || err?.message || 'Unknown error'
+        if (status === 401 || status === 403) {
+          setHistoryError('Your session has expired. Refresh the page to sign back in.')
+        } else if (status >= 500) {
+          setHistoryError(`Server error (${status}). ${typeof detail === 'string' ? detail : ''}`.trim())
+        } else if (status) {
+          setHistoryError(`HTTP ${status} — ${typeof detail === 'string' ? detail : 'Failed to load usage data'}`)
+        } else {
+          setHistoryError(`Network error — ${detail}`)
+        }
+        console.error('[SettingsPage] /documents/history failed', status, detail)
+      })
       .finally(() => { setLoadingHistory(false); setHistoryLoaded(true) })
   }
 
@@ -814,9 +832,16 @@ export default function SettingsPage() {
             </>
           ) : (
             <div className="rounded-xl border border-border bg-card p-8 text-center">
-              <p className="text-sm text-muted-foreground">Failed to load usage data.</p>
-              <Button size="sm" variant="outline" className="mt-3" onClick={fetchHistory}>
-                Retry
+              <p className="text-sm font-medium text-foreground mb-1">
+                {historyError ? "Couldn't load usage data" : 'Loading…'}
+              </p>
+              {historyError && (
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  {historyError}
+                </p>
+              )}
+              <Button size="sm" variant="outline" className="mt-3" onClick={fetchHistory} disabled={loadingHistory}>
+                {loadingHistory ? 'Retrying…' : 'Retry'}
               </Button>
             </div>
           )}

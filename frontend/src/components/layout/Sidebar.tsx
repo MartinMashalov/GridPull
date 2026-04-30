@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Settings, LogOut, FileSpreadsheet, ChevronsLeft, Workflow, Clipboard, Table2, Inbox, FileText, Lock } from 'lucide-react'
+import { Settings, LogOut, FileSpreadsheet, ChevronsLeft, Clipboard, Table2, Inbox, FileText, Lock } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { getInitials, cn } from '@/lib/utils'
 import { isToolLocked, type ToolKey } from '@/lib/toolAccess'
@@ -25,7 +25,8 @@ const NAV: NavItem[] = [
   { icon: Table2,     label: 'Schedules',        path: '/schedules',    toolKey: 'schedules' },
   { icon: Inbox,      label: 'Document Inbox',   path: '/inbox',        toolKey: 'inbox' },
   { icon: FileText,   label: 'Proposals',        path: '/proposals',    toolKey: 'proposals' },
-  { icon: Workflow,   label: 'Pipelines',        path: '/pipelines',    toolKey: 'pipelines' },
+  // Pipelines hidden from sidebar (route still works for /pipelines if linked
+  // directly, but the user-facing IA exposes only the four tools above + Settings).
   { icon: Settings,   label: 'Settings',         path: '/settings'  },
 ]
 
